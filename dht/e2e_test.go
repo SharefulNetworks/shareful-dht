@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"example.com/minidht/netx"
+	"github.com/SharefulNetworks/shareful-dht/netx"
 )
 
 func Test_Remote_Find_Value(t *testing.T) {

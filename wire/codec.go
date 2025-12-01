@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"example.com/minidht/proto/dhtpb"
+	"github.com/SharefulNetworks/shareful-dht/proto/dhtpb"
 	"google.golang.org/protobuf/proto"
 )
 

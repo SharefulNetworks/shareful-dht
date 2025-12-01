@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"example.com/minidht/dht"
-	"example.com/minidht/netx"
+	"github.com/SharefulNetworks/shareful-dht/dht"
+	"github.com/SharefulNetworks/shareful-dht/netx"
 )
 
 func main() {

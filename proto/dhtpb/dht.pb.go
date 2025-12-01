@@ -848,7 +848,7 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\rOP_FIND_INDEX\x10\x04\x12\v\n" +
 	"\aOP_PING\x10\x05\x12\x0e\n" +
 	"\n" +
-	"OP_CONNECT\x10\x06B!Z\x1fexample.com/minidht/proto/dhtpbb\x06proto3"
+	"OP_CONNECT\x10\x06B6Z4github.com/SharefulNetworks/shareful-dht/proto/dhtpbb\x06proto3"
 
 var (
 	file_proto_dhtpb_dht_proto_rawDescOnce sync.Once

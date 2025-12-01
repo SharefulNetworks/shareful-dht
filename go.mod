@@ -1,4 +1,4 @@
-module example.com/minidht
+module github.com/SharefulNetworks/shareful-dht
 
 go 1.23
 

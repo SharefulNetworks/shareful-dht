@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"example.com/minidht/netx"
-	"example.com/minidht/proto/dhtpb"
-	"example.com/minidht/wire"
+	"github.com/SharefulNetworks/shareful-dht/netx"
+	"github.com/SharefulNetworks/shareful-dht/proto/dhtpb"
+	"github.com/SharefulNetworks/shareful-dht/wire"
 	"google.golang.org/protobuf/proto"
 )
 
