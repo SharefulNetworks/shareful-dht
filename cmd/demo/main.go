@@ -126,8 +126,8 @@ func main() {
 	time.AfterFunc(time.Second*120, func() {
 
 		fmt.Println("Waited. past TTL to observe refresh 2...")
-		if ents, ok := n2.FindIndexRemote(key); ok {
-			fmt.Println("n2 FindIndexRemote after refresh 2:", len(ents))
+		if ents, ok := n1.FindIndexRemote(key); ok {
+			fmt.Println("n1 FindIndexRemote after refresh 2:", len(ents))
 			fmt.Println(ents)
 		} else {
 			fmt.Println("index missing")

@@ -76,17 +76,18 @@ func CompareDistance(a, b, t NodeID) int {
 }
 
 type Config struct {
-	K                     int
-	DefaultTTL            time.Duration
-	AllowPermanentDefault bool
-	RefreshInterval       time.Duration
-	JanitorInterval       time.Duration
-	UseProtobuf           bool
-	RequestTimeout        time.Duration
+	K                        int
+	DefaultTTL               time.Duration
+	AllowPermanentDefault    bool
+	RefreshInterval          time.Duration
+	JanitorInterval          time.Duration
+	UseProtobuf              bool
+	RequestTimeout           time.Duration
+	OutboundQueueWorkerCount int
 }
 
 func DefaultConfig() Config {
-	return Config{K: 3, DefaultTTL: 10 * time.Minute, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond}
+	return Config{K: 3, DefaultTTL: 10 * time.Minute, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, OutboundQueueWorkerCount: 4}
 }
 
 type IndexEntry struct {
@@ -104,44 +105,44 @@ type record struct {
 }
 
 type Node struct {
-	ID      NodeID
-	Addr    string
-	cfg     Config
-	tr      netx.TransportProvider
-	cd      wire.Codec
-	mu      sync.RWMutex
-	store   map[string]*record
-	peers   map[NodeID]string
-	stop    chan struct{}
-	reqSeq  uint64
-	pending sync.Map // map[uint64]chan []byte
+	ID        NodeID
+	Addr      string
+	cfg       Config
+	transport netx.Transport
+	cd        wire.Codec
+	mu        sync.RWMutex
+	store     map[string]*record
+	peers     map[NodeID]string
+	stop      chan struct{}
+	reqSeq    uint64
+	pending   sync.Map // map[uint64]chan []byte
 }
 
-func NewNode(id string, addr string, tr netx.TransportProvider, cfg Config) *Node {
+func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node {
 	var codec wire.Codec
 	codec = wire.JSONCodec{}
 	if cfg.UseProtobuf {
 		codec = wire.ProtobufCodec{}
 	}
 	n := &Node{
-		ID:    HashKey(id),
-		Addr:  addr,
-		cfg:   cfg,
-		tr:    tr,
-		cd:    codec,
-		mu:    sync.RWMutex{},
-		store: map[string]*record{},
-		peers: map[NodeID]string{},
-		stop:  make(chan struct{}),
+		ID:        HashKey(id),
+		Addr:      addr,
+		cfg:       cfg,
+		transport: transport,
+		cd:        codec,
+		mu:        sync.RWMutex{},
+		store:     map[string]*record{},
+		peers:     map[NodeID]string{},
+		stop:      make(chan struct{}),
 	}
-	_ = n.tr.Listen(addr, n.onMessage)
+	_ = n.transport.Listen(addr, n.onMessage)
 	go n.janitor()
 	go n.refresher()
 	return n
 }
 func (n *Node) Close() {
 	close(n.stop)
-	n.tr.Close()
+	n.transport.Close()
 }
 func (n *Node) AddPeer(addr string, id NodeID) {
 	n.mu.Lock()
@@ -325,7 +326,7 @@ func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
 	ch := make(chan []byte, 1)
 	n.pending.Store(reqID, ch)
 	defer n.pending.Delete(reqID)
-	if err := n.tr.Send(to, msg); err != nil {
+	if err := n.transport.Send(to, msg); err != nil {
 		return nil, err
 	}
 	select {
@@ -762,7 +763,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		msg, _ := n.cd.Wrap(OP_STORE, reqID, true, n.ID.String(), b)
 		//fmt.Println("Sending response to: ")
 		//fmt.Println(from)
-		_ = n.tr.Send(senderAddr, msg)
+		_ = n.transport.Send(senderAddr, msg)
 
 	case OP_FIND:
 		reqAny, respAny := n.makeMessage(OP_FIND)
@@ -799,7 +800,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		msg, _ := n.cd.Wrap(OP_FIND, reqID, true, n.ID.String(), b)
 		//fmt.Println("Sending response to: ")
 		//fmt.Println(from)
-		_ = n.tr.Send(senderAddr, msg)
+		_ = n.transport.Send(senderAddr, msg)
 
 	case OP_STORE_INDEX:
 		reqAny, respAny := n.makeMessage(OP_STORE_INDEX)
@@ -858,7 +859,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		msg, _ := n.cd.Wrap(OP_STORE_INDEX, reqID, true, n.ID.String(), b)
 		//fmt.Println("Sending response to: ")
 		//fmt.Println(from)
-		_ = n.tr.Send(senderAddr, msg)
+		_ = n.transport.Send(senderAddr, msg)
 
 	case OP_FIND_INDEX:
 		reqAny, respAny := n.makeMessage(OP_FIND_INDEX)
@@ -907,7 +908,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		msg, _ := n.cd.Wrap(OP_FIND_INDEX, reqID, true, n.ID.String(), b)
 		//fmt.Println("Sending response to: ")
 		//fmt.Println(from)
-		_ = n.tr.Send(senderAddr, msg)
+		_ = n.transport.Send(senderAddr, msg)
 
 	case OP_CONNECT:
 
@@ -925,7 +926,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		reply, _ := n.cd.Wrap(OP_CONNECT, reqID, true, n.ID.String(), encoded)
 
 		// respond directly to TCP connection origin
-		_ = n.tr.Send(req.GetAddr(), reply)
+		_ = n.transport.Send(req.GetAddr(), reply)
 		return
 
 	default:
