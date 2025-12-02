@@ -105,17 +105,18 @@ type record struct {
 }
 
 type Node struct {
-	ID        NodeID
-	Addr      string
-	cfg       Config
-	transport netx.Transport
-	cd        wire.Codec
-	mu        sync.RWMutex
-	store     map[string]*record
-	peers     map[NodeID]string
-	stop      chan struct{}
-	reqSeq    uint64
-	pending   sync.Map // map[uint64]chan []byte
+	ID           NodeID
+	Addr         string
+	cfg          Config
+	transport    netx.Transport
+	cd           wire.Codec
+	mu           sync.RWMutex
+	store        map[string]*record
+	peers        map[NodeID]string
+	stop         chan struct{}
+	reqSeq       uint64
+	pending      sync.Map // map[uint64]chan []byte
+	refreshCount uint64
 }
 
 func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node {
@@ -125,15 +126,16 @@ func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node
 		codec = wire.ProtobufCodec{}
 	}
 	n := &Node{
-		ID:        HashKey(id),
-		Addr:      addr,
-		cfg:       cfg,
-		transport: transport,
-		cd:        codec,
-		mu:        sync.RWMutex{},
-		store:     map[string]*record{},
-		peers:     map[NodeID]string{},
-		stop:      make(chan struct{}),
+		ID:           HashKey(id),
+		Addr:         addr,
+		cfg:          cfg,
+		transport:    transport,
+		cd:           codec,
+		mu:           sync.RWMutex{},
+		store:        map[string]*record{},
+		peers:        map[NodeID]string{},
+		stop:         make(chan struct{}),
+		refreshCount: 0,
 	}
 	_ = n.transport.Listen(addr, n.onMessage)
 	go n.janitor()
@@ -990,46 +992,66 @@ func (n *Node) refresher() {
 		case <-n.stop:
 			return
 		case <-t.C:
-			n.mu.RLock()
-			keys := make([]string, 0, len(n.store))
-			recs := make([]*record, 0, len(n.store))
-			for k, r := range n.store {
-				keys = append(keys, k)
-				recs = append(recs, r)
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Println("Recovered from panic in refresher tick:", r)
+					}
+				}()
+				n.refresh()
+			}()
+
+		}
+	}
+}
+
+func (n *Node) refresh() {
+	n.refreshCount++
+	n.mu.RLock()
+	keys := make([]string, 0, len(n.store))
+	recs := make([]*record, 0, len(n.store))
+	for k, r := range n.store {
+		keys = append(keys, k)
+		recs = append(recs, r)
+	}
+	n.mu.RUnlock()
+
+	for i, k := range keys {
+		rec := recs[i]
+		if rec.Expiry.IsZero() {
+			continue
+		}
+
+		left := rec.Expiry.Sub(time.Now())
+		if left < n.cfg.RefreshInterval {
+			left = n.cfg.RefreshInterval
+		}
+
+		if rec.IsIndex {
+			// Only leader should refresh
+			if !n.isLeader(rec.Replicas) {
+				continue
 			}
-			n.mu.RUnlock()
 
-			for i, k := range keys {
-				rec := recs[i]
-				if rec.Expiry.IsZero() {
-					continue
+			// Decode existing entries
+			var entries []IndexEntry
+			if err := json.Unmarshal(rec.Value, &entries); err != nil {
+				continue
+			}
+
+			// Re-announce each entry with updated timestamp
+			for _, e := range entries {
+				e.UpdatedUnix = time.Now().UnixNano()
+				indexRefreshErr := n.StoreIndexValue(k, e, left)
+				if indexRefreshErr != nil {
+					fmt.Println("An error occurred whilst attempting to refresh index entry with key: " + k + " the error was: " + indexRefreshErr.Error())
 				}
-
-				left := rec.Expiry.Sub(time.Now())
-				if left < n.cfg.RefreshInterval {
-					left = n.cfg.RefreshInterval
-				}
-
-				if rec.IsIndex {
-					// Only leader should refresh
-					if !n.isLeader(rec.Replicas) {
-						continue
-					}
-
-					// Decode existing entries
-					var entries []IndexEntry
-					if err := json.Unmarshal(rec.Value, &entries); err != nil {
-						continue
-					}
-
-					// Re-announce each entry with updated timestamp
-					for _, e := range entries {
-						e.UpdatedUnix = time.Now().UnixNano()
-						_ = n.StoreIndexValue(k, e, left)
-					}
-				} else {
-					_ = n.StoreWithTTL(k, rec.Value, left)
-				}
+			}
+			fmt.Println("SUCCESSFULLY REFRESHED INDEX KEY: "+k+" Refresh Count: ", n.refreshCount)
+		} else {
+			entryRefreshErr := n.StoreWithTTL(k, rec.Value, left)
+			if entryRefreshErr != nil {
+				fmt.Println("An error occurred whilst attempting to refresh entry with key: " + k + " the error was: " + entryRefreshErr.Error())
 			}
 		}
 	}

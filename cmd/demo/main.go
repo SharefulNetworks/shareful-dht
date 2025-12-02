@@ -72,8 +72,8 @@ func main() {
 		}
 
 		fmt.Println()
-	    fmt.Println("NOW ATTEMPTING TO STORE AND RETREIVE INDEX:")
-	    fmt.Println()
+		fmt.Println("NOW ATTEMPTING TO STORE AND RETREIVE INDEX:")
+		fmt.Println()
 	})
 
 	//2)NEXT WE ATTEMPT TO STORE AND RETREIVE AN INDEXED ENTRY FROM
@@ -81,17 +81,16 @@ func main() {
 	//  BY BOTH NODES, TO DEMONSTRATE MULTI-PEER INDEXING; EACH PEER
 	//. USES ITS OWN NODE ID AS THE TARGET VALUE...
 
-	
 	//create the key
 	key := "leaf/alpha"
 
 	//store INDEX entry to the DHT via both nodes. note each node sets the target to be its own ID
-	peer1StoreIndexErr := n1.StoreIndexValue(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second)
+	peer1StoreIndexErr := n1.StoreIndexValue(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 10*time.Second)
 	if peer1StoreIndexErr != nil {
 		fmt.Println("Error occurred whilst Peer Node 1 was trying to store INDEX entry:", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 10*time.Second)
 	if peer2IndexIndexStoreErr != nil {
 		fmt.Println("Error occurred whilst Peer Node 2 was trying to store INDEX entry:", peer2IndexIndexStoreErr)
 	}
@@ -100,7 +99,7 @@ func main() {
 	//INDEX entries for the key from the DHT via peer node 1 and 2. Which should both return
 	//an entry index of length 2.
 	time.AfterFunc(2*time.Second, func() {
-		
+
 		if ents, ok := n1.FindIndexRemote(key); ok {
 			fmt.Println("n1 FindIndexRemote entries:", len(ents))
 		}
@@ -135,7 +134,18 @@ func main() {
 
 	})
 
-	
+	time.AfterFunc(time.Second*300, func() {
+
+		fmt.Println("Waited. past TTL to observe refresh 3...")
+		if ents, ok := n2.FindIndexRemote(key); ok {
+			fmt.Println("n1 FindIndexRemote after refresh 2:", len(ents))
+			fmt.Println(ents)
+		} else {
+			fmt.Println("index missing")
+		}
+
+	})
+
 	//block main thread to allow async ops to complete
 	select {}
 }
