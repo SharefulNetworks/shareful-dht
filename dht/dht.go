@@ -97,11 +97,13 @@ type IndexEntry struct {
 	UpdatedUnix int64  `json:"updated_unix"`
 }
 type record struct {
-	Key      string
-	Value    []byte
-	Expiry   time.Time
-	IsIndex  bool
-	Replicas []string
+	Key       string
+	Value     []byte
+	Expiry    time.Time
+	IsIndex   bool
+	Replicas  []string
+	TTL       time.Duration
+	Publisher NodeID
 }
 
 type Node struct {
@@ -346,17 +348,17 @@ func (n *Node) Store(key string, val []byte) error {
 	if n.cfg.AllowPermanentDefault {
 		ttl = 0
 	}
-	return n.StoreWithTTL(key, val, ttl)
+	return n.StoreWithTTL(key, val, ttl,n.ID)
 }
 
-func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration) error {
+func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration,publisherId NodeID) error {
 	reps := n.nearestK(key)
 	exp := time.Time{}
 	if ttl > 0 {
 		exp = time.Now().Add(ttl)
 	}
 	n.mu.Lock()
-	n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps}
+	n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: ttl, Publisher: publisherId}
 	n.mu.Unlock()
 
 	reqAny, _ := n.makeMessage(OP_STORE)
@@ -366,6 +368,7 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration) error {
 		r.Value = val
 		r.TtlMs = int64(ttl / time.Millisecond)
 		r.Replicas = reps
+		r.PublisherId = publisherId[:]
 	case *struct {
 		Key      string   `json:"key"`
 		Value    []byte   `json:"value"`
@@ -489,7 +492,7 @@ func (n *Node) StoreIndexValue(indexKey string, e IndexEntry, ttl time.Duration)
 	if ttl > 0 {
 		exp = time.Now().Add(ttl)
 	}
-	n.mergeIndexLocal(indexKey, e, exp, reps)
+	n.mergeIndexLocal(indexKey, e, exp, reps, ttl)
 
 	reqAny, _ := n.makeMessage(OP_STORE_INDEX)
 	switch r := reqAny.(type) {
@@ -723,6 +726,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		var val []byte
 		var ttlms int64
 		var reps []string
+		var pubId []byte
 
 		switch r := reqAny.(type) {
 		case *dhtpb.StoreRequest:
@@ -730,16 +734,19 @@ func (n *Node) onMessage(from string, data []byte) {
 			val = r.Value
 			ttlms = r.TtlMs
 			reps = r.Replicas
+			pubId = r.PublisherId
 		case *struct {
 			Key      string   `json:"key"`
 			Value    []byte   `json:"value"`
 			TTLms    int64    `json:"ttl_ms"`
 			Replicas []string `json:"replicas"`
+			PublisherId []byte `json:"publisher_id"`
 		}:
 			key = r.Key
 			val = r.Value
 			ttlms = r.TTLms
 			reps = r.Replicas
+			pubId = r.PublisherId
 		}
 
 		exp := time.Time{}
@@ -747,8 +754,20 @@ func (n *Node) onMessage(from string, data []byte) {
 			exp = time.Now().Add(time.Duration(ttlms) * time.Millisecond)
 		}
 		n.mu.Lock()
-		n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps}
+		n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: time.Duration(ttlms) * time.Millisecond,Publisher: NodeID(pubId)}
 		n.mu.Unlock()
+
+		fmt.Println("Node: " + n.Addr + "Succesfully handled request to store/update standard entry for key:" + key)
+		senderNodeID, parseNodeErr := ParseNodeID(fromID)
+		if parseNodeErr != nil {
+			fmt.Println("An error occurred whilst attempting to parse sender Node ID:", fromID)
+			fmt.Println(parseNodeErr.Error())
+			return
+		}
+		fmt.Println("Request was sent from node: " + senderNodeID.String())
+		fmt.Println("Request was received to node: " + n.ID.String())
+		fmt.Println("")
+		fmt.Println("")
 
 		// Build response
 		switch r := respAny.(type) {
@@ -845,7 +864,10 @@ func (n *Node) onMessage(from string, data []byte) {
 		if ttlms > 0 {
 			exp = time.Now().Add(time.Duration(ttlms) * time.Millisecond)
 		}
-		n.mergeIndexLocal(key, entry, exp, reps)
+
+		n.mergeIndexLocal(key, entry, exp, reps, time.Duration(ttlms)*time.Millisecond)
+
+		//fmt.Println("Node: " + n.Addr + "Succesfully handled request to store/update index entry for key:" + key)
 
 		switch r := respAny.(type) {
 		case *dhtpb.StoreIndexResponse:
@@ -936,12 +958,12 @@ func (n *Node) onMessage(from string, data []byte) {
 	}
 }
 
-func (n *Node) mergeIndexLocal(key string, e IndexEntry, exp time.Time, reps []string) {
+func (n *Node) mergeIndexLocal(key string, e IndexEntry, exp time.Time, reps []string, ttl time.Duration) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	rec, ok := n.store[key]
 	if !ok {
-		rec = &record{Key: key, IsIndex: true, Replicas: reps}
+		rec = &record{Key: key, IsIndex: true, Replicas: reps, TTL: ttl}
 	}
 	var entries []IndexEntry
 	_ = json.Unmarshal(rec.Value, &entries)
@@ -973,11 +995,20 @@ func (n *Node) janitor() {
 		case <-t.C:
 			n.mu.Lock()
 			now := time.Now()
+			expiredEntries := make([]string, 0)
 			for k, rec := range n.store {
 				if !rec.Expiry.IsZero() && now.After(rec.Expiry) {
-					delete(n.store, k)
+					fmt.Println("Record with key: " + k + " has expired will be deleted from node: " + n.Addr)
+					fmt.Println("Expiry:" + rec.Expiry.String())
+					fmt.Println("Now:" + now.String())
+					expiredEntries = append(expiredEntries, k)
 				}
 			}
+			//now actually delete the expired records
+			for _, exp := range expiredEntries {
+				delete(n.store, exp)
+			}
+
 			n.mu.Unlock()
 		}
 	}
@@ -1016,17 +1047,30 @@ func (n *Node) refresh() {
 	}
 	n.mu.RUnlock()
 
+	//if there are no stored recrods log this edge case
+	//once full logging is implemented this will be a low-level DEBUF log entry
+	if len(keys) == 0 {
+		fmt.Println("No records to refresh on node: " + n.Addr)
+		return
+	}
+
 	for i, k := range keys {
 		rec := recs[i]
+
+		//if this is permanent record, skip the refresh
 		if rec.Expiry.IsZero() {
 			continue
 		}
 
+		//if the record is not close to expiry, skip the refresh
 		left := rec.Expiry.Sub(time.Now())
-		if left < n.cfg.RefreshInterval {
-			left = n.cfg.RefreshInterval
+		if left > (n.cfg.RefreshInterval * 2) {
+			//fmt.Println("Skipping refresh for Key: "+rec.Key+" as it not near expiry.")
+			continue
 		}
 
+		//otherwise, refresh the record
+		left = rec.TTL
 		if rec.IsIndex {
 			// Only leader should refresh
 			if !n.isLeader(rec.Replicas) {
@@ -1047,12 +1091,18 @@ func (n *Node) refresh() {
 					fmt.Println("An error occurred whilst attempting to refresh index entry with key: " + k + " the error was: " + indexRefreshErr.Error())
 				}
 			}
-			fmt.Println("SUCCESSFULLY REFRESHED INDEX KEY: "+k+" Refresh Count: ", n.refreshCount)
+			//fmt.Println("SUCCESSFULLY REFRESHED INDEX KEY: "+k+" Refresh Count: ", n.refreshCount)
 		} else {
-			entryRefreshErr := n.StoreWithTTL(k, rec.Value, left)
+
+			//only original publisher should refresh
+			if rec.Publisher != n.ID {
+				continue
+			}
+			entryRefreshErr := n.StoreWithTTL(k, rec.Value, left,rec.Publisher)
 			if entryRefreshErr != nil {
 				fmt.Println("An error occurred whilst attempting to refresh entry with key: " + k + " the error was: " + entryRefreshErr.Error())
 			}
+			//fmt.Println("SUCCESSFULLY REFRESHED ENTRY KEY: "+k+" Refresh Count: ", n.refreshCount)
 		}
 	}
 }

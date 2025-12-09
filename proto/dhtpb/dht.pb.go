@@ -164,6 +164,7 @@ type StoreRequest struct {
 	Value         []byte                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
 	TtlMs         int64                  `protobuf:"varint,3,opt,name=ttl_ms,json=ttlMs,proto3" json:"ttl_ms,omitempty"`
 	Replicas      []string               `protobuf:"bytes,4,rep,name=replicas,proto3" json:"replicas,omitempty"`
+	PublisherId   []byte                 `protobuf:"bytes,5,opt,name=publisher_id,json=publisherId,proto3" json:"publisher_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -222,6 +223,13 @@ func (x *StoreRequest) GetTtlMs() int64 {
 func (x *StoreRequest) GetReplicas() []string {
 	if x != nil {
 		return x.Replicas
+	}
+	return nil
+}
+
+func (x *StoreRequest) GetPublisherId() []byte {
+	if x != nil {
+		return x.PublisherId
 	}
 	return nil
 }
@@ -797,12 +805,13 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\vis_response\x18\x03 \x01(\bR\n" +
 	"isResponse\x12\x18\n" +
 	"\apayload\x18\x04 \x01(\fR\apayload\x12\x17\n" +
-	"\afrom_id\x18\x05 \x01(\fR\x06fromId\"i\n" +
+	"\afrom_id\x18\x05 \x01(\fR\x06fromId\"\x8c\x01\n" +
 	"\fStoreRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\x12\x15\n" +
 	"\x06ttl_ms\x18\x03 \x01(\x03R\x05ttlMs\x12\x1a\n" +
-	"\breplicas\x18\x04 \x03(\tR\breplicas\"1\n" +
+	"\breplicas\x18\x04 \x03(\tR\breplicas\x12!\n" +
+	"\fpublisher_id\x18\x05 \x01(\fR\vpublisherId\"1\n" +
 	"\rStoreResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
 	"\x03err\x18\x02 \x01(\tR\x03err\"\x1f\n" +

@@ -15,8 +15,8 @@ func main() {
 	cfg.UseProtobuf = true // set true after generating pb
 	cfg.RequestTimeout = 1000 * time.Millisecond
 	cfg.DefaultTTL = 30 * time.Second
-	cfg.RefreshInterval = 10 * time.Second
-	cfg.JanitorInterval = 1 * time.Second
+	cfg.RefreshInterval = 5 * time.Second
+	cfg.JanitorInterval = 10 * time.Second
 
 	//create two nodes
 	n1 := dht.NewNode("node1", ":9301", netx.NewTCP(), cfg)
@@ -85,12 +85,12 @@ func main() {
 	key := "leaf/alpha"
 
 	//store INDEX entry to the DHT via both nodes. note each node sets the target to be its own ID
-	peer1StoreIndexErr := n1.StoreIndexValue(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 10*time.Second)
+	peer1StoreIndexErr := n1.StoreIndexValue(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer1StoreIndexErr != nil {
 		fmt.Println("Error occurred whilst Peer Node 1 was trying to store INDEX entry:", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 10*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer2IndexIndexStoreErr != nil {
 		fmt.Println("Error occurred whilst Peer Node 2 was trying to store INDEX entry:", peer2IndexIndexStoreErr)
 	}
@@ -138,7 +138,7 @@ func main() {
 
 		fmt.Println("Waited. past TTL to observe refresh 3...")
 		if ents, ok := n2.FindIndexRemote(key); ok {
-			fmt.Println("n1 FindIndexRemote after refresh 2:", len(ents))
+			fmt.Println("n1 FindIndexRemote after refresh 3:", len(ents))
 			fmt.Println(ents)
 		} else {
 			fmt.Println("index missing")
