@@ -121,7 +121,7 @@ func main() {
 
 	})
 
-	//second extended wait
+	//second extended wait at two minutes
 	time.AfterFunc(time.Second*120, func() {
 
 		fmt.Println("Waited. past TTL to observe refresh 2...")
@@ -134,16 +134,15 @@ func main() {
 
 	})
 
-	time.AfterFunc(time.Second*300, func() {
+	//at the 40 second mark we delete one of the standard entries from the DHT
+	time.AfterFunc(time.Second*20, func() {
 
-		fmt.Println("Waited. past TTL to observe refresh 3...")
-		if ents, ok := n2.FindIndexRemote(key); ok {
-			fmt.Println("n1 FindIndexRemote after refresh 3:", len(ents))
-			fmt.Println(ents)
+		fmt.Println("Deleting standard entry 'alpha' from DHT via n1...")
+		if err := n1.Delete("alpha"); err != nil {
+			fmt.Println("Error occurred whilst deleting entry 'alpha':", err)
 		} else {
-			fmt.Println("index missing")
+			fmt.Println("Entry 'alpha' deleted.")
 		}
-
 	})
 
 	//block main thread to allow async ops to complete

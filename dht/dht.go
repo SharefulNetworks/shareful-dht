@@ -316,31 +316,35 @@ func (n *Node) makeMessage(op int) (req any, resp any) {
 // Core DHT operations
 // -----------------------------------------------------------------------------
 
-func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
-	//fmt.Println("Send Request Executed...")
-	b, err := n.encode(payload)
+// Connect sends an OP_CONNECT request to the given address, asking that
+// remote node to register this node (ID + Addr) in its peer table.
+func (n *Node) Connect(remoteAddr string) error {
+	fmt.Println("Node: " + n.ID.String() + " is connecting to node @ " + remoteAddr + " standby...")
+	req := &dhtpb.ConnectRequest{
+		NodeId: n.ID[:], // NodeID is [20]byte, cast to slice
+		Addr:   n.Addr,
+	}
+
+	// sendRequest(address, op, payload) already exists in your code
+	respBytes, err := n.sendRequest(remoteAddr, OP_CONNECT, req)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	reqID := n.nextReqID()
-	msg, err := n.cd.Wrap(op, reqID, false, n.ID.String(), b)
-	if err != nil {
-		return nil, err
+
+	var resp dhtpb.ConnectResponse
+	if err := n.decode(respBytes, &resp); err != nil {
+		return err
 	}
-	ch := make(chan []byte, 1)
-	n.pending.Store(reqID, ch)
-	defer n.pending.Delete(reqID)
-	if err := n.transport.Send(to, msg); err != nil {
-		return nil, err
+	if !resp.Ok {
+		return fmt.Errorf("connect rejected: %s", resp.Err)
 	}
-	select {
-	case resp := <-ch:
-		//fmt.Println("response from remote node was: ")
-		//fmt.Println(resp)
-		return resp, nil
-	case <-time.After(n.cfg.RequestTimeout):
-		return nil, fmt.Errorf("node request timeout")
-	}
+
+	//otherwise where the connection was accepted, parse the returned Node ID and add the remote peer to our peer table.
+	var remoteID NodeID
+	copy(remoteID[:], resp.NodeId)
+	n.AddPeer(remoteAddr, remoteID)
+
+	return nil
 }
 
 func (n *Node) Store(key string, val []byte) error {
@@ -348,15 +352,22 @@ func (n *Node) Store(key string, val []byte) error {
 	if n.cfg.AllowPermanentDefault {
 		ttl = 0
 	}
-	return n.StoreWithTTL(key, val, ttl,n.ID)
+	return n.StoreWithTTL(key, val, ttl, n.ID)
 }
 
-func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration,publisherId NodeID) error {
+func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisherId NodeID) error {
 	reps := n.nearestK(key)
-	exp := time.Time{}
-	if ttl > 0 {
-		exp = time.Now().Add(ttl)
+
+	var exp time.Time
+	switch {
+	case ttl < 0:
+		exp = time.Now().Add(-time.Second) // negative ttl = force-expire (delete)
+	case ttl == 0:
+		exp = time.Time{} // zero tll = permanent
+	default:
+		exp = time.Now().Add(ttl) // positive ttl = normal expiry
 	}
+
 	n.mu.Lock()
 	n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: ttl, Publisher: publisherId}
 	n.mu.Unlock()
@@ -366,9 +377,13 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration,publisherI
 	case *dhtpb.StoreRequest:
 		r.Key = key
 		r.Value = val
-		r.TtlMs = int64(ttl / time.Millisecond)
 		r.Replicas = reps
 		r.PublisherId = publisherId[:]
+		if ttl < 0 {
+			r.TtlMs = -1
+		} else {
+			r.TtlMs = int64(ttl / time.Millisecond)
+		}
 	case *struct {
 		Key      string   `json:"key"`
 		Value    []byte   `json:"value"`
@@ -377,8 +392,12 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration,publisherI
 	}:
 		r.Key = key
 		r.Value = val
-		r.TTLms = int64(ttl / time.Millisecond)
 		r.Replicas = reps
+		if ttl < 0 {
+			r.TTLms = -1
+		} else {
+			r.TTLms = int64(ttl / time.Millisecond)
+		}
 	}
 
 	for _, a := range reps {
@@ -630,35 +649,20 @@ func (n *Node) FindIndexRemote(key string) ([]IndexEntry, bool) {
 	return out, true
 }
 
-// Connect sends an OP_CONNECT request to the given address, asking that
-// remote node to register this node (ID + Addr) in its peer table.
-func (n *Node) Connect(remoteAddr string) error {
-	fmt.Println("Node: " + n.ID.String() + " is connecting to node @ " + remoteAddr + " standby...")
-	req := &dhtpb.ConnectRequest{
-		NodeId: n.ID[:], // NodeID is [20]byte, cast to slice
-		Addr:   n.Addr,
+func (n *Node) Delete(key string) error {
+	n.mu.RLock()
+	rec, ok := n.store[key]
+	n.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("no record was found for the given key: %s the record may have expired or have already been deleted", key)
 	}
 
-	// sendRequest(address, op, payload) already exists in your code
-	respBytes, err := n.sendRequest(remoteAddr, OP_CONNECT, req)
-	if err != nil {
-		return err
+	if rec.Publisher != n.ID {
+		return fmt.Errorf("cannot delete record for key: %s as this node is not the original publisher", key)
 	}
 
-	var resp dhtpb.ConnectResponse
-	if err := n.decode(respBytes, &resp); err != nil {
-		return err
-	}
-	if !resp.Ok {
-		return fmt.Errorf("connect rejected: %s", resp.Err)
-	}
-
-	//otherwise where the connection was accepted, parse the returned Node ID and add the remote peer to our peer table.
-	var remoteID NodeID
-	copy(remoteID[:], resp.NodeId)
-	n.AddPeer(remoteAddr, remoteID)
-
-	return nil
+	return n.StoreWithTTL(key, nil, -1, n.ID) //store with negative TTL to indicate deletion
 }
 
 // -----------------------------------------------------------------------------
@@ -736,11 +740,11 @@ func (n *Node) onMessage(from string, data []byte) {
 			reps = r.Replicas
 			pubId = r.PublisherId
 		case *struct {
-			Key      string   `json:"key"`
-			Value    []byte   `json:"value"`
-			TTLms    int64    `json:"ttl_ms"`
-			Replicas []string `json:"replicas"`
-			PublisherId []byte `json:"publisher_id"`
+			Key         string   `json:"key"`
+			Value       []byte   `json:"value"`
+			TTLms       int64    `json:"ttl_ms"`
+			Replicas    []string `json:"replicas"`
+			PublisherId []byte   `json:"publisher_id"`
 		}:
 			key = r.Key
 			val = r.Value
@@ -749,12 +753,19 @@ func (n *Node) onMessage(from string, data []byte) {
 			pubId = r.PublisherId
 		}
 
-		exp := time.Time{}
-		if ttlms > 0 {
-			exp = time.Now().Add(time.Duration(ttlms) * time.Millisecond)
+		var exp time.Time
+		switch {
+		case ttlms < 0:
+			//fmt.Println("Received TTL: " + fmt.Sprint(ttlms) + " indicating deletion request for key: " + key)
+			exp = time.Now().Add(-time.Second) // negative ttl = force-expire (delete)
+		case ttlms == 0:
+			exp = time.Time{} // zero tll = permanent
+		default:
+			exp = time.Now().Add(time.Duration(ttlms) * time.Millisecond) // positive ttl = normal expiry
 		}
+
 		n.mu.Lock()
-		n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: time.Duration(ttlms) * time.Millisecond,Publisher: NodeID(pubId)}
+		n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: time.Duration(ttlms) * time.Millisecond, Publisher: NodeID(pubId)}
 		n.mu.Unlock()
 
 		fmt.Println("Node: " + n.Addr + "Succesfully handled request to store/update standard entry for key:" + key)
@@ -958,6 +969,33 @@ func (n *Node) onMessage(from string, data []byte) {
 	}
 }
 
+func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
+	//fmt.Println("Send Request Executed...")
+	b, err := n.encode(payload)
+	if err != nil {
+		return nil, err
+	}
+	reqID := n.nextReqID()
+	msg, err := n.cd.Wrap(op, reqID, false, n.ID.String(), b)
+	if err != nil {
+		return nil, err
+	}
+	ch := make(chan []byte, 1)
+	n.pending.Store(reqID, ch)
+	defer n.pending.Delete(reqID)
+	if err := n.transport.Send(to, msg); err != nil {
+		return nil, err
+	}
+	select {
+	case resp := <-ch:
+		//fmt.Println("response from remote node was: ")
+		//fmt.Println(resp)
+		return resp, nil
+	case <-time.After(n.cfg.RequestTimeout):
+		return nil, fmt.Errorf("node request timeout")
+	}
+}
+
 func (n *Node) mergeIndexLocal(key string, e IndexEntry, exp time.Time, reps []string, ttl time.Duration) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -1098,7 +1136,7 @@ func (n *Node) refresh() {
 			if rec.Publisher != n.ID {
 				continue
 			}
-			entryRefreshErr := n.StoreWithTTL(k, rec.Value, left,rec.Publisher)
+			entryRefreshErr := n.StoreWithTTL(k, rec.Value, left, rec.Publisher)
 			if entryRefreshErr != nil {
 				fmt.Println("An error occurred whilst attempting to refresh entry with key: " + k + " the error was: " + entryRefreshErr.Error())
 			}
