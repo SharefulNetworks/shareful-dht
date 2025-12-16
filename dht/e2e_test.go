@@ -62,6 +62,44 @@ func Test_Create_And_Find_Index_Entry_Value(t *testing.T) {
 	}
 }
 
+func Test_Create_And_Delete_Standard_Entry_Value(t *testing.T) {
+
+	//create new default test context
+	ctx := NewDefaultTestContext(t)
+
+	//obtain nodes from the test context
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
+
+	//store an STANDARD entry to the DHT via node 1.
+	peer1StoreErr := n1.Store("alpha", []byte("v"))
+	if peer1StoreErr != nil {
+		t.Fatal("Error occurred whilst Peer Node 1 was trying to store entry:", peer1StoreErr)
+	}
+
+	//after a short delay attempt to retrieve the data FROM the DHT, via node 2.
+	time.Sleep(1000 * time.Millisecond)
+	if v, ok := n2.FindRemote("alpha"); !ok || string(v) != "v" {
+		t.Fatalf("FindRemote failed %q", string(v))
+	}
+
+	//next explicitly delete the entry via node 1
+	if err := n1.Delete("alpha"); err != nil {
+		t.Fatal("Error occurred whilst deleting entry 'alpha':", err)
+	}
+
+	//after a short delay attempt to retrieve the data FROM the DHT, via node 2.
+	//where the delete has been properly propogated the find operation should now fail.
+	//NB: We must allow a delay greater than the refresh interval to ensure the deletion is actioned.
+	time.Sleep(6000 * time.Millisecond)
+	if v, ok := n2.FindRemote("alpha"); ok {
+		t.Fatalf("FindRemote should have failed but returned %q", string(v))
+	}
+
+
+
+}
+
 
 // TestContext is used to hold context info for e2e tests
 type TestContext struct {
