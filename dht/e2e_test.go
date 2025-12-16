@@ -9,24 +9,12 @@ import (
 
 func Test_Create_And_Find_Standard_Entry_Value(t *testing.T) {
 
-	//prepare config.
-	cfg := DefaultConfig()
-	cfg.UseProtobuf = true // set true after generating pb
-	cfg.RequestTimeout = 2000 * time.Millisecond
-	cfg.DefaultTTL = 30 * time.Second
-	cfg.RefreshInterval = 5 * time.Second
-	cfg.JanitorInterval = 10 * time.Second
+	//create new default test context
+	ctx := NewDefaultTestContext(t)
 
-	//prepare nodes.
-	n1 := NewNode("node1", ":9321", netx.NewTCP(), cfg)
-	n2 := NewNode("node2", ":9322", netx.NewTCP(), cfg)
-	defer n1.Close()
-	defer n2.Close()
-
-	//we now bootstrap via the connect public interface method.
-	if err := n1.Connect(n2.Addr); err != nil {
-		t.Fatal("Error occurred whilst Peer Node 1 was trying to connect to Peer Node 2:", err)
-	}
+	//obtain nodes from the test context
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
 
 	//store an STANDARD entry to the DHT via node 1.
 	peer1StoreErr := n1.Store("alpha", []byte("v"))
@@ -40,26 +28,16 @@ func Test_Create_And_Find_Standard_Entry_Value(t *testing.T) {
 		t.Fatalf("FindRemote failed %q", string(v))
 	}
 }
+
+
 func Test_Create_And_Find_Index_Entry_Value(t *testing.T) {
 
-	//prepare config
-	cfg := DefaultConfig()
-	cfg.UseProtobuf = true
-	cfg.RequestTimeout = 2000 * time.Millisecond
-	cfg.DefaultTTL = 30 * time.Second
-	cfg.RefreshInterval = 5 * time.Second
-	cfg.JanitorInterval = 10 * time.Second
+	//create new default test context
+	ctx := NewDefaultTestContext(t)
 
-	//prepare nodes
-	n1 := NewNode("node1", ":9321", netx.NewTCP(), cfg)
-	n2 := NewNode("node2", ":9322", netx.NewTCP(), cfg)
-	defer n1.Close()
-	defer n2.Close()
-
-	//we now bootstrap via the connect public interface method.
-	if err := n1.Connect(n2.Addr); err != nil {
-		t.Fatal("Error occurred whilst Peer Node 1 was trying to connect to Peer Node 2:", err)
-	}
+	//obtain nodes from the test context
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
 
 	//sote entries from both nodes under the same key
 	key := "leaf/x"
@@ -81,5 +59,49 @@ func Test_Create_And_Find_Index_Entry_Value(t *testing.T) {
 	time.Sleep(4000 * time.Millisecond)
 	if ents, ok := n2.FindIndexRemote(key); !ok || len(ents) < 2 {
 		t.Fatalf("index not refreshed")
+	}
+}
+
+
+// TestContext is used to hold context info for e2e tests
+type TestContext struct {
+	Nodes  []*Node
+	Config *Config
+}
+
+// NewDefaultTestContext creates a new default test context with two connected nodes
+func NewDefaultTestContext(t *testing.T) *TestContext {
+	t.Helper()
+
+	//prepare config.
+	cfg := DefaultConfig()
+	cfg.UseProtobuf = true // set true after generating pb
+	cfg.RequestTimeout = 2000 * time.Millisecond
+	cfg.DefaultTTL = 30 * time.Second
+	cfg.RefreshInterval = 5 * time.Second
+	cfg.JanitorInterval = 10 * time.Second
+
+	//create nodes
+	n1 := NewNode("node1", ":9321", netx.NewTCP(), cfg)
+	n2 := NewNode("node2", ":9322", netx.NewTCP(), cfg)
+	Nodes := []*Node{n1, n2}
+
+	//we now bootstrap via the connect public interface method.
+	if err := n1.Connect(n2.Addr); err != nil {
+		t.Fatal("Error occurred whilst Peer Node 1 was trying to connect to Peer Node 2:", err)
+	}
+
+	//finally defer context cleanup
+	t.Cleanup(func() {
+		for _, n := range Nodes {
+			n.Close()
+		}
+
+	})
+
+	//return the context.
+	return &TestContext{
+		Config: &cfg,
+		Nodes:  Nodes,
 	}
 }
