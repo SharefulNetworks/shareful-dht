@@ -7,7 +7,7 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/netx"
 )
 
-func Test_Remote_Find_Value(t *testing.T) {
+func Test_Create_And_Find_Standard_Entry_Value(t *testing.T) {
 
 	//prepare config.
 	cfg := DefaultConfig()
@@ -40,7 +40,7 @@ func Test_Remote_Find_Value(t *testing.T) {
 		t.Fatalf("FindRemote failed %q", string(v))
 	}
 }
-func Test_Remote_Find_Index_Merge_Refresh(t *testing.T) {
+func Test_Create_And_Find_Index_Entry_Value(t *testing.T) {
 
 	//prepare config
 	cfg := DefaultConfig()
@@ -68,11 +68,11 @@ func Test_Remote_Find_Index_Merge_Refresh(t *testing.T) {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()},  15*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
-	
+
 	//after a short delay attempt to retrieve the merged index FROM the DHT, via node 1
 	time.Sleep(3000 * time.Millisecond)
 	if ents, ok := n1.FindIndexRemote(key); !ok || len(ents) < 2 {
