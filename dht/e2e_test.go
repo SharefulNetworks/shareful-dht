@@ -90,8 +90,8 @@ func Test_Create_And_Delete_Standard_Entry_Value(t *testing.T) {
 
 	//after a short delay attempt to retrieve the data FROM the DHT, via node 2.
 	//where the delete has been properly propogated the find operation should now fail.
-	//NB: We must allow a delay greater than the refresh interval to ensure the deletion is actioned.
-	time.Sleep(6000 * time.Millisecond)
+	//NB: We must allow a delay greater than the Janitor interval to ensure the deletion is actioned.
+	time.Sleep(11000 * time.Millisecond)
 	if v, ok := n2.FindRemote("alpha"); ok {
 		t.Fatalf("FindRemote should have failed but returned %q", string(v))
 	}
