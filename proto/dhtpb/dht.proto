@@ -2,17 +2,20 @@ syntax = "proto3";
 package dhtpb;
 option go_package = "github.com/SharefulNetworks/shareful-dht/proto/dhtpb";
 
-enum Op { OP_UNKNOWN=0; OP_STORE=1; OP_FIND=2; OP_STORE_INDEX=3; OP_FIND_INDEX=4; OP_PING=5; OP_CONNECT=6; }
+enum Op { OP_UNKNOWN=0; OP_STORE=1; OP_FIND=2; OP_STORE_INDEX=3; OP_FIND_INDEX=4; OP_PING=5; OP_CONNECT=6; OP_DELETE_INDEX=7; }
 message Envelope { Op op=1; uint64 req_id=2; bool is_response=3; bytes payload=4; bytes from_id = 5; }
 message StoreRequest { string key=1; bytes value=2; int64 ttl_ms=3; repeated string replicas=4; bytes publisher_id=5; }
 message StoreResponse { bool ok=1; string err=2; }
 message FindRequest { string key=1; }
 message FindResponse { bool ok=1; bytes value=2; string err=3; }
-message IndexEntry { string source=1; string target=2; bytes meta=3; int64 updated_unix=4; }
+message IndexEntry { string source=1; string target=2; bytes meta=3; int64 updated_unix=4; bytes publisher_id=5;  }
 message StoreIndexRequest { string key=1; IndexEntry entry=2; int64 ttl_ms=3; repeated string replicas=4; }
 message StoreIndexResponse { bool ok=1; string err=2; }
 message FindIndexRequest { string key=1; }
 message FindIndexResponse { bool ok=1; repeated IndexEntry entries=2; string err=3; }
 message ConnectRequest {bytes node_id = 1;string addr   = 2;}
 message ConnectResponse {bool ok  = 1; bytes node_id = 2;string err = 3;}
+message DeleteIndexRequest {string key = 1; bytes publisher_id = 2; string source = 3; string target = 4;}
+message DeleteIndexResponse {bool ok = 1;string err = 2;}
+
 

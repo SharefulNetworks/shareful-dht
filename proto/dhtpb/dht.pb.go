@@ -24,13 +24,14 @@ const (
 type Op int32
 
 const (
-	Op_OP_UNKNOWN     Op = 0
-	Op_OP_STORE       Op = 1
-	Op_OP_FIND        Op = 2
-	Op_OP_STORE_INDEX Op = 3
-	Op_OP_FIND_INDEX  Op = 4
-	Op_OP_PING        Op = 5
-	Op_OP_CONNECT     Op = 6
+	Op_OP_UNKNOWN      Op = 0
+	Op_OP_STORE        Op = 1
+	Op_OP_FIND         Op = 2
+	Op_OP_STORE_INDEX  Op = 3
+	Op_OP_FIND_INDEX   Op = 4
+	Op_OP_PING         Op = 5
+	Op_OP_CONNECT      Op = 6
+	Op_OP_DELETE_INDEX Op = 7
 )
 
 // Enum value maps for Op.
@@ -43,15 +44,17 @@ var (
 		4: "OP_FIND_INDEX",
 		5: "OP_PING",
 		6: "OP_CONNECT",
+		7: "OP_DELETE_INDEX",
 	}
 	Op_value = map[string]int32{
-		"OP_UNKNOWN":     0,
-		"OP_STORE":       1,
-		"OP_FIND":        2,
-		"OP_STORE_INDEX": 3,
-		"OP_FIND_INDEX":  4,
-		"OP_PING":        5,
-		"OP_CONNECT":     6,
+		"OP_UNKNOWN":      0,
+		"OP_STORE":        1,
+		"OP_FIND":         2,
+		"OP_STORE_INDEX":  3,
+		"OP_FIND_INDEX":   4,
+		"OP_PING":         5,
+		"OP_CONNECT":      6,
+		"OP_DELETE_INDEX": 7,
 	}
 )
 
@@ -396,6 +399,7 @@ type IndexEntry struct {
 	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
 	Meta          []byte                 `protobuf:"bytes,3,opt,name=meta,proto3" json:"meta,omitempty"`
 	UpdatedUnix   int64                  `protobuf:"varint,4,opt,name=updated_unix,json=updatedUnix,proto3" json:"updated_unix,omitempty"`
+	PublisherId   []byte                 `protobuf:"bytes,5,opt,name=publisher_id,json=publisherId,proto3" json:"publisher_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -456,6 +460,13 @@ func (x *IndexEntry) GetUpdatedUnix() int64 {
 		return x.UpdatedUnix
 	}
 	return 0
+}
+
+func (x *IndexEntry) GetPublisherId() []byte {
+	if x != nil {
+		return x.PublisherId
+	}
+	return nil
 }
 
 type StoreIndexRequest struct {
@@ -794,6 +805,126 @@ func (x *ConnectResponse) GetErr() string {
 	return ""
 }
 
+type DeleteIndexRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	PublisherId   []byte                 `protobuf:"bytes,2,opt,name=publisher_id,json=publisherId,proto3" json:"publisher_id,omitempty"`
+	Source        string                 `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
+	Target        string                 `protobuf:"bytes,4,opt,name=target,proto3" json:"target,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteIndexRequest) Reset() {
+	*x = DeleteIndexRequest{}
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteIndexRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteIndexRequest) ProtoMessage() {}
+
+func (x *DeleteIndexRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteIndexRequest.ProtoReflect.Descriptor instead.
+func (*DeleteIndexRequest) Descriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *DeleteIndexRequest) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *DeleteIndexRequest) GetPublisherId() []byte {
+	if x != nil {
+		return x.PublisherId
+	}
+	return nil
+}
+
+func (x *DeleteIndexRequest) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *DeleteIndexRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+type DeleteIndexResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Err           string                 `protobuf:"bytes,2,opt,name=err,proto3" json:"err,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteIndexResponse) Reset() {
+	*x = DeleteIndexResponse{}
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteIndexResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteIndexResponse) ProtoMessage() {}
+
+func (x *DeleteIndexResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteIndexResponse.ProtoReflect.Descriptor instead.
+func (*DeleteIndexResponse) Descriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *DeleteIndexResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *DeleteIndexResponse) GetErr() string {
+	if x != nil {
+		return x.Err
+	}
+	return ""
+}
+
 var File_proto_dhtpb_dht_proto protoreflect.FileDescriptor
 
 const file_proto_dhtpb_dht_proto_rawDesc = "" +
@@ -820,13 +951,14 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\fFindResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\x12\x10\n" +
-	"\x03err\x18\x03 \x01(\tR\x03err\"s\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err\"\x96\x01\n" +
 	"\n" +
 	"IndexEntry\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x12\n" +
 	"\x04meta\x18\x03 \x01(\fR\x04meta\x12!\n" +
-	"\fupdated_unix\x18\x04 \x01(\x03R\vupdatedUnix\"\x81\x01\n" +
+	"\fupdated_unix\x18\x04 \x01(\x03R\vupdatedUnix\x12!\n" +
+	"\fpublisher_id\x18\x05 \x01(\fR\vpublisherId\"\x81\x01\n" +
 	"\x11StoreIndexRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12'\n" +
 	"\x05entry\x18\x02 \x01(\v2\x11.dhtpb.IndexEntryR\x05entry\x12\x15\n" +
@@ -847,7 +979,15 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\x0fConnectResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\fR\x06nodeId\x12\x10\n" +
-	"\x03err\x18\x03 \x01(\tR\x03err*s\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err\"y\n" +
+	"\x12DeleteIndexRequest\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12!\n" +
+	"\fpublisher_id\x18\x02 \x01(\fR\vpublisherId\x12\x16\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\x12\x16\n" +
+	"\x06target\x18\x04 \x01(\tR\x06target\"7\n" +
+	"\x13DeleteIndexResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
+	"\x03err\x18\x02 \x01(\tR\x03err*\x88\x01\n" +
 	"\x02Op\x12\x0e\n" +
 	"\n" +
 	"OP_UNKNOWN\x10\x00\x12\f\n" +
@@ -857,7 +997,8 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\rOP_FIND_INDEX\x10\x04\x12\v\n" +
 	"\aOP_PING\x10\x05\x12\x0e\n" +
 	"\n" +
-	"OP_CONNECT\x10\x06B6Z4github.com/SharefulNetworks/shareful-dht/proto/dhtpbb\x06proto3"
+	"OP_CONNECT\x10\x06\x12\x13\n" +
+	"\x0fOP_DELETE_INDEX\x10\aB6Z4github.com/SharefulNetworks/shareful-dht/proto/dhtpbb\x06proto3"
 
 var (
 	file_proto_dhtpb_dht_proto_rawDescOnce sync.Once
@@ -872,21 +1013,23 @@ func file_proto_dhtpb_dht_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_dhtpb_dht_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_dhtpb_dht_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_proto_dhtpb_dht_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_proto_dhtpb_dht_proto_goTypes = []any{
-	(Op)(0),                    // 0: dhtpb.Op
-	(*Envelope)(nil),           // 1: dhtpb.Envelope
-	(*StoreRequest)(nil),       // 2: dhtpb.StoreRequest
-	(*StoreResponse)(nil),      // 3: dhtpb.StoreResponse
-	(*FindRequest)(nil),        // 4: dhtpb.FindRequest
-	(*FindResponse)(nil),       // 5: dhtpb.FindResponse
-	(*IndexEntry)(nil),         // 6: dhtpb.IndexEntry
-	(*StoreIndexRequest)(nil),  // 7: dhtpb.StoreIndexRequest
-	(*StoreIndexResponse)(nil), // 8: dhtpb.StoreIndexResponse
-	(*FindIndexRequest)(nil),   // 9: dhtpb.FindIndexRequest
-	(*FindIndexResponse)(nil),  // 10: dhtpb.FindIndexResponse
-	(*ConnectRequest)(nil),     // 11: dhtpb.ConnectRequest
-	(*ConnectResponse)(nil),    // 12: dhtpb.ConnectResponse
+	(Op)(0),                     // 0: dhtpb.Op
+	(*Envelope)(nil),            // 1: dhtpb.Envelope
+	(*StoreRequest)(nil),        // 2: dhtpb.StoreRequest
+	(*StoreResponse)(nil),       // 3: dhtpb.StoreResponse
+	(*FindRequest)(nil),         // 4: dhtpb.FindRequest
+	(*FindResponse)(nil),        // 5: dhtpb.FindResponse
+	(*IndexEntry)(nil),          // 6: dhtpb.IndexEntry
+	(*StoreIndexRequest)(nil),   // 7: dhtpb.StoreIndexRequest
+	(*StoreIndexResponse)(nil),  // 8: dhtpb.StoreIndexResponse
+	(*FindIndexRequest)(nil),    // 9: dhtpb.FindIndexRequest
+	(*FindIndexResponse)(nil),   // 10: dhtpb.FindIndexResponse
+	(*ConnectRequest)(nil),      // 11: dhtpb.ConnectRequest
+	(*ConnectResponse)(nil),     // 12: dhtpb.ConnectResponse
+	(*DeleteIndexRequest)(nil),  // 13: dhtpb.DeleteIndexRequest
+	(*DeleteIndexResponse)(nil), // 14: dhtpb.DeleteIndexResponse
 }
 var file_proto_dhtpb_dht_proto_depIdxs = []int32{
 	0, // 0: dhtpb.Envelope.op:type_name -> dhtpb.Op
@@ -910,7 +1053,7 @@ func file_proto_dhtpb_dht_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_dhtpb_dht_proto_rawDesc), len(file_proto_dhtpb_dht_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

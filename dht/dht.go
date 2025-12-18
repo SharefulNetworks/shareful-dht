@@ -21,12 +21,13 @@ import (
 const IDBytes = 20
 
 const (
-	OP_STORE       = 1
-	OP_FIND        = 2
-	OP_STORE_INDEX = 3
-	OP_FIND_INDEX  = 4
-	OP_PING        = 5
-	OP_CONNECT     = 6
+	OP_STORE        = 1
+	OP_FIND         = 2
+	OP_STORE_INDEX  = 3
+	OP_FIND_INDEX   = 4
+	OP_PING         = 5
+	OP_CONNECT      = 6
+	OP_DELETE_INDEX = 7
 )
 
 type NodeID [IDBytes]byte
@@ -95,6 +96,7 @@ type IndexEntry struct {
 	Target      string `json:"target"`
 	Meta        []byte `json:"meta"`
 	UpdatedUnix int64  `json:"updated_unix"`
+	Publisher   NodeID `json:"publisher"`
 }
 type record struct {
 	Key       string
@@ -260,6 +262,8 @@ func (n *Node) makeMessage(op int) (req any, resp any) {
 			//		panic("Ping Messages are currently ")
 		case OP_CONNECT:
 			return &dhtpb.ConnectRequest{}, &dhtpb.ConnectResponse{}
+		case OP_DELETE_INDEX:
+			return &dhtpb.DeleteIndexRequest{}, &dhtpb.DeleteIndexResponse{}
 		default:
 			return nil, nil
 		}
@@ -511,7 +515,14 @@ func (n *Node) StoreIndexValue(indexKey string, e IndexEntry, ttl time.Duration)
 	if ttl > 0 {
 		exp = time.Now().Add(ttl)
 	}
-	n.mergeIndexLocal(indexKey, e, exp, reps, ttl)
+
+	//NB: where the call to the merge function is being made as a direct result
+	//of a call to StoreIndexValue we cn safely pass in the id of THIS node as the publisher.
+	e.Publisher = n.ID
+	mergeIndexError := n.mergeIndexLocal(indexKey, e, exp, reps, ttl, n.ID)
+	if mergeIndexError != nil {
+		return fmt.Errorf("an error occurred whilst attempting to store index value %s", mergeIndexError.Error())
+	}
 
 	reqAny, _ := n.makeMessage(OP_STORE_INDEX)
 	switch r := reqAny.(type) {
@@ -522,6 +533,7 @@ func (n *Node) StoreIndexValue(indexKey string, e IndexEntry, ttl time.Duration)
 			Target:      e.Target,
 			Meta:        e.Meta,
 			UpdatedUnix: e.UpdatedUnix,
+			PublisherId: e.Publisher[:],
 		}
 		r.TtlMs = int64(ttl / time.Millisecond)
 		r.Replicas = reps
@@ -665,6 +677,49 @@ func (n *Node) Delete(key string) error {
 	return n.StoreWithTTL(key, nil, -1, n.ID) //store with negative TTL to indicate deletion
 }
 
+func (n *Node) DeleteIndex(indexKey string, indexEntrySource string) error {
+
+	//attempt to delete the index entry locally.
+	deleted, deletionErr := n.deleteIndexLocal(indexKey, n.ID, indexEntrySource)
+	if deletionErr != nil {
+		return fmt.Errorf("an error occurred whilst attempting to deleted the specified Index: %o", deletionErr)
+	}
+
+	//where the index entry WAS successfully deleted locally, propagate the delete to nearest K nodes.
+	if deleted {
+		reps := n.nearestK(indexKey)
+
+		reqAny, _ := n.makeMessage(OP_DELETE_INDEX)
+		switch r := reqAny.(type) {
+		case *dhtpb.DeleteIndexRequest:
+			r.PublisherId = n.ID[:]
+			r.Key = indexKey
+			r.Source = indexEntrySource
+		case *struct {
+			PublisherId string `json:"publisherId"`
+			Key         string `json:"key"`
+			Source      string `json:"source"`
+		}:
+
+			r.PublisherId = n.ID.String()
+			r.Key = indexKey
+			r.Source = indexEntrySource
+		}
+
+		for _, a := range reps {
+			if a == n.Addr {
+				continue
+			}
+			if _, err := n.sendRequest(a, OP_DELETE_INDEX, reqAny); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+
+}
+
 // -----------------------------------------------------------------------------
 // Incoming Message Handler (uses makeMessage + encode/decode)
 // -----------------------------------------------------------------------------
@@ -691,6 +746,16 @@ func (n *Node) onMessage(from string, data []byte) {
 		return
 	}
 
+	//parse the (hex encoded) ID of the sender from the message envolope, to its equivilant (binary) NodeID valye
+	var senderNodeID NodeID
+	var senderNodeIDParseErr error
+	senderNodeID, senderNodeIDParseErr = ParseNodeID(fromID)
+	if senderNodeIDParseErr != nil {
+		fmt.Println("An error occurred whilst attempting to parse sender Node ID from inbound request, the request will therefore be dropped.:", fromID)
+		fmt.Println(senderNodeIDParseErr.Error())
+		return
+	}
+
 	//fmt.Println("the from id was: " + fromID)
 
 	//if this is not an initial CONNECT request attempt to parse the sender Node ID and lookup its corresponding Address
@@ -698,15 +763,10 @@ func (n *Node) onMessage(from string, data []byte) {
 	//known to us at this point (unless it connected prior) and thus we omit the address lookup here.
 	var senderAddr string
 	var senderAddrLookupErr error
+
 	if op != OP_CONNECT {
 
 		//parse the senders, hex encoded node ID, to its equivilant (byte) NodeID type value.
-		senderNodeID, parseNodeErr := ParseNodeID(fromID)
-		if parseNodeErr != nil {
-			fmt.Println("An error occurred whilst attempting to parse sender Node ID:", fromID)
-			fmt.Println(parseNodeErr.Error())
-			return
-		}
 
 		//use the senders nodeId to look up its address, this will be used to send responses.
 		senderAddr, senderAddrLookupErr = n.lookupAddrForId(senderNodeID)
@@ -765,7 +825,9 @@ func (n *Node) onMessage(from string, data []byte) {
 		}
 
 		n.mu.Lock()
-		n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: time.Duration(ttlms) * time.Millisecond, Publisher: NodeID(pubId)}
+		var publisherId NodeID
+		copy(publisherId[:], pubId)
+		n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: time.Duration(ttlms) * time.Millisecond, Publisher: publisherId}
 		n.mu.Unlock()
 
 		fmt.Println("Node: " + n.Addr + "Succesfully handled request to store/update standard entry for key:" + key)
@@ -856,6 +918,7 @@ func (n *Node) onMessage(from string, data []byte) {
 					Meta:        r.Entry.Meta,
 					UpdatedUnix: r.Entry.UpdatedUnix,
 				}
+				copy(entry.Publisher[:], r.Entry.PublisherId[:])
 			}
 			ttlms = r.TtlMs
 			reps = r.Replicas
@@ -876,8 +939,12 @@ func (n *Node) onMessage(from string, data []byte) {
 			exp = time.Now().Add(time.Duration(ttlms) * time.Millisecond)
 		}
 
-		n.mergeIndexLocal(key, entry, exp, reps, time.Duration(ttlms)*time.Millisecond)
-
+		//pass in the id of the SENDER as the publisher of this index entry, the mergeIndexLocal
+		//will take care of ensuring only the original publisher can store/update their own entries.
+		mergeIndexErr := n.mergeIndexLocal(key, entry, exp, reps, time.Duration(ttlms)*time.Millisecond, senderNodeID)
+		if mergeIndexErr != nil {
+			fmt.Println("an error occured whilst attempting to handle request to store index entry:", mergeIndexErr)
+		}
 		//fmt.Println("Node: " + n.Addr + "Succesfully handled request to store/update index entry for key:" + key)
 
 		switch r := respAny.(type) {
@@ -925,6 +992,7 @@ func (n *Node) onMessage(from string, data []byte) {
 						Target:      e.Target,
 						Meta:        e.Meta,
 						UpdatedUnix: e.UpdatedUnix,
+						PublisherId: e.Publisher[:],
 					})
 				}
 			}
@@ -962,7 +1030,59 @@ func (n *Node) onMessage(from string, data []byte) {
 
 		// respond directly to TCP connection origin
 		_ = n.transport.Send(req.GetAddr(), reply)
-		return
+
+	case OP_DELETE_INDEX:
+
+		req, resp := n.makeMessage(OP_DELETE_INDEX)
+		if err := n.decode(payload, req); err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		var indexKey string
+		var source string
+		var publisherId NodeID
+
+		switch r := req.(type) {
+		case *dhtpb.DeleteIndexRequest:
+			indexKey = r.Key
+			source = r.Source
+			copy(publisherId[:], r.PublisherId)
+		case *struct {
+			PublisherId string `json:"publisherId"`
+			Key         string `json:"key"`
+			Source      string `json:"source"`
+		}:
+			indexKey = r.Key
+			source = r.Source
+			copy(publisherId[:], r.PublisherId)
+		}
+
+		//the id of the sender must match the publisher id of the entry they are attempting to update
+		if senderNodeID != publisherId {
+			fmt.Println("An error occurred whilst processing received request to delete index entry for key:" + indexKey + ". Publisher Id Missmatch. ")
+			return
+		}
+
+		_, deletionErr := n.deleteIndexLocal(indexKey, publisherId, source)
+		if deletionErr != nil {
+			fmt.Println("An error occurred whilst a processing received request to delete index entry for key: " + indexKey + " on this node: " + n.ID.String())
+			fmt.Println(deletionErr.Error())
+		}
+
+		switch r := resp.(type) {
+		case *dhtpb.DeleteIndexResponse:
+			r.Ok = true
+		case *struct {
+			Ok  bool   `json:"ok"`
+			Err string `json:"err"`
+		}:
+			r.Ok = true
+			r.Err = ""
+		}
+		b, _ := n.encode(resp)
+		msg, _ := n.cd.Wrap(OP_DELETE_INDEX, reqID, true, n.ID.String(), b)
+		_ = n.transport.Send(senderAddr, msg)
 
 	default:
 		return
@@ -996,18 +1116,24 @@ func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
 	}
 }
 
-func (n *Node) mergeIndexLocal(key string, e IndexEntry, exp time.Time, reps []string, ttl time.Duration) {
+func (n *Node) mergeIndexLocal(key string, e IndexEntry, exp time.Time, reps []string, ttl time.Duration, publisherId NodeID) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+
+	//only allow the original publisher to update their own index entries
+	if e.Publisher != publisherId {
+		return fmt.Errorf("only the original publisher can update their own index entries")
+	}
+
 	rec, ok := n.store[key]
 	if !ok {
-		rec = &record{Key: key, IsIndex: true, Replicas: reps, TTL: ttl}
+		rec = &record{Key: key, IsIndex: true, Replicas: reps, TTL: ttl, Publisher: NodeID{}} //Publisher Id is not used for index records.
 	}
 	var entries []IndexEntry
 	_ = json.Unmarshal(rec.Value, &entries)
 	found := false
 	for i := range entries {
-		if entries[i].Source == e.Source && entries[i].Target == e.Target {
+		if entries[i].Publisher == e.Publisher && entries[i].Source == e.Source {
 			entries[i] = e
 			found = true
 			break
@@ -1021,6 +1147,8 @@ func (n *Node) mergeIndexLocal(key string, e IndexEntry, exp time.Time, reps []s
 	rec.Expiry = exp
 	rec.Replicas = reps
 	n.store[key] = rec
+
+	return nil
 }
 
 func (n *Node) janitor() {
@@ -1050,6 +1178,54 @@ func (n *Node) janitor() {
 			n.mu.Unlock()
 		}
 	}
+}
+
+func (n *Node) deleteIndexLocal(key string, publisher NodeID, source string) (bool, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	var deleted bool = false
+
+	rec, ok := n.store[key]
+	if !ok || !rec.IsIndex {
+		return false, fmt.Errorf("no index record found for key: %s", key)
+	}
+
+	var entries []IndexEntry
+	if err := json.Unmarshal(rec.Value, &entries); err != nil {
+		return false, fmt.Errorf("failed to unmarshal index entries for key: %s", key)
+	}
+
+	filtered := entries[:0]
+
+	for _, e := range entries {
+
+		// publisher AND source must match for the deletion to be actioned
+		if e.Publisher != publisher {
+			filtered = append(filtered, e)
+			continue
+		}
+		if e.Source != source {
+			filtered = append(filtered, e)
+			continue
+		}
+
+		// Otherwise: matched → delete (skip adding the entry to our filtered list)
+		deleted = true
+		fmt.Println("Index entry with source: " + source + " has been deleted from index with key: " + key + " on node: " + string(n.ID[:]))
+	}
+
+	// If nothing remains, remove the whole index record for the specified key
+	if len(filtered) == 0 {
+		delete(n.store, key)
+		fmt.Println("All index entries have been deleted for index with key: " + key + " on node: " + string(n.ID[:]))
+		return deleted, nil
+	}
+
+	rec.Value, _ = json.Marshal(filtered)
+	n.store[key] = rec
+
+	return deleted, nil
 }
 
 func (n *Node) refresher() {
@@ -1110,10 +1286,6 @@ func (n *Node) refresh() {
 		//otherwise, refresh the record
 		left = rec.TTL
 		if rec.IsIndex {
-			// Only leader should refresh
-			if !n.isLeader(rec.Replicas) {
-				continue
-			}
 
 			// Decode existing entries
 			var entries []IndexEntry
@@ -1123,6 +1295,12 @@ func (n *Node) refresh() {
 
 			// Re-announce each entry with updated timestamp
 			for _, e := range entries {
+
+				//skip the refresh where this node is not the original publisher
+				if e.Publisher != n.ID {
+					continue
+				}
+				//
 				e.UpdatedUnix = time.Now().UnixNano()
 				indexRefreshErr := n.StoreIndexValue(k, e, left)
 				if indexRefreshErr != nil {
@@ -1143,26 +1321,4 @@ func (n *Node) refresh() {
 			//fmt.Println("SUCCESSFULLY REFRESHED ENTRY KEY: "+k+" Refresh Count: ", n.refreshCount)
 		}
 	}
-}
-
-func (n *Node) isLeader(reps []string) bool {
-	if len(reps) == 0 {
-		return false
-	}
-	t := make([]string, len(reps))
-	copy(t, reps)
-	sort.Slice(t, func(i, j int) bool {
-		a := n.idFor(t[i])
-		b := n.idFor(t[j])
-		for k := 0; k < IDBytes; k++ {
-			if a[k] < b[k] {
-				return true
-			}
-			if a[k] > b[k] {
-				return false
-			}
-		}
-		return false
-	})
-	return t[0] == n.Addr
 }
