@@ -714,10 +714,20 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string) error {
 				return err
 			}
 		}
+
+		return nil
+	} else {
+		return fmt.Errorf("entry associated with key: %s could not be deleted; either no entry was found with the specified source OR this node was NOT the original publisher of the entry  ", indexKey)
 	}
 
-	return nil
+}
 
+func (n *Node) ListPeers() []string {
+	peers := make([]string, 0)
+	for peerId, peerAddr := range n.peers {
+		peers = append(peers, fmt.Sprintf("Peer ID: %s @ Address: %s", peerId.String(), peerAddr))
+	}
+	return peers
 }
 
 // -----------------------------------------------------------------------------
