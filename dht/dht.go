@@ -121,6 +121,7 @@ type Node struct {
 	reqSeq       uint64
 	pending      sync.Map // map[uint64]chan []byte
 	refreshCount uint64
+	wg           sync.WaitGroup
 }
 
 func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node {
@@ -142,12 +143,14 @@ func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node
 		refreshCount: 0,
 	}
 	_ = n.transport.Listen(addr, n.onMessage)
+	n.wg.Add(2)
 	go n.janitor()
 	go n.refresher()
 	return n
 }
 func (n *Node) Close() {
 	close(n.stop)
+	n.wg.Wait() // wait for janitor and refresher to finish
 	n.transport.Close()
 }
 func (n *Node) AddPeer(addr string, id NodeID) {
@@ -1162,6 +1165,7 @@ func (n *Node) mergeIndexLocal(key string, e IndexEntry, exp time.Time, reps []s
 }
 
 func (n *Node) janitor() {
+	defer n.wg.Done()
 	t := time.NewTicker(n.cfg.JanitorInterval)
 	defer t.Stop()
 	for {
@@ -1239,6 +1243,7 @@ func (n *Node) deleteIndexLocal(key string, publisher NodeID, source string) (bo
 }
 
 func (n *Node) refresher() {
+	defer n.wg.Done()
 	t := time.NewTicker(n.cfg.RefreshInterval)
 	defer t.Stop()
 
