@@ -8,7 +8,7 @@ message StoreRequest { string key=1; bytes value=2; int64 ttl_ms=3; repeated str
 message StoreResponse { bool ok=1; string err=2; }
 message FindRequest { string key=1; }
 message FindResponse { bool ok=1; bytes value=2; string err=3; }
-message IndexEntry { string source=1; string target=2; bytes meta=3; int64 updated_unix=4; bytes publisher_id=5;  }
+message IndexEntry { string source=1; string target=2; bytes meta=3; int64 updated_unix=4; bytes publisher_id=5; int64 ttl=6; }
 message StoreIndexRequest { string key=1; IndexEntry entry=2; int64 ttl_ms=3; repeated string replicas=4; }
 message StoreIndexResponse { bool ok=1; string err=2; }
 message FindIndexRequest { string key=1; }

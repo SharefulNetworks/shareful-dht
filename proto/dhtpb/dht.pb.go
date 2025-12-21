@@ -400,6 +400,7 @@ type IndexEntry struct {
 	Meta          []byte                 `protobuf:"bytes,3,opt,name=meta,proto3" json:"meta,omitempty"`
 	UpdatedUnix   int64                  `protobuf:"varint,4,opt,name=updated_unix,json=updatedUnix,proto3" json:"updated_unix,omitempty"`
 	PublisherId   []byte                 `protobuf:"bytes,5,opt,name=publisher_id,json=publisherId,proto3" json:"publisher_id,omitempty"`
+	Ttl           int64                  `protobuf:"varint,6,opt,name=ttl,proto3" json:"ttl,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -467,6 +468,13 @@ func (x *IndexEntry) GetPublisherId() []byte {
 		return x.PublisherId
 	}
 	return nil
+}
+
+func (x *IndexEntry) GetTtl() int64 {
+	if x != nil {
+		return x.Ttl
+	}
+	return 0
 }
 
 type StoreIndexRequest struct {
@@ -951,14 +959,15 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\fFindResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\x12\x10\n" +
-	"\x03err\x18\x03 \x01(\tR\x03err\"\x96\x01\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err\"\xa8\x01\n" +
 	"\n" +
 	"IndexEntry\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x12\n" +
 	"\x04meta\x18\x03 \x01(\fR\x04meta\x12!\n" +
 	"\fupdated_unix\x18\x04 \x01(\x03R\vupdatedUnix\x12!\n" +
-	"\fpublisher_id\x18\x05 \x01(\fR\vpublisherId\"\x81\x01\n" +
+	"\fpublisher_id\x18\x05 \x01(\fR\vpublisherId\x12\x10\n" +
+	"\x03ttl\x18\x06 \x01(\x03R\x03ttl\"\x81\x01\n" +
 	"\x11StoreIndexRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12'\n" +
 	"\x05entry\x18\x02 \x01(\v2\x11.dhtpb.IndexEntryR\x05entry\x12\x15\n" +
