@@ -325,6 +325,129 @@ func Test_Create_And_Delete_Index_Entry_Value_With_PublisherId_Mismatch(t *testi
 
 }
 
+func Test_Standard_Entry_Auto_Expiration(t *testing.T) {
+
+	//create new configurable test context, so we can create three nodes.
+	ctx := NewConfigurableTestContext(t, 3, nil, false)
+
+	//obtain nodes from the test context
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
+	n3 := ctx.Nodes[2]
+
+	//store an STANDARD entry to the DHT via node 1, we directly call the *WithTTL variant to set a short ttl
+	peer1StoreErr := n1.StoreWithTTL("alpha", []byte("v"), 10*time.Second, n1.ID)
+	if peer1StoreErr != nil {
+		t.Fatal("Error occurred whilst Peer Node 1 was trying to store entry:", peer1StoreErr)
+	}
+
+	//store a standard entry to the DHT via node 2,we directly call the *WithTTL variant to set a short ttl
+	peer2StoreErr := n2.StoreWithTTL("beta", []byte("w"), 10*time.Second, n2.ID)
+	if peer2StoreErr != nil {
+		t.Fatal("Error occurred whilst Peer Node 2 was trying to store entry:", peer2StoreErr)
+	}
+
+	//after a short delay attempt to retrieve the data FROM the DHT, via an alternate node
+	//to the node that created it, ensure the store operation was propagated.
+	time.Sleep(1000 * time.Millisecond)
+	if v, ok := n2.FindRemote("alpha"); !ok || string(v) != "v" {
+		t.Fatalf("FindRemote failed %q", string(v))
+	}
+
+	time.Sleep(2000 * time.Millisecond)
+	if w, ok := n1.FindRemote("beta"); !ok || string(w) != "w" {
+		t.Fatalf("FindRemote failed %q", string(w))
+	}
+
+	time.Sleep(2500 * time.Millisecond)
+	if w, ok := n3.FindRemote("beta"); !ok || string(w) != "w" {
+		t.Fatalf("FindRemote failed %q", string(w))
+	}
+
+	time.Sleep(3000 * time.Millisecond)
+	if v, ok := n3.FindRemote("alpha"); !ok || string(v) != "v" {
+		t.Fatalf("FindRemote failed %q", string(v))
+	}
+
+	//next we crucially close node 1 and thereby prevent it from refeshing its entries.
+	n1.Close()
+
+	//next we wait for a period longer that the ttl (10 seconds) to allow time for the closed nodes
+	//entries to expire.
+	time.Sleep(12 * time.Second)
+
+	//finally attempt to retreive node 1's entry via node 2 and 3 which should fail, in both cases.
+	time.Sleep(3000 * time.Millisecond)
+	_, node3FundOK := n3.FindRemote("alpha")
+	if node3FundOK {
+		t.Fatal("Expected lookup for entry to fail on account of it having been expired.")
+	} else {
+		t.Log("Expired entry was not found as expected.")
+	}
+
+	time.Sleep(3500 * time.Millisecond)
+	_, node2FundOK := n2.FindRemote("alpha")
+	if node2FundOK {
+		t.Fatal("Expected lookup for entry to fail on account of it having been expired.")
+	} else {
+		t.Log("Expired entry was not found as expected.")
+	}
+
+}
+
+func Test_Index_Entry_Auto_Expiration(t *testing.T) {
+
+	//create new default test context
+	ctx := NewConfigurableTestContext(t, 3, nil, false)
+
+	//obtain nodes from the test context
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
+	n3 := ctx.Nodes[2]
+
+	//store index entries from the first two nodes under the same key
+	key := "leaf/x"
+	peer1StoreIndexErr := n1.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second)
+	if peer1StoreIndexErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
+	}
+
+	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second)
+	if peer2IndexIndexStoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
+	}
+
+	//next fetch entries from node 3 to ensure the storage operation was successsfully propogated
+	time.Sleep(3000 * time.Millisecond)
+	if ents, ok := n3.FindIndexRemote(key); !ok || len(ents) != 2 {
+		t.Fatalf("expected merged index = 2")
+	} else {
+
+		t.Log("The found entries were:")
+		t.Log(ents)
+	}
+
+	//next close down node 2 and thereby prevent it from refreshing its index keys, which should ultimately cause
+	//them to expire.
+	time.Sleep(3000 * time.Millisecond)
+	n2.Close()
+
+	//next allow sufficient time for the TTL duration (12 seconds in this case) to elapse
+	time.Sleep(15 * time.Second)
+
+	t.Log("Node 3 has the following connections: ")
+	t.Log(n3.ListPeers())
+
+	//finally attempt to retrieve the collection of entries associated with the key which
+	//should now be of length 1 as node 2's entry should have automatically expired.
+	if ents, ok := n3.FindIndexRemote(key); !ok || len(ents) != 1 {
+		t.Fatalf("expected merged index count to now equal: 1, it actually was equal to: " + strconv.Itoa(len(ents)))
+	} else {
+		t.Log("The only remaining entry was:")
+		t.Log(ents[0])
+	}
+}
+
 // TestContext is used to hold context info for e2e tests
 type TestContext struct {
 	Nodes  []*Node

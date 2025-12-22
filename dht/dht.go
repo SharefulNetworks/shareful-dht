@@ -123,6 +123,7 @@ type Node struct {
 	pending      sync.Map // map[uint64]chan []byte
 	refreshCount uint64
 	wg           sync.WaitGroup
+	closeOnce    sync.Once
 }
 
 func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node {
@@ -150,10 +151,13 @@ func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node
 	return n
 }
 func (n *Node) Close() {
-	close(n.stop)
-	n.wg.Wait() // wait for janitor and refresher to finish
-	n.transport.Close()
+	n.closeOnce.Do(func() {
+		close(n.stop)
+		n.wg.Wait() // wait for janitor and refresher to finish
+		n.transport.Close()
+	})
 }
+
 func (n *Node) AddPeer(addr string, id NodeID) {
 	n.mu.Lock()
 	n.peers[id] = addr
@@ -1002,6 +1006,7 @@ func (n *Node) onMessage(from string, data []byte) {
 						Meta:        e.Meta,
 						UpdatedUnix: e.UpdatedUnix,
 						PublisherId: e.Publisher[:],
+						Ttl:         e.TTL,
 					})
 				}
 			}

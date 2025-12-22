@@ -3,6 +3,7 @@ package netx
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -26,7 +27,7 @@ type Outbound struct {
 func NewTCP() *TCPTransport {
 
 	//instantiate new TCP transport
-	newTCPTransport :=  &TCPTransport{
+	newTCPTransport := &TCPTransport{
 		closed:   make(chan struct{}),
 		outQueue: make(chan *Outbound, 256),
 	}
@@ -75,14 +76,13 @@ func (t *TCPTransport) Listen(addr string, handler MessageHandler) error {
 	return nil
 }
 
-//Send - Queues the provided (message) data for async dispatch to the provided address and returns immediately.
+// Send - Queues the provided (message) data for async dispatch to the provided address and returns immediately.
 func (t *TCPTransport) Send(to string, data []byte) error {
 	return t.sendAsync(to, data)
 }
 
 func (t *TCPTransport) Close() error {
 	close(t.closed)
-	close(t.outQueue)
 	if t.ln != nil {
 		_ = t.ln.Close()
 	}
@@ -122,6 +122,8 @@ func (t *TCPTransport) sendSync(address string, data []byte) error {
 // sendAsync sends provided data to the specified address, asynchronously.
 func (t *TCPTransport) sendAsync(to string, data []byte) error {
 	select {
+	case <-t.closed:
+		return errors.New("transport closed")
 	case t.outQueue <- &Outbound{to, data}:
 		return nil
 	default:
@@ -138,10 +140,15 @@ func (t *TCPTransport) startOutboundProcessing() {
 }
 
 func (t *TCPTransport) outQueueDispatcher() {
-	for job := range t.outQueue {
-		sendErr := t.sendSync(job.to, job.data)
-		if sendErr != nil {
-			log.Printf("Error occurred whilst sending data to %s: %v", job.to, sendErr)
+	for {
+		select {
+		case <-t.closed:
+			return
+
+		case job := <-t.outQueue:
+			if err := t.sendSync(job.to, job.data); err != nil {
+				log.Printf("Error sending to %s: %v", job.to, err)
+			}
 		}
 	}
 }
