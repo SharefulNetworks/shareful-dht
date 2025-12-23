@@ -5,9 +5,11 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -74,6 +76,20 @@ func CompareDistance(a, b, t NodeID) int {
 		}
 	}
 	return 0
+}
+
+func CollectErrors(errs []error) error {
+	if len(errs) == 0 {
+		return nil
+	}
+	var sb strings.Builder
+	for i, err := range errs {
+		sb.WriteString(err.Error())
+		if i < len(errs)-1 {
+			sb.WriteString("\n") // Add a newline after each error except the last one
+		}
+	}
+	return errors.New(sb.String())
 }
 
 type Config struct {
@@ -412,15 +428,24 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisher
 		}
 	}
 
+	var errorsList []error
 	for _, a := range reps {
 		if a == n.Addr {
 			continue
 		}
 		if _, err := n.sendRequest(a, OP_STORE, reqAny); err != nil {
-			return err
+			errorsList = append(errorsList, fmt.Errorf("Node: %s encountered an error when attempting to propagate storage of STANDARD entry to node @ %s", n.Addr, a))
 		}
 	}
-	return nil
+
+	//where at least one error occurred call into our utility to compile
+	//the errors into a single error object and return it.
+	if len(errorsList) > 0 {
+		compiledErr := CollectErrors(errorsList)
+		return compiledErr
+	} else {
+		return nil
+	}
 }
 
 func (n *Node) Find(key string) ([]byte, bool) {
@@ -556,15 +581,25 @@ func (n *Node) StoreIndexValue(indexKey string, e IndexEntry, ttl time.Duration)
 		r.Replicas = reps
 	}
 
+	var errorsList []error
 	for _, a := range reps {
 		if a == n.Addr {
 			continue
 		}
 		if _, err := n.sendRequest(a, OP_STORE_INDEX, reqAny); err != nil {
-			return err
+			errorsList = append(errorsList, fmt.Errorf("Node: %s encountered an error when attempting to propagate storage of INDEX entry to node @ %s", n.Addr, a))
 		}
 	}
-	return nil
+
+	//where at least one error occurred call into our utility to compile
+	//the errors into a single error object and return it.
+	if len(errorsList) > 0 {
+		compiledErr := CollectErrors(errorsList)
+		return compiledErr
+	} else {
+		return nil
+	}
+
 }
 
 func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
@@ -952,6 +987,9 @@ func (n *Node) onMessage(from string, data []byte) {
 			reps = r.Replicas
 		}
 
+		//fmt.Printf("Node @ %s received request from publisher: %s to merge entry with key: %s at: %s", n.Addr, senderNodeID, key, time.Now())
+		//fmt.Println()
+
 		//pass in the id of the SENDER as the publisher of this index entry, the mergeIndexLocal
 		//will take care of ensuring only the original publisher can store/update their own entries.
 		mergeIndexErr := n.mergeIndexLocal(key, entry, reps, senderNodeID)
@@ -1194,9 +1232,8 @@ func (n *Node) janitor() {
 						if e.TTL > 0 {
 							entryExpiryTime := time.UnixMilli(e.UpdatedUnix).Add(time.Duration(e.TTL) * time.Millisecond)
 							if now.After(entryExpiryTime) {
-								fmt.Println("Index Entry with source: " + e.Source + " has expired and will be deleted from index with key: " + k + " on node: " + n.Addr)
-								fmt.Println("Expiry:" + entryExpiryTime.String())
-								fmt.Println("Now:" + now.String())
+								fmt.Printf("IndexEntry on node: %s with key: %s by publisher: %s expired at: %s the time is now: %s", n.Addr, k, e.Publisher.String(), entryExpiryTime.String(), now.String())
+								fmt.Println()
 								continue //skip adding this entry to the filtered list
 							}
 						}

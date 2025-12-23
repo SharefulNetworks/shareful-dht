@@ -405,6 +405,8 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 	n2 := ctx.Nodes[1]
 	n3 := ctx.Nodes[2]
 
+	t.Logf("STORAGE TIME: %s", time.Now().String())
+
 	//store index entries from the first two nodes under the same key
 	key := "leaf/x"
 	peer1StoreIndexErr := n1.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second)
@@ -434,9 +436,6 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 
 	//next allow sufficient time for the TTL duration (12 seconds in this case) to elapse
 	time.Sleep(15 * time.Second)
-
-	t.Log("Node 3 has the following connections: ")
-	t.Log(n3.ListPeers())
 
 	//finally attempt to retrieve the collection of entries associated with the key which
 	//should now be of length 1 as node 2's entry should have automatically expired.
