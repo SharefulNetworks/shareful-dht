@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,11 +15,11 @@ import (
 
 	"github.com/SharefulNetworks/shareful-dht/netx"
 	"github.com/SharefulNetworks/shareful-dht/proto/dhtpb"
+	"github.com/SharefulNetworks/shareful-dht/routing"
+	"github.com/SharefulNetworks/shareful-dht/types"
 	"github.com/SharefulNetworks/shareful-dht/wire"
 	"google.golang.org/protobuf/proto"
 )
-
-const IDBytes = 20
 
 const (
 	OP_STORE        = 1
@@ -32,42 +31,45 @@ const (
 	OP_DELETE_INDEX = 7
 )
 
-type NodeID [IDBytes]byte
-
-func NewRandomID() NodeID {
-	var id NodeID
+func NewRandomID() types.NodeID {
+	var id types.NodeID
 	var randomData [32]byte
 	io.ReadFull(rand.Reader, randomData[:])
 	sum := sha1.Sum(randomData[:])
 	copy(id[:], sum[:])
 	return id
 }
-func HashKey(k string) NodeID    { s := sha1.Sum([]byte(k)); var id NodeID; copy(id[:], s[:]); return id }
-func (id NodeID) String() string { return hex.EncodeToString(id[:]) }
 
-func ParseNodeID(s string) (NodeID, error) {
-	var id NodeID
+func HashKey(k string) types.NodeID {
+	s := sha1.Sum([]byte(k))
+	var id types.NodeID
+	copy(id[:], s[:])
+	return id
+}
+
+func ParseNodeID(s string) (types.NodeID, error) {
+	var id types.NodeID
 	b, err := hex.DecodeString(s)
 	if err != nil {
 		return id, err
 	}
-	if len(b) != IDBytes {
+	if len(b) != types.IDBytes {
 		return id, fmt.Errorf("invalid node id length: %d", len(b))
 	}
-	copy(id[:], b[:IDBytes])
+	copy(id[:], b[:types.IDBytes])
 	return id, nil
 }
 
-func xor(a, b NodeID) (o NodeID) {
-	for i := 0; i < IDBytes; i++ {
+func xor(a, b types.NodeID) (o types.NodeID) {
+	for i := 0; i < types.IDBytes; i++ {
 		o[i] = a[i] ^ b[i]
 	}
 	return
 }
-func CompareDistance(a, b, t NodeID) int {
+func CompareDistance(a, b, t types.NodeID) int {
 	da := xor(a, t)
 	db := xor(b, t)
-	for i := 0; i < IDBytes; i++ {
+	for i := 0; i < types.IDBytes; i++ {
 		if da[i] < db[i] {
 			return -1
 		}
@@ -108,12 +110,12 @@ func DefaultConfig() Config {
 }
 
 type IndexEntry struct {
-	Source      string `json:"source"`
-	Target      string `json:"target"`
-	Meta        []byte `json:"meta"`
-	UpdatedUnix int64  `json:"updated_unix"`
-	Publisher   NodeID `json:"publisher"`
-	TTL         int64  `json:"ttl"`
+	Source      string       `json:"source"`
+	Target      string       `json:"target"`
+	Meta        []byte       `json:"meta"`
+	UpdatedUnix int64        `json:"updated_unix"`
+	Publisher   types.NodeID `json:"publisher"`
+	TTL         int64        `json:"ttl"`
 }
 type record struct {
 	Key       string
@@ -122,18 +124,19 @@ type record struct {
 	IsIndex   bool
 	Replicas  []string
 	TTL       time.Duration
-	Publisher NodeID
+	Publisher types.NodeID
 }
 
 type Node struct {
-	ID           NodeID
-	Addr         string
-	cfg          Config
-	transport    netx.Transport
-	cd           wire.Codec
-	mu           sync.RWMutex
-	store        map[string]*record
-	peers        map[NodeID]string
+	ID        types.NodeID
+	Addr      string
+	cfg       Config
+	transport netx.Transport
+	cd        wire.Codec
+	mu        sync.RWMutex
+	store     map[string]*record
+	//peers        map[types.NodeID]string
+	routingTable *routing.RoutingTable
 	stop         chan struct{}
 	reqSeq       uint64
 	pending      sync.Map // map[uint64]chan []byte
@@ -148,22 +151,30 @@ func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node
 	if cfg.UseProtobuf {
 		codec = wire.ProtobufCodec{}
 	}
+
+	//instantiate the new DHT node
 	n := &Node{
-		ID:           HashKey(id),
-		Addr:         addr,
-		cfg:          cfg,
-		transport:    transport,
-		cd:           codec,
-		mu:           sync.RWMutex{},
-		store:        map[string]*record{},
-		peers:        map[NodeID]string{},
+		ID:        HashKey(id),
+		Addr:      addr,
+		cfg:       cfg,
+		transport: transport,
+		cd:        codec,
+		mu:        sync.RWMutex{},
+		store:     map[string]*record{},
+		//peers:        map[types.NodeID]string{},
+		routingTable: routing.NewRoutingTable(HashKey(id), 20),
 		stop:         make(chan struct{}),
 		refreshCount: 0,
 	}
+
+	//start listening for incoming messages
 	_ = n.transport.Listen(addr, n.onMessage)
+
+	//spin up refresher and janitor background tasks and append them to the waitist.
 	n.wg.Add(2)
 	go n.janitor()
 	go n.refresher()
+
 	return n
 }
 func (n *Node) Close() {
@@ -174,75 +185,46 @@ func (n *Node) Close() {
 	})
 }
 
-func (n *Node) AddPeer(addr string, id NodeID) {
-	n.mu.Lock()
-	n.peers[id] = addr
-	n.mu.Unlock()
+func (n *Node) AddPeer(addr string, id types.NodeID) {
+	n.routingTable.Update(id, addr)
 }
 
-func (n *Node) idFor(addr string) NodeID {
-	if addr == n.Addr {
-		return n.ID
-	}
-	var zero NodeID
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-	for id, a := range n.peers {
-		if a == addr {
-			return id
-		}
-	}
-	return zero
-}
-
-func (n *Node) lookupAddrForId(id NodeID) (string, error) {
+func (n *Node) lookupAddrForId(id types.NodeID) (string, error) {
 	if id == n.ID {
 		return n.Addr, nil
 	}
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-	peerAddr, ok := n.peers[id]
-	if !ok {
-		return "", fmt.Errorf("unknown peer ID: %s", id.String())
+	if addr, ok := n.routingTable.GetAddr(id); ok {
+		return addr, nil
 	}
-	return peerAddr, nil
+	return "", fmt.Errorf("unknown peer ID: %s", id.String())
 }
 
 func (n *Node) nearestK(key string) []string {
 	t := HashKey(key)
-	// collect candidate node IDs (peers + self)
-	n.mu.RLock()
-	ids := make([]NodeID, 0, len(n.peers)+1)
-	for id := range n.peers {
-		ids = append(ids, id)
-	}
-	n.mu.RUnlock()
-	ids = append(ids, n.ID)
-	sort.Slice(ids, func(i, j int) bool {
-		return CompareDistance(ids[i], ids[j], t) < 0
-	})
-	k := n.cfg.K
-	if k > len(ids) {
-		k = len(ids)
-	}
-	ids = ids[:k]
-	addrs := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if id == n.ID {
-			addrs = append(addrs, n.Addr)
-		} else {
-			n.mu.RLock()
-			addr, ok := n.peers[id]
-			n.mu.RUnlock()
-			if ok {
-				addrs = append(addrs, addr)
-			}
+	closest := n.routingTable.Closest(t, n.cfg.K)
+
+	addrs := make([]string, 0, len(closest)+1)
+
+	// include self as candidate (you currently do this)
+	addrs = append(addrs, n.Addr)
+
+	for _, c := range closest {
+		if c.ID == n.ID {
+			continue
 		}
+		addrs = append(addrs, c.Addr)
+	}
+
+	// clamp to K
+	if len(addrs) > n.cfg.K {
+		addrs = addrs[:n.cfg.K]
 	}
 	return addrs
 }
 
-func (n *Node) nextReqID() uint64 { return atomic.AddUint64(&n.reqSeq, 1) }
+func (n *Node) nextReqID() uint64 {
+	return atomic.AddUint64(&n.reqSeq, 1)
+}
 
 // -----------------------------------------------------------------------------
 // Central encoding helpers
@@ -349,7 +331,7 @@ func (n *Node) makeMessage(op int) (req any, resp any) {
 func (n *Node) Connect(remoteAddr string) error {
 	fmt.Println("Node: " + n.ID.String() + " is connecting to node @ " + remoteAddr + " standby...")
 	req := &dhtpb.ConnectRequest{
-		NodeId: n.ID[:], // NodeID is [20]byte, cast to slice
+		NodeId: n.ID[:], // types.NodeID is [20]byte, cast to slice
 		Addr:   n.Addr,
 	}
 
@@ -368,7 +350,7 @@ func (n *Node) Connect(remoteAddr string) error {
 	}
 
 	//otherwise where the connection was accepted, parse the returned Node ID and add the remote peer to our peer table.
-	var remoteID NodeID
+	var remoteID types.NodeID
 	copy(remoteID[:], resp.NodeId)
 	n.AddPeer(remoteAddr, remoteID)
 
@@ -383,7 +365,7 @@ func (n *Node) Store(key string, val []byte) error {
 	return n.StoreWithTTL(key, val, ttl, n.ID)
 }
 
-func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisherId NodeID) error {
+func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisherId types.NodeID) error {
 	reps := n.nearestK(key)
 
 	var exp time.Time
@@ -768,11 +750,12 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string) error {
 }
 
 func (n *Node) ListPeers() []string {
-	peers := make([]string, 0)
-	for peerId, peerAddr := range n.peers {
-		peers = append(peers, fmt.Sprintf("Peer ID: %s @ Address: %s", peerId.String(), peerAddr))
+	peerDetails := make([]string, 0)
+	knownPeers := n.routingTable.ListKnownPeers()
+	for _, p := range knownPeers {
+		peerDetails = append(peerDetails, fmt.Sprintf("Peer ID: %s @ Address: %s", p.ID.String(), p.Addr))
 	}
-	return peers
+	return peerDetails
 }
 
 // -----------------------------------------------------------------------------
@@ -801,8 +784,8 @@ func (n *Node) onMessage(from string, data []byte) {
 		return
 	}
 
-	//parse the (hex encoded) ID of the sender from the message envolope, to its equivilant (binary) NodeID valye
-	var senderNodeID NodeID
+	//parse the (hex encoded) ID of the sender from the message envolope, to its equivilant (binary) types.NodeID valye
+	var senderNodeID types.NodeID
 	var senderNodeIDParseErr error
 	senderNodeID, senderNodeIDParseErr = ParseNodeID(fromID)
 	if senderNodeIDParseErr != nil {
@@ -821,9 +804,9 @@ func (n *Node) onMessage(from string, data []byte) {
 
 	if op != OP_CONNECT {
 
-		//parse the senders, hex encoded node ID, to its equivilant (byte) NodeID type value.
+		//parse the senders, hex encoded node ID, to its equivilant (byte) types.NodeID type value.
 
-		//use the senders nodeId to look up its address, this will be used to send responses.
+		//use the senders types.NodeID to look up its address, this will be used to send responses.
 		senderAddr, senderAddrLookupErr = n.lookupAddrForId(senderNodeID)
 		if senderAddrLookupErr != nil {
 			fmt.Println("An error occurred whilst attempting to lookup sender address for Node ID:", fromID)
@@ -880,7 +863,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		}
 
 		n.mu.Lock()
-		var publisherId NodeID
+		var publisherId types.NodeID
 		copy(publisherId[:], pubId)
 		n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: time.Duration(ttlms) * time.Millisecond, Publisher: publisherId}
 		n.mu.Unlock()
@@ -987,7 +970,7 @@ func (n *Node) onMessage(from string, data []byte) {
 			reps = r.Replicas
 		}
 
-		//fmt.Printf("Node @ %s received request from publisher: %s to merge entry with key: %s at: %s", n.Addr, senderNodeID, key, time.Now())
+		//fmt.Printf("Node @ %s received request from publisher: %s to merge entry with key: %s at: %s", n.Addr, sendertypes.NodeID, key, time.Now())
 		//fmt.Println()
 
 		//pass in the id of the SENDER as the publisher of this index entry, the mergeIndexLocal
@@ -1071,7 +1054,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		_ = n.decode(payload, req)
 
 		// register their address + ID
-		var peerID NodeID
+		var peerID types.NodeID
 		copy(peerID[:], req.NodeId)
 		n.AddPeer(req.Addr, peerID)
 
@@ -1093,7 +1076,7 @@ func (n *Node) onMessage(from string, data []byte) {
 
 		var indexKey string
 		var source string
-		var publisherId NodeID
+		var publisherId types.NodeID
 
 		switch r := req.(type) {
 		case *dhtpb.DeleteIndexRequest:
@@ -1168,7 +1151,7 @@ func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
 	}
 }
 
-func (n *Node) mergeIndexLocal(key string, e IndexEntry, reps []string, publisherId NodeID) error {
+func (n *Node) mergeIndexLocal(key string, e IndexEntry, reps []string, publisherId types.NodeID) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -1181,7 +1164,7 @@ func (n *Node) mergeIndexLocal(key string, e IndexEntry, reps []string, publishe
 	if !ok {
 		//PublisherId is not used for index records, it will be stored per enry instead
 		//TTL is also stored per entry.
-		rec = &record{Key: key, IsIndex: true, Replicas: reps, Publisher: NodeID{}}
+		rec = &record{Key: key, IsIndex: true, Replicas: reps, Publisher: types.NodeID{}}
 	}
 	var entries []IndexEntry
 	_ = json.Unmarshal(rec.Value, &entries)
@@ -1273,7 +1256,7 @@ func (n *Node) janitor() {
 	}
 }
 
-func (n *Node) deleteIndexLocal(key string, publisher NodeID, source string) (bool, error) {
+func (n *Node) deleteIndexLocal(key string, publisher types.NodeID, source string) (bool, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
