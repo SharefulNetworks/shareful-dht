@@ -763,24 +763,17 @@ func (n *Node) ListPeers() []string {
 // -----------------------------------------------------------------------------
 
 func (n *Node) onMessage(from string, data []byte) {
-	op, reqID, isResp, fromID, payload, err := n.cd.Unwrap(data)
+	op, reqID, isResp, fromID, fromAddr, payload, err := n.cd.Unwrap(data)
 
 	//if an error occurred during the unwrap, log and exit
 	if err != nil {
-		fmt.Println("Unwrap failed on node:", n.Addr, "ERROR:", err)
+		fmt.Println("Failed to Unwrap message received from node @:", fromAddr, "failed on node:", n.Addr, "ERROR:", err)
 		return
 	}
 
-	//if this is a response message, look up the pending request channel and queue the payload for processing
-	if isResp {
-		//fmt.Println("response received")
-		if chI, ok := n.pending.Load(reqID); ok {
-			ch := chI.(chan []byte)
-			select {
-			case ch <- payload:
-			default:
-			}
-		}
+	//the node that this message was received from MUST have published its address
+	if fromAddr == "" {
+		fmt.Printf("Received message from node: %s with no published address, dropping message.", fromID)
 		return
 	}
 
@@ -794,25 +787,20 @@ func (n *Node) onMessage(from string, data []byte) {
 		return
 	}
 
-	//fmt.Println("the from id was: " + fromID)
+	//crucially, update our routing table with the sender's details
+	n.routingTable.Update(senderNodeID, fromAddr)
 
-	//if this is not an initial CONNECT request attempt to parse the sender Node ID and lookup its corresponding Address
-	//obviously where THIS IS a CONNECT message we cannot guarentee the sender will be
-	//known to us at this point (unless it connected prior) and thus we omit the address lookup here.
-	var senderAddr string
-	var senderAddrLookupErr error
-
-	if op != OP_CONNECT {
-
-		//parse the senders, hex encoded node ID, to its equivilant (byte) types.NodeID type value.
-
-		//use the senders types.NodeID to look up its address, this will be used to send responses.
-		senderAddr, senderAddrLookupErr = n.lookupAddrForId(senderNodeID)
-		if senderAddrLookupErr != nil {
-			fmt.Println("An error occurred whilst attempting to lookup sender address for Node ID:", fromID)
-			fmt.Println(senderAddrLookupErr.Error())
+	//if this is a response message, look up the pending request channel and queue the payload for processing
+	if isResp {
+		//fmt.Println("response received")
+		if chI, ok := n.pending.Load(reqID); ok {
+			ch := chI.(chan []byte)
+			select {
+			case ch <- payload:
+			default:
+			}
 		}
-
+		return
 	}
 
 	switch op {
@@ -892,10 +880,10 @@ func (n *Node) onMessage(from string, data []byte) {
 			r.Err = ""
 		}
 		b, _ := n.encode(respAny)
-		msg, _ := n.cd.Wrap(OP_STORE, reqID, true, n.ID.String(), b)
+		msg, _ := n.cd.Wrap(OP_STORE, reqID, true, n.ID.String(), n.Addr, b)
 		//fmt.Println("Sending response to: ")
 		//fmt.Println(from)
-		_ = n.transport.Send(senderAddr, msg)
+		_ = n.transport.Send(fromAddr, msg)
 
 	case OP_FIND:
 		reqAny, respAny := n.makeMessage(OP_FIND)
@@ -929,10 +917,10 @@ func (n *Node) onMessage(from string, data []byte) {
 			r.Err = ""
 		}
 		b, _ := n.encode(respAny)
-		msg, _ := n.cd.Wrap(OP_FIND, reqID, true, n.ID.String(), b)
+		msg, _ := n.cd.Wrap(OP_FIND, reqID, true, n.ID.String(), n.Addr, b)
 		//fmt.Println("Sending response to: ")
 		//fmt.Println(from)
-		_ = n.transport.Send(senderAddr, msg)
+		_ = n.transport.Send(fromAddr, msg)
 
 	case OP_STORE_INDEX:
 		reqAny, respAny := n.makeMessage(OP_STORE_INDEX)
@@ -992,10 +980,10 @@ func (n *Node) onMessage(from string, data []byte) {
 			r.Err = ""
 		}
 		b, _ := n.encode(respAny)
-		msg, _ := n.cd.Wrap(OP_STORE_INDEX, reqID, true, n.ID.String(), b)
+		msg, _ := n.cd.Wrap(OP_STORE_INDEX, reqID, true, n.ID.String(), n.Addr, b)
 		//fmt.Println("Sending response to: ")
 		//fmt.Println(from)
-		_ = n.transport.Send(senderAddr, msg)
+		_ = n.transport.Send(fromAddr, msg)
 
 	case OP_FIND_INDEX:
 		reqAny, respAny := n.makeMessage(OP_FIND_INDEX)
@@ -1043,28 +1031,26 @@ func (n *Node) onMessage(from string, data []byte) {
 			r.Err = ""
 		}
 		b, _ := n.encode(respAny)
-		msg, _ := n.cd.Wrap(OP_FIND_INDEX, reqID, true, n.ID.String(), b)
+		msg, _ := n.cd.Wrap(OP_FIND_INDEX, reqID, true, n.ID.String(), n.Addr, b)
 		//fmt.Println("Sending response to: ")
 		//fmt.Println(from)
-		_ = n.transport.Send(senderAddr, msg)
+		_ = n.transport.Send(fromAddr, msg)
 
 	case OP_CONNECT:
 
+		//NB: this is just a signalling message to request that this node adds the sender to its routing table
+		//which will already have been done at the top of this onMessage function. Thus here we simply
+		//parse the request and send back an acknowledgement.
 		req, resp := &dhtpb.ConnectRequest{}, &dhtpb.ConnectResponse{}
 		_ = n.decode(payload, req)
-
-		// register their address + ID
-		var peerID types.NodeID
-		copy(peerID[:], req.NodeId)
-		n.AddPeer(req.Addr, peerID)
 
 		resp.Ok = true
 		resp.NodeId = n.ID[:]
 		encoded, _ := n.encode(resp)
-		reply, _ := n.cd.Wrap(OP_CONNECT, reqID, true, n.ID.String(), encoded)
+		reply, _ := n.cd.Wrap(OP_CONNECT, reqID, true, n.ID.String(), n.Addr, encoded)
 
 		// respond directly to TCP connection origin
-		_ = n.transport.Send(req.GetAddr(), reply)
+		_ = n.transport.Send(fromAddr, reply)
 
 	case OP_DELETE_INDEX:
 
@@ -1116,8 +1102,8 @@ func (n *Node) onMessage(from string, data []byte) {
 			r.Err = ""
 		}
 		b, _ := n.encode(resp)
-		msg, _ := n.cd.Wrap(OP_DELETE_INDEX, reqID, true, n.ID.String(), b)
-		_ = n.transport.Send(senderAddr, msg)
+		msg, _ := n.cd.Wrap(OP_DELETE_INDEX, reqID, true, n.ID.String(), n.Addr, b)
+		_ = n.transport.Send(fromAddr, msg)
 
 	default:
 		return
@@ -1131,7 +1117,7 @@ func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
 		return nil, err
 	}
 	reqID := n.nextReqID()
-	msg, err := n.cd.Wrap(op, reqID, false, n.ID.String(), b)
+	msg, err := n.cd.Wrap(op, reqID, false, n.ID.String(), n.Addr, b)
 	if err != nil {
 		return nil, err
 	}

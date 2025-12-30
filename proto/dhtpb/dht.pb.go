@@ -92,6 +92,7 @@ type Envelope struct {
 	IsResponse    bool                   `protobuf:"varint,3,opt,name=is_response,json=isResponse,proto3" json:"is_response,omitempty"`
 	Payload       []byte                 `protobuf:"bytes,4,opt,name=payload,proto3" json:"payload,omitempty"`
 	FromId        []byte                 `protobuf:"bytes,5,opt,name=from_id,json=fromId,proto3" json:"from_id,omitempty"`
+	FromAddr      string                 `protobuf:"bytes,6,opt,name=from_addr,json=fromAddr,proto3" json:"from_addr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -159,6 +160,13 @@ func (x *Envelope) GetFromId() []byte {
 		return x.FromId
 	}
 	return nil
+}
+
+func (x *Envelope) GetFromAddr() string {
+	if x != nil {
+		return x.FromAddr
+	}
+	return ""
 }
 
 type StoreRequest struct {
@@ -937,14 +945,15 @@ var File_proto_dhtpb_dht_proto protoreflect.FileDescriptor
 
 const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\n" +
-	"\x15proto/dhtpb/dht.proto\x12\x05dhtpb\"\x90\x01\n" +
+	"\x15proto/dhtpb/dht.proto\x12\x05dhtpb\"\xad\x01\n" +
 	"\bEnvelope\x12\x19\n" +
 	"\x02op\x18\x01 \x01(\x0e2\t.dhtpb.OpR\x02op\x12\x15\n" +
 	"\x06req_id\x18\x02 \x01(\x04R\x05reqId\x12\x1f\n" +
 	"\vis_response\x18\x03 \x01(\bR\n" +
 	"isResponse\x12\x18\n" +
 	"\apayload\x18\x04 \x01(\fR\apayload\x12\x17\n" +
-	"\afrom_id\x18\x05 \x01(\fR\x06fromId\"\x8c\x01\n" +
+	"\afrom_id\x18\x05 \x01(\fR\x06fromId\x12\x1b\n" +
+	"\tfrom_addr\x18\x06 \x01(\tR\bfromAddr\"\x8c\x01\n" +
 	"\fStoreRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\x12\x15\n" +
