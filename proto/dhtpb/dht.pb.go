@@ -32,6 +32,7 @@ const (
 	Op_OP_PING         Op = 5
 	Op_OP_CONNECT      Op = 6
 	Op_OP_DELETE_INDEX Op = 7
+	Op_OP_FIND_NODE    Op = 8
 )
 
 // Enum value maps for Op.
@@ -45,6 +46,7 @@ var (
 		5: "OP_PING",
 		6: "OP_CONNECT",
 		7: "OP_DELETE_INDEX",
+		8: "OP_FIND_NODE",
 	}
 	Op_value = map[string]int32{
 		"OP_UNKNOWN":      0,
@@ -55,6 +57,7 @@ var (
 		"OP_PING":         5,
 		"OP_CONNECT":      6,
 		"OP_DELETE_INDEX": 7,
+		"OP_FIND_NODE":    8,
 	}
 )
 
@@ -941,6 +944,162 @@ func (x *DeleteIndexResponse) GetErr() string {
 	return ""
 }
 
+type NodeContact struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        []byte                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Addr          string                 `protobuf:"bytes,2,opt,name=addr,proto3" json:"addr,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NodeContact) Reset() {
+	*x = NodeContact{}
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodeContact) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodeContact) ProtoMessage() {}
+
+func (x *NodeContact) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodeContact.ProtoReflect.Descriptor instead.
+func (*NodeContact) Descriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *NodeContact) GetNodeId() []byte {
+	if x != nil {
+		return x.NodeId
+	}
+	return nil
+}
+
+func (x *NodeContact) GetAddr() string {
+	if x != nil {
+		return x.Addr
+	}
+	return ""
+}
+
+type FindNodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        []byte                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FindNodeRequest) Reset() {
+	*x = FindNodeRequest{}
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FindNodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FindNodeRequest) ProtoMessage() {}
+
+func (x *FindNodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FindNodeRequest.ProtoReflect.Descriptor instead.
+func (*FindNodeRequest) Descriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *FindNodeRequest) GetNodeId() []byte {
+	if x != nil {
+		return x.NodeId
+	}
+	return nil
+}
+
+type FindNodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Peers         []*NodeContact         `protobuf:"bytes,2,rep,name=peers,proto3" json:"peers,omitempty"`
+	Err           string                 `protobuf:"bytes,3,opt,name=err,proto3" json:"err,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FindNodeResponse) Reset() {
+	*x = FindNodeResponse{}
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FindNodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FindNodeResponse) ProtoMessage() {}
+
+func (x *FindNodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FindNodeResponse.ProtoReflect.Descriptor instead.
+func (*FindNodeResponse) Descriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *FindNodeResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *FindNodeResponse) GetPeers() []*NodeContact {
+	if x != nil {
+		return x.Peers
+	}
+	return nil
+}
+
+func (x *FindNodeResponse) GetErr() string {
+	if x != nil {
+		return x.Err
+	}
+	return ""
+}
+
 var File_proto_dhtpb_dht_proto protoreflect.FileDescriptor
 
 const file_proto_dhtpb_dht_proto_rawDesc = "" +
@@ -1005,7 +1164,16 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\x06target\x18\x04 \x01(\tR\x06target\"7\n" +
 	"\x13DeleteIndexResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
-	"\x03err\x18\x02 \x01(\tR\x03err*\x88\x01\n" +
+	"\x03err\x18\x02 \x01(\tR\x03err\":\n" +
+	"\vNodeContact\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\fR\x06nodeId\x12\x12\n" +
+	"\x04addr\x18\x02 \x01(\tR\x04addr\"*\n" +
+	"\x0fFindNodeRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\fR\x06nodeId\"^\n" +
+	"\x10FindNodeResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12(\n" +
+	"\x05peers\x18\x02 \x03(\v2\x12.dhtpb.NodeContactR\x05peers\x12\x10\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err*\x9a\x01\n" +
 	"\x02Op\x12\x0e\n" +
 	"\n" +
 	"OP_UNKNOWN\x10\x00\x12\f\n" +
@@ -1016,7 +1184,8 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\aOP_PING\x10\x05\x12\x0e\n" +
 	"\n" +
 	"OP_CONNECT\x10\x06\x12\x13\n" +
-	"\x0fOP_DELETE_INDEX\x10\aB6Z4github.com/SharefulNetworks/shareful-dht/proto/dhtpbb\x06proto3"
+	"\x0fOP_DELETE_INDEX\x10\a\x12\x10\n" +
+	"\fOP_FIND_NODE\x10\bB6Z4github.com/SharefulNetworks/shareful-dht/proto/dhtpbb\x06proto3"
 
 var (
 	file_proto_dhtpb_dht_proto_rawDescOnce sync.Once
@@ -1031,7 +1200,7 @@ func file_proto_dhtpb_dht_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_dhtpb_dht_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_dhtpb_dht_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_proto_dhtpb_dht_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_proto_dhtpb_dht_proto_goTypes = []any{
 	(Op)(0),                     // 0: dhtpb.Op
 	(*Envelope)(nil),            // 1: dhtpb.Envelope
@@ -1048,16 +1217,20 @@ var file_proto_dhtpb_dht_proto_goTypes = []any{
 	(*ConnectResponse)(nil),     // 12: dhtpb.ConnectResponse
 	(*DeleteIndexRequest)(nil),  // 13: dhtpb.DeleteIndexRequest
 	(*DeleteIndexResponse)(nil), // 14: dhtpb.DeleteIndexResponse
+	(*NodeContact)(nil),         // 15: dhtpb.NodeContact
+	(*FindNodeRequest)(nil),     // 16: dhtpb.FindNodeRequest
+	(*FindNodeResponse)(nil),    // 17: dhtpb.FindNodeResponse
 }
 var file_proto_dhtpb_dht_proto_depIdxs = []int32{
-	0, // 0: dhtpb.Envelope.op:type_name -> dhtpb.Op
-	6, // 1: dhtpb.StoreIndexRequest.entry:type_name -> dhtpb.IndexEntry
-	6, // 2: dhtpb.FindIndexResponse.entries:type_name -> dhtpb.IndexEntry
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0,  // 0: dhtpb.Envelope.op:type_name -> dhtpb.Op
+	6,  // 1: dhtpb.StoreIndexRequest.entry:type_name -> dhtpb.IndexEntry
+	6,  // 2: dhtpb.FindIndexResponse.entries:type_name -> dhtpb.IndexEntry
+	15, // 3: dhtpb.FindNodeResponse.peers:type_name -> dhtpb.NodeContact
+	4,  // [4:4] is the sub-list for method output_type
+	4,  // [4:4] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_proto_dhtpb_dht_proto_init() }
@@ -1071,7 +1244,7 @@ func file_proto_dhtpb_dht_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_dhtpb_dht_proto_rawDesc), len(file_proto_dhtpb_dht_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   14,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

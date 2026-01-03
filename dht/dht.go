@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,6 +31,7 @@ const (
 	OP_PING         = 5
 	OP_CONNECT      = 6
 	OP_DELETE_INDEX = 7
+	OP_FIND_NODE    = 8
 )
 
 func NewRandomID() types.NodeID {
@@ -96,17 +99,22 @@ func CollectErrors(errs []error) error {
 
 type Config struct {
 	K                        int
+	Alpha                    int
 	DefaultTTL               time.Duration
 	AllowPermanentDefault    bool
 	RefreshInterval          time.Duration
 	JanitorInterval          time.Duration
 	UseProtobuf              bool
 	RequestTimeout           time.Duration
+	BatchRequestTimeout      time.Duration
 	OutboundQueueWorkerCount int
+	ReplicationFactor        int
+	EnableAuthorativeStorage bool
+	MaxLocalRefreshCount     int //the max local refhreshes (i.e refresh to known nodes) that the node can undertake before a network-wide refresh is required which may result in new k-nearest candidates.
 }
 
 func DefaultConfig() Config {
-	return Config{K: 3, DefaultTTL: 10 * time.Minute, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, OutboundQueueWorkerCount: 4}
+	return Config{K: 20, Alpha: 3, DefaultTTL: 10 * time.Minute, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, BatchRequestTimeout: 4500 * time.Millisecond, OutboundQueueWorkerCount: 4, ReplicationFactor: 3, EnableAuthorativeStorage: false, MaxLocalRefreshCount: 50}
 }
 
 type IndexEntry struct {
@@ -118,24 +126,25 @@ type IndexEntry struct {
 	TTL         int64        `json:"ttl"`
 }
 type record struct {
-	Key       string
-	Value     []byte
-	Expiry    time.Time
-	IsIndex   bool
-	Replicas  []string
-	TTL       time.Duration
-	Publisher types.NodeID
+	Key               string
+	Value             []byte
+	Expiry            time.Time
+	IsIndex           bool
+	Replicas          []string
+	TTL               time.Duration
+	Publisher         types.NodeID
+	LocalRefreshCount uint64
+	mu                sync.RWMutex
 }
 
 type Node struct {
-	ID        types.NodeID
-	Addr      string
-	cfg       Config
-	transport netx.Transport
-	cd        wire.Codec
-	mu        sync.RWMutex
-	store     map[string]*record
-	//peers        map[types.NodeID]string
+	ID           types.NodeID
+	Addr         string
+	cfg          Config
+	transport    netx.Transport
+	cd           wire.Codec
+	mu           sync.RWMutex
+	store        map[string]*record
 	routingTable *routing.RoutingTable
 	stop         chan struct{}
 	reqSeq       uint64
@@ -154,15 +163,14 @@ func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node
 
 	//instantiate the new DHT node
 	n := &Node{
-		ID:        HashKey(id),
-		Addr:      addr,
-		cfg:       cfg,
-		transport: transport,
-		cd:        codec,
-		mu:        sync.RWMutex{},
-		store:     map[string]*record{},
-		//peers:        map[types.NodeID]string{},
-		routingTable: routing.NewRoutingTable(HashKey(id), 20),
+		ID:           HashKey(id),
+		Addr:         addr,
+		cfg:          cfg,
+		transport:    transport,
+		cd:           codec,
+		mu:           sync.RWMutex{},
+		store:        map[string]*record{},
+		routingTable: routing.NewRoutingTable(HashKey(id), cfg.K),
 		stop:         make(chan struct{}),
 		refreshCount: 0,
 	}
@@ -270,6 +278,8 @@ func (n *Node) makeMessage(op int) (req any, resp any) {
 			return &dhtpb.ConnectRequest{}, &dhtpb.ConnectResponse{}
 		case OP_DELETE_INDEX:
 			return &dhtpb.DeleteIndexRequest{}, &dhtpb.DeleteIndexResponse{}
+		case OP_FIND_NODE:
+			return &dhtpb.FindNodeRequest{}, &dhtpb.FindNodeResponse{}
 		default:
 			return nil, nil
 		}
@@ -362,11 +372,41 @@ func (n *Node) Store(key string, val []byte) error {
 	if n.cfg.AllowPermanentDefault {
 		ttl = 0
 	}
-	return n.StoreWithTTL(key, val, ttl, n.ID)
+	return n.StoreWithTTL(key, val, ttl, n.ID, true)
 }
 
-func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisherId types.NodeID) error {
-	reps := n.nearestK(key)
+func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisherId types.NodeID, recomputeReplicas bool) error {
+
+	//holds our collection of replica addresses
+	var reps []string
+
+	//where recomputeReplicas is set to false we only store to nearest nodes in our LOCAL routing table
+	//this is primarily used by the refresh routine, to periodically refresh entries on replicas
+	//ALREADY KNOWN to this node.
+
+	//Then, at some less frequent interval, it will call StoreWithTTL with
+	//this value set to true in order to prompt the network wide, gathering of nearest K nodes
+	//to refresh the entries to which may, in turn, result in new nearest candidates being identified
+	//and thereby ensure that we account for node churn in the wider network and always attempt to
+	//store to the prevailing nearest K nodes.
+	if !recomputeReplicas {
+		fmt.Println("Note: local only flag provided: storage will only be propagated to known nodes in the local routing table.")
+		reps = n.nearestK(key)
+	} else {
+
+		//look up k nearest nodes over network, only fall back to localised search
+		//in the event of an error.
+		peers, err := n.lookupK(HashKey(key))
+		if err != nil {
+			fmt.Printf("An error occurred whilst attemptiing to lookup nearest nodes over the network, falling back to local search. the error was: %v", err)
+			reps = n.nearestK(key)
+		} else {
+			reps = n.peersToAddrs(peers)
+		}
+
+		//clamp replicas to the replication factor defined in the prevailing config
+		reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
+	}
 
 	var exp time.Time
 	switch {
@@ -378,8 +418,16 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisher
 		exp = time.Now().Add(ttl) // positive ttl = normal expiry
 	}
 
+	//obtained previously stored record's local refresh count
+	var prevLocalRefresh uint64
+	n.mu.RLock()
+	if old, ok := n.store[key]; ok && old != nil {
+		prevLocalRefresh = old.LocalRefreshCount
+	}
+	n.mu.RUnlock()
+
 	n.mu.Lock()
-	n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: ttl, Publisher: publisherId}
+	n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: ttl, Publisher: publisherId, LocalRefreshCount: prevLocalRefresh}
 	n.mu.Unlock()
 
 	reqAny, _ := n.makeMessage(OP_STORE)
@@ -441,10 +489,27 @@ func (n *Node) Find(key string) ([]byte, bool) {
 }
 
 func (n *Node) FindRemote(key string) ([]byte, bool) {
-	reps := n.nearestK(key)
+
+	//holds our collection of replica addresses
+	var reps []string
+
+	//look up k nearest nodes over network, only fall back to localised search
+	//in the event of an error.
+	peers, err := n.lookupK(HashKey(key))
+	if err != nil {
+		fmt.Printf("An error occurred whilst attemptiing to lookup nearest nodes over the network, falling back to local search. the error was: %v", err)
+		reps = n.nearestK(key)
+	} else {
+		reps = n.peersToAddrs(peers)
+	}
+
+	//clamp replicas to the replication factor defined in the prevailing config
+	reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
 	if v, ok := n.Find(key); ok {
 		return v, true
 	}
+
+	//channel to collate responses from concurrent find requests
 	ch := make(chan struct {
 		v  []byte
 		ok bool
@@ -701,7 +766,7 @@ func (n *Node) Delete(key string) error {
 		return fmt.Errorf("cannot delete record for key: %s as this node is not the original publisher", key)
 	}
 
-	return n.StoreWithTTL(key, nil, -1, n.ID) //store with negative TTL to indicate deletion
+	return n.StoreWithTTL(key, nil, -1, n.ID, false) //store with negative TTL to indicate deletion
 }
 
 func (n *Node) DeleteIndex(indexKey string, indexEntrySource string) error {
@@ -1105,9 +1170,229 @@ func (n *Node) onMessage(from string, data []byte) {
 		msg, _ := n.cd.Wrap(OP_DELETE_INDEX, reqID, true, n.ID.String(), n.Addr, b)
 		_ = n.transport.Send(fromAddr, msg)
 
+	case OP_FIND_NODE:
+		req, _ := n.makeMessage(OP_FIND_NODE)
+		_ = n.decode(payload, req)
+
+		//parse the target node id from the request
+		r := req.(*dhtpb.FindNodeRequest)
+		var target types.NodeID
+		copy(target[:], r.NodeId)
+
+		//find nodes closest to the target id from our LOCAL routing table.
+		peers := n.routingTable.Closest(target, n.cfg.K) // K shortlist from local RT
+
+		_, resp := n.makeMessage(OP_FIND_NODE)
+		rsp := resp.(*dhtpb.FindNodeResponse)
+		rsp.Peers = make([]*dhtpb.NodeContact, 0, len(peers))
+		rsp.Ok = true
+		for _, p := range peers {
+			rsp.Peers = append(rsp.Peers, &dhtpb.NodeContact{
+				NodeId: p.ID[:],
+				Addr:   p.Addr,
+			})
+		}
+
+		b, _ := n.encode(resp)
+		msg, _ := n.cd.Wrap(OP_FIND_NODE, reqID, true, n.ID.String(), n.Addr, b)
+		_ = n.transport.Send(fromAddr, msg)
 	default:
 		return
 	}
+}
+
+func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
+
+	//set core lookup parameters from config.
+	K := n.cfg.K
+	alpha := n.cfg.Alpha
+	timeout := n.cfg.BatchRequestTimeout
+
+	//populate initial shortlist from the CLOSEST nodes in our LOCAL routing table.
+	shortlist := n.routingTable.Closest(target, K)
+
+	//instantiate our seen and queried maps.
+	seen := make(map[types.NodeID]*routing.Peer, len(shortlist))
+	queried := make(map[types.NodeID]bool, len(shortlist))
+
+	//seed seen with initial shortlist
+	for _, p := range shortlist {
+		if p == nil || p.Addr == "" || p.ID == n.ID {
+			continue
+		}
+		seen[p.ID] = p
+	}
+
+	rebuild := func() {
+		all := make([]*routing.Peer, 0, len(seen))
+		for _, p := range seen {
+			all = append(all, p)
+		}
+		sort.Slice(all, func(i, j int) bool {
+			return CompareDistance(all[i].ID, all[j].ID, target) < 0
+		})
+
+		// cap candidate pool
+		if len(all) > K*8 {
+			all = all[:K*8]
+		}
+
+		// prune seen to match the cap (THIS is the important part)
+		newSeen := make(map[types.NodeID]*routing.Peer, len(all))
+		for _, p := range all {
+			newSeen[p.ID] = p
+		}
+		seen = newSeen
+
+		// shortlist is always top K from the bounded pool
+		if len(all) > K {
+			shortlist = all[:K]
+		} else {
+			shortlist = all
+		}
+	}
+
+	// helper: are there unqueried nodes in best K?
+	hasUnqueriedInBestK := func() bool {
+		for _, p := range shortlist {
+			if p == nil || p.ID == n.ID {
+				continue
+			}
+			if !queried[p.ID] {
+				return true
+			}
+		}
+		return false
+	}
+
+	rebuild()
+
+	// snapshot best K IDs to detect progress
+	snapshotBest := func() []types.NodeID {
+		out := make([]types.NodeID, 0, len(shortlist))
+		for _, p := range shortlist {
+			out = append(out, p.ID)
+		}
+		return out
+	}
+
+	sameSnapshot := func(a, b []types.NodeID) bool {
+		if len(a) != len(b) {
+			return false
+		}
+		for i := range a {
+			if a[i] != b[i] {
+				return false
+			}
+		}
+		return true
+	}
+
+	bestBefore := snapshotBest()
+
+	for {
+		// pick alpha closest unqueried
+		batch := make([]*routing.Peer, 0, alpha)
+		for _, p := range shortlist {
+			if p == nil || p.ID == n.ID {
+				continue
+			}
+			if !queried[p.ID] {
+				batch = append(batch, p)
+				if len(batch) == alpha {
+					break
+				}
+			}
+		}
+		if len(batch) == 0 {
+			break
+		}
+
+		type res struct {
+			peers []*routing.Peer
+			err   error
+		}
+		ch := make(chan res, len(batch))
+
+		for _, p := range batch {
+			queried[p.ID] = true
+			go func(addr string) {
+				//req := &dhtpb.FindNodeRequest{NodeId: target[:]}
+				req, _ := n.makeMessage(OP_FIND_NODE)
+				r := req.(*dhtpb.FindNodeRequest)
+				r.NodeId = target[:]
+
+				b, err := n.sendRequest(addr, OP_FIND_NODE, req)
+				if err != nil {
+					ch <- res{nil, err}
+					return
+				}
+
+				var resp dhtpb.FindNodeResponse
+				if err := n.decode(b, &resp); err != nil {
+					ch <- res{nil, err}
+					return
+				}
+
+				out := make([]*routing.Peer, 0, len(resp.Peers))
+				for _, rp := range resp.Peers {
+					if rp == nil || len(rp.NodeId) != len(target) || rp.Addr == "" {
+						continue
+					}
+					var id types.NodeID
+					copy(id[:], rp.NodeId)
+					if id == n.ID {
+						continue
+					}
+					out = append(out, &routing.Peer{ID: id, Addr: rp.Addr})
+				}
+				ch <- res{out, nil}
+			}(p.Addr)
+		}
+
+		// wait up to timeout for this batch
+		timer := time.NewTimer(timeout)
+		for i := 0; i < len(batch); i++ {
+			select {
+			case r := <-ch:
+				if r.err != nil {
+					continue
+				}
+				for _, np := range r.peers {
+					if np == nil || np.Addr == "" || np.ID == n.ID {
+						continue
+					}
+					// learn them
+					n.routingTable.Update(np.ID, np.Addr)
+
+					if _, ok := seen[np.ID]; !ok {
+						seen[np.ID] = np
+					}
+				}
+			case <-timer.C:
+				i = len(batch) // stop waiting for remaining responses
+			}
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+
+		rebuild()
+
+		bestAfter := snapshotBest()
+		progressed := !sameSnapshot(bestBefore, bestAfter)
+		bestBefore = bestAfter
+
+		// termination rule
+		if !progressed && !hasUnqueriedInBestK() {
+			break
+		}
+	}
+
+	return shortlist, nil
 }
 
 func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
@@ -1170,6 +1455,14 @@ func (n *Node) mergeIndexLocal(key string, e IndexEntry, reps []string, publishe
 	rec.Replicas = reps
 	n.store[key] = rec
 	return nil
+}
+
+func (n *Node) peersToAddrs(peers []*routing.Peer) []string {
+	addrs := make([]string, 0, len(peers))
+	for _, p := range peers {
+		addrs = append(addrs, p.Addr)
+	}
+	return addrs
 }
 
 func (n *Node) janitor() {
@@ -1314,7 +1607,15 @@ func (n *Node) refresher() {
 }
 
 func (n *Node) refresh() {
+
+	//if refresh count has reached max uint64, reset to zero to avoid overflow
+	if n.refreshCount == math.MaxUint64 {
+		n.refreshCount = 0
+	}
+
+	//increment the refresh count
 	n.refreshCount++
+
 	n.mu.RLock()
 	keys := make([]string, 0, len(n.store))
 	recs := make([]*record, 0, len(n.store))
@@ -1387,10 +1688,24 @@ func (n *Node) refresh() {
 				continue
 			}
 
-			//otherwise, refresh the record
+			//otherwise, refresh the record...
+
+			//set the TTL to be used for the refresh
 			left = rec.TTL
 
-			entryRefreshErr := n.StoreWithTTL(k, rec.Value, left, rec.Publisher)
+			//increament the local refresh count for this record
+			rec.mu.Lock()
+			if rec.LocalRefreshCount == math.MaxUint64 {
+				rec.LocalRefreshCount = 0
+			}
+			rec.LocalRefreshCount++
+			rec.mu.Unlock()
+
+			//if we have hit the max number of local refresh attempts set "recomputeReplicas" parameter to true
+			//to prompt the StoreWithTTL function to recompute the network-wide,  k nearest nodes afresh
+			recomputeReplicas := rec.LocalRefreshCount > uint64(n.cfg.MaxLocalRefreshCount) && rec.LocalRefreshCount%uint64(n.cfg.MaxLocalRefreshCount) == 0
+
+			entryRefreshErr := n.StoreWithTTL(k, rec.Value, left, rec.Publisher, recomputeReplicas)
 			if entryRefreshErr != nil {
 				fmt.Println("An error occurred whilst attempting to refresh entry with key: " + k + " the error was: " + entryRefreshErr.Error())
 			}

@@ -336,13 +336,13 @@ func Test_Standard_Entry_Auto_Expiration(t *testing.T) {
 	n3 := ctx.Nodes[2]
 
 	//store an STANDARD entry to the DHT via node 1, we directly call the *WithTTL variant to set a short ttl
-	peer1StoreErr := n1.StoreWithTTL("alpha", []byte("v"), 10*time.Second, n1.ID)
+	peer1StoreErr := n1.StoreWithTTL("alpha", []byte("v"), 10*time.Second, n1.ID,true)
 	if peer1StoreErr != nil {
 		t.Fatal("Error occurred whilst Peer Node 1 was trying to store entry:", peer1StoreErr)
 	}
 
 	//store a standard entry to the DHT via node 2,we directly call the *WithTTL variant to set a short ttl
-	peer2StoreErr := n2.StoreWithTTL("beta", []byte("w"), 10*time.Second, n2.ID)
+	peer2StoreErr := n2.StoreWithTTL("beta", []byte("w"), 10*time.Second, n2.ID,true)
 	if peer2StoreErr != nil {
 		t.Fatal("Error occurred whilst Peer Node 2 was trying to store entry:", peer2StoreErr)
 	}
