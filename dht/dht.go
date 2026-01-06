@@ -98,23 +98,24 @@ func CollectErrors(errs []error) error {
 }
 
 type Config struct {
-	K                        int
-	Alpha                    int
-	DefaultTTL               time.Duration
-	AllowPermanentDefault    bool
-	RefreshInterval          time.Duration
-	JanitorInterval          time.Duration
-	UseProtobuf              bool
-	RequestTimeout           time.Duration
-	BatchRequestTimeout      time.Duration
-	OutboundQueueWorkerCount int
-	ReplicationFactor        int
-	EnableAuthorativeStorage bool
-	MaxLocalRefreshCount     int //the max local refhreshes (i.e refresh to known nodes) that the node can undertake before a network-wide refresh is required which may result in new k-nearest candidates.
+	K                           int
+	Alpha                       int
+	DefaultTTL                  time.Duration
+	AllowPermanentDefault       bool
+	RefreshInterval             time.Duration
+	JanitorInterval             time.Duration
+	UseProtobuf                 bool
+	RequestTimeout              time.Duration
+	BatchRequestTimeout         time.Duration
+	OutboundQueueWorkerCount    int
+	ReplicationFactor           int
+	EnableAuthorativeStorage    bool
+	MaxLocalRefreshCount        int //the max local refhreshes (i.e refresh to known nodes) that the node can undertake before a network-wide refresh is required which may result in new k-nearest candidates.
+	BootstrapConnectDelayMillis int //the delay, in milliseconds, that should elapse before the node attempts to connect to each bootstrap node. The delay is useful where all or multiple nodes in the list are being started in tandem as it allows sufficient time for each respective node to spin up and drop into a ready state.
 }
 
 func DefaultConfig() Config {
-	return Config{K: 20, Alpha: 3, DefaultTTL: 10 * time.Minute, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, BatchRequestTimeout: 4500 * time.Millisecond, OutboundQueueWorkerCount: 4, ReplicationFactor: 3, EnableAuthorativeStorage: false, MaxLocalRefreshCount: 50}
+	return Config{K: 20, Alpha: 3, DefaultTTL: 10 * time.Minute, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, BatchRequestTimeout: 4500 * time.Millisecond, OutboundQueueWorkerCount: 4, ReplicationFactor: 3, EnableAuthorativeStorage: false, MaxLocalRefreshCount: 50, BootstrapConnectDelayMillis: 20000}
 }
 
 type IndexEntry struct {
@@ -185,6 +186,46 @@ func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node
 
 	return n
 }
+
+func (n *Node) Bootstrap(bootstrapAddrs []string, connectDelayMillis int) error {
+
+	if len(bootstrapAddrs) == 0 {
+		return fmt.Errorf("no bootstrap addresses provided")
+	}
+
+	//if a connect delay has not been specified use the default value from the prevailing config.
+	if connectDelayMillis <= 0 {
+		connectDelayMillis = n.cfg.BootstrapConnectDelayMillis
+	}
+
+	//var to hold any errors that occur during the bootstrap process.
+	var bootstapConnErrors []error
+
+	//once the connect delay period has elapsed, attempt to connect to each bootstrap node.,
+	time.AfterFunc(time.Duration(connectDelayMillis)*time.Millisecond, func() {
+		for i := 0; i < len(bootstrapAddrs); i++ {
+			if bootstrapAddrs[i] == n.Addr {
+				continue //skip connecting to self
+			}
+			if err := n.Connect(bootstrapAddrs[i]); err != nil {
+				bootstapConnErrors = append(bootstapConnErrors, fmt.Errorf("error occurred whilst trying to connect to bootstrap address %s: %v", bootstrapAddrs[i], err))
+			}
+		}
+	})
+
+	//we capture any and all errors, that occur during the process and return them as a single error object.
+	if len(bootstapConnErrors) > 0 {
+		collectiveErr := CollectErrors(bootstapConnErrors)
+		return collectiveErr
+	}
+
+	fmt.Println()
+	fmt.Printf("Node: %s Successfully boottrapped to all %d nodes provided. ", n.Addr, len(bootstrapAddrs))
+	fmt.Println()
+
+	return nil
+}
+
 func (n *Node) Close() {
 	n.closeOnce.Do(func() {
 		close(n.stop)
@@ -213,7 +254,7 @@ func (n *Node) nearestK(key string) []string {
 
 	addrs := make([]string, 0, len(closest)+1)
 
-	// include self as candidate (you currently do this)
+	// include self as candidate
 	addrs = append(addrs, n.Addr)
 
 	for _, c := range closest {
@@ -1223,6 +1264,7 @@ func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
 		seen[p.ID] = p
 	}
 
+	//called to rebuild the shortlist and the wider seen candidates pool from our discovered nodes.
 	rebuild := func() {
 		all := make([]*routing.Peer, 0, len(seen))
 		for _, p := range seen {
@@ -1276,6 +1318,7 @@ func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
 		return out
 	}
 
+	//compares the two provided snapshots arrays to determine if they are identical
 	sameSnapshot := func(a, b []types.NodeID) bool {
 		if len(a) != len(b) {
 			return false
@@ -1288,10 +1331,11 @@ func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
 		return true
 	}
 
+	//we take a snapshot of the best K nodes before starting each iteration
 	bestBefore := snapshotBest()
 
 	for {
-		// pick alpha closest unqueried
+		// pick alpha closest unqueried, alopha here is the max node we will query in parallel
 		batch := make([]*routing.Peer, 0, alpha)
 		for _, p := range shortlist {
 			if p == nil || p.ID == n.ID {
@@ -1308,16 +1352,20 @@ func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
 			break
 		}
 
+		//struct return on result of query of operation.
 		type res struct {
 			peers []*routing.Peer
 			err   error
 		}
+
+		//prepare channel to collect results from batch query
 		ch := make(chan res, len(batch))
 
+		//begin quering nodes in batch, in parallel
 		for _, p := range batch {
 			queried[p.ID] = true
 			go func(addr string) {
-				//req := &dhtpb.FindNodeRequest{NodeId: target[:]}
+
 				req, _ := n.makeMessage(OP_FIND_NODE)
 				r := req.(*dhtpb.FindNodeRequest)
 				r.NodeId = target[:]
@@ -1380,13 +1428,15 @@ func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
 			}
 		}
 
+		//rebuild shortlist and wider seen candidate pool from nodes discovered in this iteration
 		rebuild()
 
+		// check for progress, by determining if best k has changed
 		bestAfter := snapshotBest()
 		progressed := !sameSnapshot(bestBefore, bestAfter)
 		bestBefore = bestAfter
 
-		// termination rule
+		//where there is no change and no further nodes to query we return.
 		if !progressed && !hasUnqueriedInBestK() {
 			break
 		}
@@ -1463,6 +1513,34 @@ func (n *Node) peersToAddrs(peers []*routing.Peer) []string {
 		addrs = append(addrs, p.Addr)
 	}
 	return addrs
+}
+
+func pickEvenDistribution(all []int, k int) []int {
+	n := len(all)
+
+	//if either the collection or the the number of nodes to select is less than or equal to zero, return nil
+	if k <= 0 || n == 0 {
+		return nil
+	}
+
+	//if the number of nodes to select is greater than or equal to the total number of available nodes, return all nodes
+	if k >= n {
+		out := make([]int, n)
+		copy(out, all)
+		return out
+	}
+
+	//otherwise set output array capacity equal to the number of requested nodes, K
+	out := make([]int, 0, k)
+
+	for i := 0; i < k; i++ {
+		idx := int((float64(i) + 0.5) * float64(n) / float64(k))
+		if idx >= n {
+			idx = n - 1
+		}
+		out = append(out, all[idx])
+	}
+	return out
 }
 
 func (n *Node) janitor() {

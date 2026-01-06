@@ -8,6 +8,13 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/netx"
 )
 
+/*****************************************************************************************************************
+ *                                             CORE E2E TESTS
+ *
+ * THE BELOW TESTS ARE INTENDED TO VALIDATE THE CORE FUNCTIONALITY OF THE DHT IN A
+ * SIMPLIFIED, REDUCED TEST NETWORK ENVIRONMENT.
+ ******************************************************************************************************************/
+
 func Test_Create_And_Find_Standard_Entry_Value(t *testing.T) {
 
 	//create new default test context
@@ -336,13 +343,13 @@ func Test_Standard_Entry_Auto_Expiration(t *testing.T) {
 	n3 := ctx.Nodes[2]
 
 	//store an STANDARD entry to the DHT via node 1, we directly call the *WithTTL variant to set a short ttl
-	peer1StoreErr := n1.StoreWithTTL("alpha", []byte("v"), 10*time.Second, n1.ID,true)
+	peer1StoreErr := n1.StoreWithTTL("alpha", []byte("v"), 10*time.Second, n1.ID, true)
 	if peer1StoreErr != nil {
 		t.Fatal("Error occurred whilst Peer Node 1 was trying to store entry:", peer1StoreErr)
 	}
 
 	//store a standard entry to the DHT via node 2,we directly call the *WithTTL variant to set a short ttl
-	peer2StoreErr := n2.StoreWithTTL("beta", []byte("w"), 10*time.Second, n2.ID,true)
+	peer2StoreErr := n2.StoreWithTTL("beta", []byte("w"), 10*time.Second, n2.ID, true)
 	if peer2StoreErr != nil {
 		t.Fatal("Error occurred whilst Peer Node 2 was trying to store entry:", peer2StoreErr)
 	}
@@ -447,10 +454,97 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 	}
 }
 
+/*****************************************************************************************************************
+ *                                        FULL NETWORK E2E TESTS
+ *
+ * THE BELOW TESTS ARE INTENDED TO SIMULATE HOW THE DHT WILL FUNCTION IN A
+ * LARGER NETWORK ENVIORNMENT, COMPRISED OF A MULTITUDE OF CORE BOOTSTRAP AND/OR
+ * STANDARD NODES.
+ ******************************************************************************************************************/
+
+func Test_Full_Network_Mesh_Node_Interconnectivity(t *testing.T) {
+
+	desiredNodeCount := 42
+
+	//create new configurable test context
+	ctx := NewConfigurableTestContext(t, desiredNodeCount, nil, false)
+
+	//pause for a short time to allow the context to create the fully connected mesh network
+	time.Sleep(12000 * time.Millisecond)
+
+	//next pick a node at random and validate that it indeed has a view of all nodes in the network
+	//which will be the desiredNodeCount minus 1 to account for the fact that the node
+	//will obviously  not be included in its own peer list.
+	node := ctx.Nodes[15]
+	if len(node.ListPeers()) == (desiredNodeCount - 1) {
+		t.Log()
+		t.Logf("Node: %d has address: %s and has a peer list length of: %d", 15, node.Addr, len(node.ListPeers()))
+		t.Log()
+	} else {
+		t.Fatalf("Expected node to have a peer list length of: %d but actually had a length of: %d", desiredNodeCount-1, len(node.ListPeers()))
+	}
+
+}
+
+func Test_Full_Network_Core_Network_Nodew_Bootstrap(t *testing.T) {
+
+	//prepare our core network, bootstrap node addresses.
+	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//next call into our helper function to create a new configurable test context complete
+	//with core bootstrap nodes. For the purposes of this test we DO NOT specify any standard nodes
+	//we are ONLY concerend with testing the interconnectivity of the core bootstrap nodes.
+	//NB: We set the connect delay to -1 to prompt the node to use the default connection delay as
+	//    specified in the preveiling configuration.
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, coreNetworkBootstrapNodeAddrs, 0)
+
+	//next we wait some time for the bootstrap process to complete on each node, by default
+	//each node will wait 20 seconds before attempting to actually connect to the provided
+	//bootstrap addresses
+	time.Sleep(30000 * time.Millisecond)
+
+	//grab reference to our (now hopefully bootstrapped nodes)
+	n1 := ctx.BootstrapNodes[0]
+	n2 := ctx.BootstrapNodes[1]
+	n3 := ctx.BootstrapNodes[2]
+	n4 := ctx.BootstrapNodes[3]
+	n5 := ctx.BootstrapNodes[4]
+
+	//next we validate that each node has a full view of the core network by checking
+	//that each node has a peer list length equal to the total number of core nodes minus itself.
+	expectedPeerListLength := len(coreNetworkBootstrapNodeAddrs) - 1
+
+	if len(n1.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeers()))
+	}
+
+	if len(n2.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeers()))
+	}
+
+	if len(n3.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeers()))
+	}
+
+	if len(n4.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeers()))
+	}
+
+	if len(n5.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeers()))
+	}
+
+}
+
+/*****************************************************************************************************************
+ *                                     HELPER/UTILITY TYPES AND FUNCTIONS FOR E2E TESTS
+ ******************************************************************************************************************/
+
 // TestContext is used to hold context info for e2e tests
 type TestContext struct {
-	Nodes  []*Node
-	Config *Config
+	Nodes          []*Node
+	Config         *Config
+	BootstrapNodes []*Node
 }
 
 // NewDefaultTestContext creates a new default test context with two connected nodes
@@ -530,7 +624,7 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, config *Config, pri
 		}
 	}
 
-	//if th user has requested a peer mapping, output it to the console.
+	//if the user has requested a peer mapping, output it to the console.
 	if printPeerMap {
 		for nodeIdx, node := range Nodes {
 			t.Logf("Node: %d has address: %s and the following peers: %v", nodeIdx, node.Addr, node.ListPeers())
@@ -549,6 +643,84 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, config *Config, pri
 	return &TestContext{
 		Config: cfg,
 		Nodes:  Nodes,
+	}
+
+}
+
+func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNodeCount int, config *Config, bootstrapAddresses []string, connectDelayMillis int) *TestContext {
+	t.Helper()
+
+	if len(bootstrapAddresses) <= 0 {
+		t.Fatalf("Failed to create configurable test context: Bootstrap Nodes address count must be greater than zero.")
+	}
+
+	if standardNodeCount <= 0 {
+		t.Log("WARNING: The requested standard node count was less than 1 thus the configurable context is solely comprised of core, bootstrap nodes.")
+	}
+
+	var cfg *Config
+	if config == nil {
+		//prepare default config if a config has not been provided
+		cf := DefaultConfig()
+		cfg = &cf
+		cfg.UseProtobuf = true
+		cfg.RequestTimeout = 2000 * time.Millisecond
+		cfg.DefaultTTL = 30 * time.Second
+		cfg.RefreshInterval = 5 * time.Second
+		cfg.JanitorInterval = 10 * time.Second
+
+	} else {
+		cfg = config
+	}
+
+	//first create and bootstrap the core network (bootstrap) nodes.
+	bootstrapNodes := make([]*Node, 0)
+	for i, addr := range bootstrapAddresses {
+		bootstrapNode := NewNode("bootstrapNode"+strconv.Itoa(i), addr, netx.NewTCP(), *cfg)
+		bootstrapNode.Bootstrap(bootstrapAddresses, connectDelayMillis) //crucially bootstrap the node, witch the provided addresses. The node will ignore its own address.
+		bootstrapNodes = append(bootstrapNodes, bootstrapNode)
+
+	}
+
+	//Next create some STANDARD test nodes.
+	standardNodes := make([]*Node, 0)
+	startingIP := 8999
+	for i := 0; i < standardNodeCount; i++ {
+		startingIP++
+		nodeIP := startingIP + 1
+		nodeNameStr := "node" + strconv.Itoa(i+1)
+		nodeIpStr := strconv.Itoa(nodeIP)
+		node := NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), *cfg)
+		standardNodes = append(standardNodes, node)
+	}
+
+	//evenly distribute connection of standard nodes across core bootstrap nodes
+	for i, node := range standardNodes {
+		bootstrapNode := bootstrapNodes[i%len(bootstrapNodes)]
+		if err := node.Connect(bootstrapNode.Addr); err != nil {
+			t.Fatalf("Error occurred whilst Peer Node %d was trying to connect to Bootstrap Node %s: %v", i+1, bootstrapNode.Addr, err)
+		}
+	}
+
+	//finally defer context cleanup
+	t.Cleanup(func() {
+
+		//next clean up bootstrap nodes
+		for _, n := range bootstrapNodes {
+			n.Close()
+		}
+
+		//then clean up standard nodes
+		for _, n := range standardNodes {
+			n.Close()
+		}
+
+	})
+
+	return &TestContext{
+		Config:         cfg,
+		Nodes:          standardNodes,
+		BootstrapNodes: bootstrapNodes,
 	}
 
 }
