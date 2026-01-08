@@ -40,8 +40,10 @@ func (rt *RoutingTable) BucketFor(id types.NodeID) (int, *KBucket) {
 	return i, &rt.buckets[i]
 }
 
-// Update inserts or refreshes a Peer in the correct bucket.
-// Eviction strategy here: if bucket full, evict oldest (index 0).
+//Update - Upserts (i.e Updates or Inserts) Peer in the correct bucket.
+// Eviction strategy here: if bucket full, evict oldest at index 0
+//(by shifting all entries to the left by one) then the new value is
+//appended to the now vacant last index in the bucket.
 func (rt *RoutingTable) Update(id types.NodeID, addr string) {
 	i := rt.bucketIndex(rt.self, id)
 	if i < 0 {
@@ -88,6 +90,40 @@ func (rt *RoutingTable) Update(id types.NodeID, addr string) {
 	//otherwise where the bucket is full,  evict oldest (LRU) as per Kademlia spec.
 	copy(b.Peers[0:], b.Peers[1:])
 	b.Peers[len(b.Peers)-1] = p
+}
+
+//Remove - Explicitly removes the node with the sepcified id from this routing
+//         table instance, where it exists. A boolean is then returned to indicate
+//         whether or not the target entry was successfully located and expunged;
+//         return TRUE where this is the case and FALSE otherwise.
+func (rt *RoutingTable) Remove(id types.NodeID) bool{
+
+	var removed bool = false;
+
+	i := rt.bucketIndex(rt.self, id)
+	if i < 0 {
+		return removed
+	}
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	b := &rt.buckets[i]
+
+	var targetRemovalIndex int = -1
+	for idx,curPeer := range b.Peers{
+		  if curPeer.ID == id{
+			targetRemovalIndex = idx
+			removed = true
+			break
+		  }
+	}
+
+	if targetRemovalIndex >=0{
+      b.Remove(targetRemovalIndex)
+	}
+
+	return removed
+
 }
 
 // GetAddr lets Node.lookupAddrForId stay simple.

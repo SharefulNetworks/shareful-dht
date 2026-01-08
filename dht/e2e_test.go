@@ -2,6 +2,7 @@ package dht
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"slices"
 	"strconv"
@@ -712,14 +713,19 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry(t *te
 
 			//if we cannot find an entry for the current key via this node OR if the entry doesn't have the
 			//expected value, we fail the test.
-			if val, ok := n2.FindRemote(k); !ok && string(val) != k {
+			if val, ok := curBootstrapNode.FindRemote(k); !ok && string(val) != k {
 				t.Fatalf("FindRemote failed on bootstrap node: %s for resource with key: %s", curBootstrapNode.ID, k)
-			}else{
+			} else {
 				t.Log()
-				t.Logf("Find operations for key %s succeded on bootstrap node: %s the corresponding value was: %s",k,curBootstrapNode.Addr,string(val))
+				t.Logf("Find operations for key %s succeded on bootstrap node: %s the corresponding value was: %s", k, curBootstrapNode.Addr, string(val))
 			}
 		}
 	}
+
+}
+
+
+func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_Disjoint_Replica_Set(t *testing.T) {
 
 }
 
@@ -915,10 +921,8 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 func prepSampleEntryData(t *testing.T, standardEntryCount int) *map[string][]byte {
 	t.Helper()
 	sampleEntries := make(map[string][]byte)
-	keyPrefix := "SK"
 	for i := 0; i < standardEntryCount; i++ {
-		idxStr := strconv.Itoa(i)
-		curEntryKey := keyPrefix + "-" + idxStr
+		curEntryKey := generateRandomStringKey()
 		sampleEntries[curEntryKey] = []byte(curEntryKey)
 	}
 
@@ -928,4 +932,10 @@ func prepSampleEntryData(t *testing.T, standardEntryCount int) *map[string][]byt
 	})
 
 	return &sampleEntries
+}
+
+func generateRandomStringKey() string {
+	randNum := rand.Intn(math.MaxInt)
+	randNumStr := strconv.Itoa(randNum)
+	return randNumStr
 }

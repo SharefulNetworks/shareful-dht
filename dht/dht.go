@@ -266,6 +266,10 @@ func (n *Node) AddPeer(addr string, id types.NodeID) {
 	n.routingTable.Update(id, addr)
 }
 
+func (n *Node) DropPeer(id types.NodeID) bool {
+	return n.routingTable.Remove(id)
+}
+
 func (n *Node) lookupAddrForId(id types.NodeID) (string, error) {
 	if id == n.ID {
 		return n.Addr, nil
