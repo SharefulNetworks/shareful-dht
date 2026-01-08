@@ -97,6 +97,34 @@ func CollectErrors(errs []error) error {
 	return errors.New(sb.String())
 }
 
+func pickEvenDistribution(all []int, k int) []int {
+	n := len(all)
+
+	//if either the collection or the the number of nodes to select is less than or equal to zero, return nil
+	if k <= 0 || n == 0 {
+		return nil
+	}
+
+	//if the number of nodes to select is greater than or equal to the total number of available nodes, return all nodes
+	if k >= n {
+		out := make([]int, n)
+		copy(out, all)
+		return out
+	}
+
+	//otherwise set output array capacity equal to the number of requested nodes, K
+	out := make([]int, 0, k)
+
+	for i := 0; i < k; i++ {
+		idx := int((float64(i) + 0.5) * float64(n) / float64(k))
+		if idx >= n {
+			idx = n - 1
+		}
+		out = append(out, all[idx])
+	}
+	return out
+}
+
 type Config struct {
 	K                           int
 	Alpha                       int
@@ -1513,34 +1541,6 @@ func (n *Node) peersToAddrs(peers []*routing.Peer) []string {
 		addrs = append(addrs, p.Addr)
 	}
 	return addrs
-}
-
-func pickEvenDistribution(all []int, k int) []int {
-	n := len(all)
-
-	//if either the collection or the the number of nodes to select is less than or equal to zero, return nil
-	if k <= 0 || n == 0 {
-		return nil
-	}
-
-	//if the number of nodes to select is greater than or equal to the total number of available nodes, return all nodes
-	if k >= n {
-		out := make([]int, n)
-		copy(out, all)
-		return out
-	}
-
-	//otherwise set output array capacity equal to the number of requested nodes, K
-	out := make([]int, 0, k)
-
-	for i := 0; i < k; i++ {
-		idx := int((float64(i) + 0.5) * float64(n) / float64(k))
-		if idx >= n {
-			idx = n - 1
-		}
-		out = append(out, all[idx])
-	}
-	return out
 }
 
 func (n *Node) janitor() {

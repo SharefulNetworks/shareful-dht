@@ -1,6 +1,9 @@
 package dht
 
 import (
+	"fmt"
+	"math/rand"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -462,7 +465,7 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
  * STANDARD NODES.
  ******************************************************************************************************************/
 
-func Test_Full_Network_Mesh_Node_Interconnectivity(t *testing.T) {
+func Test_Full_Network_Complete_Mesh_Interconnectivity(t *testing.T) {
 
 	desiredNodeCount := 42
 
@@ -486,7 +489,7 @@ func Test_Full_Network_Mesh_Node_Interconnectivity(t *testing.T) {
 
 }
 
-func Test_Full_Network_Core_Network_Nodew_Bootstrap(t *testing.T) {
+func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity(t *testing.T) {
 
 	//prepare our core network, bootstrap node addresses.
 	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
@@ -496,7 +499,7 @@ func Test_Full_Network_Core_Network_Nodew_Bootstrap(t *testing.T) {
 	//we are ONLY concerend with testing the interconnectivity of the core bootstrap nodes.
 	//NB: We set the connect delay to -1 to prompt the node to use the default connection delay as
 	//    specified in the preveiling configuration.
-	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, coreNetworkBootstrapNodeAddrs, 0)
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, coreNetworkBootstrapNodeAddrs, -1)
 
 	//next we wait some time for the bootstrap process to complete on each node, by default
 	//each node will wait 20 seconds before attempting to actually connect to the provided
@@ -532,6 +535,190 @@ func Test_Full_Network_Core_Network_Nodew_Bootstrap(t *testing.T) {
 
 	if len(n5.ListPeers()) != expectedPeerListLength {
 		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeers()))
+	}
+
+}
+
+func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes_Connectivity(t *testing.T) {
+
+	//prepare our core network, bootstrap node addresses.
+	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//desired standard node count (we pick a number that is evenly divisiable by the number of core nodes
+	// to simply the connection distibutation validation logic) we pick 20 here (4 standard nodes per core node)
+	standardNodeMultiplier := 4
+	standardNodeCount := standardNodeMultiplier * len(coreNetworkBootstrapNodeAddrs)
+
+	//next call into our helper function to create a new configurable test context complete
+	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
+	//distribute connections to the core nodes from these standard nodes.
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, 0)
+
+	//next we wait some time for the bootstrap process to complete on each node, by default
+	//each node will wait 20 seconds before attempting to actually connect to the provided
+	//bootstrap addresses
+	time.Sleep(40000 * time.Millisecond)
+
+	//grab reference to our (now hopefully bootstrapped nodes)
+	n1 := ctx.BootstrapNodes[0]
+	n2 := ctx.BootstrapNodes[1]
+	n3 := ctx.BootstrapNodes[2]
+	n4 := ctx.BootstrapNodes[3]
+	n5 := ctx.BootstrapNodes[4]
+
+	//next we validate that each node has a full view of the core network and their respective
+	//directly connected standard nodes by checking that each node has a peer list length
+	//equal the the number of core nodes minus 1 (itself) pluss the number of standard nodes
+	//connected to it (which should be equal to the standardNodeMultiplier)
+	expectedPeerListLength := (len(coreNetworkBootstrapNodeAddrs) - 1) + standardNodeMultiplier
+
+	if len(n1.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeers()))
+	}
+
+	if len(n2.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeers()))
+	}
+
+	if len(n3.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeers()))
+	}
+
+	if len(n4.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeers()))
+	}
+
+	if len(n5.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeers()))
+	}
+}
+
+func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry(t *testing.T) {
+
+	//prepare our core network, bootstrap node addresses.
+	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//desired standard node count (we pick a number that is evenly divisiable by the number of core nodes
+	// to simply the connection distibutation validation logic) we pick 20 here (4 standard nodes per core node)
+	standardNodeMultiplier := 4
+	standardNodeCount := standardNodeMultiplier * len(coreNetworkBootstrapNodeAddrs)
+
+	//next call into our helper function to create a new configurable test context complete
+	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
+	//distribute connections to the core nodes from these standard nodes.
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1)
+
+	//next we wait some time for the bootstrap process to complete on each node, by default
+	//each node will wait 20 seconds before attempting to actually connect to the provided
+	//bootstrap addresses
+	time.Sleep(40000 * time.Millisecond)
+
+	//grab reference to our (now hopefully bootstrapped nodes)
+	n1 := ctx.BootstrapNodes[0]
+	n2 := ctx.BootstrapNodes[1]
+	n3 := ctx.BootstrapNodes[2]
+	n4 := ctx.BootstrapNodes[3]
+	n5 := ctx.BootstrapNodes[4]
+
+	//next we validate that each bootstrap node has a full view of the core network and their respective
+	//directly connected standard nodes by checking that each node has a peer list length
+	//equal the the number of core nodes minus 1 (itself) plus the number of standard nodes
+	//connected to it (which should be equal to the standardNodeMultiplier)
+	expectedPeerListLength := (len(coreNetworkBootstrapNodeAddrs) - 1) + standardNodeMultiplier
+
+	if len(n1.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeers()))
+	}
+
+	if len(n2.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeers()))
+	}
+
+	if len(n3.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeers()))
+	}
+
+	if len(n4.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeers()))
+	}
+
+	if len(n5.ListPeers()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeers()))
+	}
+
+	//NEXT WE DEAL WITH STORING ENTRIES TO SOME RANDOM SUBSET OF THE STANDARD NODES IN THE NETWORK...
+
+	//Firstly, here we define a helper function to pick random indexes according to the specified count.
+	var selectRandomNodeIndexes func([]int, int, int) []int
+	selectRandomNodeIndexes = func(picked []int, totalCount int, desiredCount int) []int {
+		if desiredCount > totalCount {
+			t.Fatal("Count exceeds available entries.")
+		}
+		if len(picked) == desiredCount {
+			return picked
+		}
+
+		//select a random index between 0 and createdStandardNodeCount -1
+		//and append it to our index
+		randIdx := rand.Intn(totalCount - 1)
+		if !slices.Contains(picked, randIdx) {
+			picked = append(picked, randIdx)
+		}
+		return selectRandomNodeIndexes(picked, totalCount, desiredCount)
+	}
+
+	//next obtain references to the complete list of standard nodes from the test context.
+	allStandardNodes := ctx.Nodes
+
+	//var to hold the number of nodes we should randomly select
+	randomNodeSelectionCount := 5
+
+	//pick. small subset of stabdard nodes, at random, to store entries to.
+	randomlySelectedIndexes := selectRandomNodeIndexes(make([]int, 0), len(allStandardNodes), randomNodeSelectionCount)
+	fmt.Println()
+	fmt.Printf("Selected random indexes were: %v", randomlySelectedIndexes)
+
+	//select nodes at the random indexes
+	var randomlySelectedStandardNodes []*Node
+	for _, currentSelIdx := range randomlySelectedIndexes {
+		randomlySelectedStandardNodes = append(randomlySelectedStandardNodes, allStandardNodes[currentSelIdx])
+	}
+
+	//call into our helper function to pepare some sample data for us to store, we set the
+	//samplke entry count equal to the number of standard nodes we randomly selected for the
+	//purposes of this test.
+	sampleData := prepSampleEntryData(t, randomNodeSelectionCount)
+
+	//iterate over the sample data, storing each entry to the corresponding
+	//randomly selected node as the current index.
+	curIdx := 0
+	for k, v := range *sampleData {
+		randomlySelectedStandardNodes[curIdx].Store(k, v)
+		curIdx++
+	}
+
+	//allow some time for the storage operation to complete and be propagated across the network
+	t.Log("Allowing time for storage of entries to random standard nodes to propergate...")
+	time.Sleep(20000 * time.Millisecond)
+
+	//next vaerify that ALL entries can be found by all bootstrap nodes. To do this we iterate over the sample
+	//key-value pair entry data, and attempt to find each entry on each bootstrap node. We also validate the
+	//the stored data, which will always be set equal to the key in the sample sata.
+	allBootstrapNodes := ctx.BootstrapNodes
+	for k := range *sampleData {
+
+		//iterate over the bootstrap nodes a
+		for _, curBootstrapNode := range allBootstrapNodes {
+
+			//if we cannot find an entry for the current key via this node OR if the entry doesn't have the
+			//expected value, we fail the test.
+			if val, ok := n2.FindRemote(k); !ok && string(val) != k {
+				t.Fatalf("FindRemote failed on bootstrap node: %s for resource with key: %s", curBootstrapNode.ID, k)
+			}else{
+				t.Log()
+				t.Logf("Find operations for key %s succeded on bootstrap node: %s the corresponding value was: %s",k,curBootstrapNode.Addr,string(val))
+			}
+		}
 	}
 
 }
@@ -723,4 +910,22 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 		BootstrapNodes: bootstrapNodes,
 	}
 
+}
+
+func prepSampleEntryData(t *testing.T, standardEntryCount int) *map[string][]byte {
+	t.Helper()
+	sampleEntries := make(map[string][]byte)
+	keyPrefix := "SK"
+	for i := 0; i < standardEntryCount; i++ {
+		idxStr := strconv.Itoa(i)
+		curEntryKey := keyPrefix + "-" + idxStr
+		sampleEntries[curEntryKey] = []byte(curEntryKey)
+	}
+
+	//cleanup entries once test concludes.
+	t.Cleanup(func() {
+		clear(sampleEntries)
+	})
+
+	return &sampleEntries
 }
