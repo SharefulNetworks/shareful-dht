@@ -480,12 +480,12 @@ func Test_Full_Network_Complete_Mesh_Interconnectivity(t *testing.T) {
 	//which will be the desiredNodeCount minus 1 to account for the fact that the node
 	//will obviously  not be included in its own peer list.
 	node := ctx.Nodes[15]
-	if len(node.ListPeers()) == (desiredNodeCount - 1) {
+	if len(node.ListPeersAsString()) == (desiredNodeCount - 1) {
 		t.Log()
-		t.Logf("Node: %d has address: %s and has a peer list length of: %d", 15, node.Addr, len(node.ListPeers()))
+		t.Logf("Node: %d has address: %s and has a peer list length of: %d", 15, node.Addr, len(node.ListPeersAsString()))
 		t.Log()
 	} else {
-		t.Fatalf("Expected node to have a peer list length of: %d but actually had a length of: %d", desiredNodeCount-1, len(node.ListPeers()))
+		t.Fatalf("Expected node to have a peer list length of: %d but actually had a length of: %d", desiredNodeCount-1, len(node.ListPeersAsString()))
 	}
 
 }
@@ -518,24 +518,24 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity(t *testing.T) {
 	//that each node has a peer list length equal to the total number of core nodes minus itself.
 	expectedPeerListLength := len(coreNetworkBootstrapNodeAddrs) - 1
 
-	if len(n1.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeers()))
+	if len(n1.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeersAsString()))
 	}
 
-	if len(n2.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeers()))
+	if len(n2.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeersAsString()))
 	}
 
-	if len(n3.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeers()))
+	if len(n3.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeersAsString()))
 	}
 
-	if len(n4.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeers()))
+	if len(n4.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeersAsString()))
 	}
 
-	if len(n5.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeers()))
+	if len(n5.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeersAsString()))
 	}
 
 }
@@ -573,24 +573,24 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes
 	//connected to it (which should be equal to the standardNodeMultiplier)
 	expectedPeerListLength := (len(coreNetworkBootstrapNodeAddrs) - 1) + standardNodeMultiplier
 
-	if len(n1.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeers()))
+	if len(n1.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeersAsString()))
 	}
 
-	if len(n2.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeers()))
+	if len(n2.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeersAsString()))
 	}
 
-	if len(n3.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeers()))
+	if len(n3.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeersAsString()))
 	}
 
-	if len(n4.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeers()))
+	if len(n4.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeersAsString()))
 	}
 
-	if len(n5.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeers()))
+	if len(n5.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeersAsString()))
 	}
 }
 
@@ -627,24 +627,24 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry(t *te
 	//connected to it (which should be equal to the standardNodeMultiplier)
 	expectedPeerListLength := (len(coreNetworkBootstrapNodeAddrs) - 1) + standardNodeMultiplier
 
-	if len(n1.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeers()))
+	if len(n1.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeersAsString()))
 	}
 
-	if len(n2.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeers()))
+	if len(n2.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeersAsString()))
 	}
 
-	if len(n3.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeers()))
+	if len(n3.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeersAsString()))
 	}
 
-	if len(n4.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeers()))
+	if len(n4.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeersAsString()))
 	}
 
-	if len(n5.ListPeers()) != expectedPeerListLength {
-		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeers()))
+	if len(n5.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeersAsString()))
 	}
 
 	//NEXT WE DEAL WITH STORING ENTRIES TO SOME RANDOM SUBSET OF THE STANDARD NODES IN THE NETWORK...
@@ -724,8 +724,140 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry(t *te
 
 }
 
-
 func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_Disjoint_Replica_Set(t *testing.T) {
+
+	//prepare our core network, bootstrap node addresses.
+	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//desired standard node count (we pick a number that is evenly divisiable by the number of core nodes
+	// to simply the connection distibutation validation logic) we pick 20 here (4 standard nodes per core node)
+	standardNodeMultiplier := 4
+	standardNodeCount := standardNodeMultiplier * len(coreNetworkBootstrapNodeAddrs)
+
+	//next call into our helper function to create a new configurable test context complete
+	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
+	//distribute connections to the core nodes from these standard nodes.
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1)
+
+	//next we wait some time for the bootstrap process to complete on each node, by default
+	//each node will wait 20 seconds before attempting to actually connect to the provided
+	//bootstrap addresses
+	time.Sleep(40000 * time.Millisecond)
+
+	//grab reference to our (now hopefully bootstrapped nodes)
+	n1 := ctx.BootstrapNodes[0]
+	n2 := ctx.BootstrapNodes[1]
+	n3 := ctx.BootstrapNodes[2]
+	n4 := ctx.BootstrapNodes[3]
+	n5 := ctx.BootstrapNodes[4]
+
+	//next we validate that each bootstrap node has a full view of the core network and their respective
+	//directly connected standard nodes by checking that each node has a peer list length
+	//equal the the number of core nodes minus 1 (itself) plus the number of standard nodes
+	//connected to it (which should be equal to the standardNodeMultiplier)
+	expectedPeerListLength := (len(coreNetworkBootstrapNodeAddrs) - 1) + standardNodeMultiplier
+
+	if len(n1.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeersAsString()))
+	}
+
+	if len(n2.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeersAsString()))
+	}
+
+	if len(n3.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeersAsString()))
+	}
+
+	if len(n4.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeersAsString()))
+	}
+
+	if len(n5.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeersAsString()))
+	}
+
+	//CRUCIALLY, UNLIKE THE IMMEDIATELY PRECEEDING TEST WE PICK A **DISJOINT SET** OF STANDARD/BOOTSTRAP NODES TO
+	//STORE THE ENTRIES TO. THAT IS: A BOOTSTRAP NODE SHOULD **NEVER** EXECUTE A FIND OPERATION ON A NODE ITS
+	//ALREADY CONNECTED TO. THIS IS THE FIRST STEP IN ENSURING THAT FIND REQUESTS ACTUALLY MAKE IT TO THE WIDER NETWORK.
+
+	//here we define a local helper function, that will produce a disjoint set pairing of
+	//the provided bootstrap nodes and the specified array of all standard nodes
+	//such that no selected standard node will have a direct link to the super node
+	//its been peered with.
+	genDisjointSetOfNodePairings := func(bootStrapNodes []*Node, standardNodes []*Node, targetPairCount int) []Pairing {
+
+		//first deal with automatic failure cases.
+		if targetPairCount <= 0 {
+			t.Fatal("The specified targetPairCount must be greater than or equal 1")
+		}
+
+		if len(bootStrapNodes) < 1 || len(standardNodes) < 1 {
+			t.Fatal("The provided Bootstrap AND Standard node lists must contain at least one element.")
+		}
+
+		if len(bootStrapNodes) < targetPairCount || len(standardNodes) < targetPairCount {
+			t.Fatal("The provided Bootstrap AND Standard node lists must have a length greater than or equal to the provided targetPairCount")
+		}
+
+		//Next we begin the pairing operations
+		var allPairings []Pairing
+		for _, curBootStrapNode := range bootStrapNodes {
+
+			curBootstrapNodePaired := false
+			for _, curStandardNode := range standardNodes {
+
+				//as long as the current standard node DOES NOT include the current bootstrap node
+				//in its peer list, we may pair the nodes and exit this inner traversal early.
+				curStandardNodePeerList := curStandardNode.ListPeers()
+				for i := 0; i <= len(curStandardNodePeerList); i++ {
+
+					//if this is the last entry in the standard node peer list and a match
+					//has not been found, this would indicate that this standard node DOESN'T
+					//currently reference the current Bootstrap node and thus we may pair them.
+					if i == len(curStandardNodePeerList) {
+
+						//pair the nodes
+						pairing := Pairing{Node1: curBootStrapNode, Node2: curStandardNode}
+
+						//append the pairing to our collection of pairs
+						allPairings = append(allPairings, pairing)
+
+						//finally set paired flag to true
+						curBootstrapNodePaired = true
+						break
+					} else {
+
+						//otherwise test if the current entry in the currrent standard nodes peer
+						//list equals the current bootstrap node, where it does we can terminate
+						//the traversal early (without setting the paired flag) as this indicates
+						//this standard node DOES reference the current bootstrap node.
+						if curStandardNodePeerList[i].ID == curBootStrapNode.ID {
+							break
+						}
+
+					}
+
+				}
+
+				//if the currentbootstrap node has been successfully paired we may exit
+				//and thereby begin attempting to pair the next bootstrap node in the list
+				//where one exists
+				if curBootstrapNodePaired {
+					break
+				}
+
+			}
+
+		}
+
+		return allPairings
+	}
+
+	//call into our helper function to create a disjoint set of node pairings
+	disjointNodePairings := genDisjointSetOfNodePairings(ctx.BootstrapNodes, ctx.Nodes, len(ctx.Nodes))
+	t.Log()
+	t.Logf("Using disjoint node pairings of count: %d", disjointNodePairings)
 
 }
 
@@ -738,6 +870,12 @@ type TestContext struct {
 	Nodes          []*Node
 	Config         *Config
 	BootstrapNodes []*Node
+}
+
+// Represents a pairing between two nodes.
+type Pairing struct {
+	Node1 *Node
+	Node2 *Node
 }
 
 // NewDefaultTestContext creates a new default test context with two connected nodes
@@ -820,7 +958,7 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, config *Config, pri
 	//if the user has requested a peer mapping, output it to the console.
 	if printPeerMap {
 		for nodeIdx, node := range Nodes {
-			t.Logf("Node: %d has address: %s and the following peers: %v", nodeIdx, node.Addr, node.ListPeers())
+			t.Logf("Node: %d has address: %s and the following peers: %v", nodeIdx, node.Addr, node.ListPeersAsString())
 			t.Log()
 		}
 	}

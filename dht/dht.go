@@ -887,13 +887,17 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string) error {
 
 }
 
-func (n *Node) ListPeers() []string {
+func (n *Node) ListPeersAsString() []string {
 	peerDetails := make([]string, 0)
-	knownPeers := n.routingTable.ListKnownPeers()
-	for _, p := range knownPeers {
+	allPeers := n.ListPeers()
+	for _, p := range allPeers {
 		peerDetails = append(peerDetails, fmt.Sprintf("Peer ID: %s @ Address: %s", p.ID.String(), p.Addr))
 	}
 	return peerDetails
+}
+
+func (n *Node) ListPeers() []routing.Peer {
+  return n.routingTable.ListKnownPeers()
 }
 
 // -----------------------------------------------------------------------------
