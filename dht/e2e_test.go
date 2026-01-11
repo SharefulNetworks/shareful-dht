@@ -1,6 +1,7 @@
 package dht
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -857,7 +858,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//call into our helper function to create a disjoint set of node pairings
 	disjointNodePairings := genDisjointSetOfNodePairings(ctx.BootstrapNodes, ctx.Nodes, len(ctx.Nodes))
 	t.Log()
-	t.Logf("Using disjoint node pairings of count: %d", disjointNodePairings)
+	t.Logf("Using disjoint node pairings of count: %d", len(disjointNodePairings))
 
 }
 
@@ -870,12 +871,6 @@ type TestContext struct {
 	Nodes          []*Node
 	Config         *Config
 	BootstrapNodes []*Node
-}
-
-// Represents a pairing between two nodes.
-type Pairing struct {
-	Node1 *Node
-	Node2 *Node
 }
 
 // NewDefaultTestContext creates a new default test context with two connected nodes
@@ -1076,4 +1071,99 @@ func generateRandomStringKey() string {
 	randNum := rand.Intn(math.MaxInt)
 	randNumStr := strconv.Itoa(randNum)
 	return randNumStr
+}
+
+/******************************************************************************************************************
+ *           SET THEORY HELPER FUNCTIONS (THESE COULD LATER BE ABSTRACTED OUT INTO A SEPARATE OSS LIB)
+ ******************************************************************************************************************/
+func CreateDisjointParings[T any, K comparable](setA, setB []T, opts DisjointSetOpts[T, K], targetPairingCount int) ([]Pairing[T], error) {
+
+	//in this case BOTH disjoint set options are actually required
+	if opts.Compare == nil {
+		return nil, errors.New("A valid compare function must be provided.")
+	}
+
+	if opts.KeySelector == nil {
+		return nil, errors.New("A valid key-selector function must be provided.")
+	}
+
+	//check both sets are of adequate length.
+	if len(setA) < targetPairingCount{
+		return nil, errors.New("The provided SET A contained less elements than the target pairing count.")
+	}
+
+	if len(setB) < targetPairingCount{
+		return nil, errors.New("The provided SET B contained less elements than the target pairing count.")
+	}
+
+	//begin disjoint pairing operation
+	var pairings []Pairing[T]
+	setaMap := make(map[K]T)
+	for _, item := range setA {
+		setaMap[opts.KeySelector(item)] = item
+	}
+	for _, item := range setB {
+		if !opts.Compare(setaMap[opts.KeySelector(item)], item) {
+			key := opts.KeySelector(item)
+			newPairing := Pairing[T]{Node1: setaMap[key], Node2: item}
+			pairings = append(pairings, newPairing)
+			delete(setaMap, key) //delete the entry from our map since we would like to build a collection of UNIQUE pairings
+
+			if len(pairings) == targetPairingCount {
+				break
+			}
+		}
+	}
+
+	if len(pairings) == targetPairingCount{
+		return pairings,nil
+	}else{
+		return pairings,fmt.Errorf("Was unable to create the specified number of pairings, only %d of %d pairs was created,",len(pairings),targetPairingCount)
+	}
+}
+
+
+func IsDisjoint[T any, K comparable](setA, setB []T, opts DisjointSetOpts[T, K]) bool {
+
+	// Optimized Path: O(n+m)
+	if opts.KeySelector != nil {
+		lookup := make(map[K]struct{}) // Empty struct saves memory,were only really interested in key lookup anyway
+		for _, item := range setA {
+			lookup[opts.KeySelector(item)] = struct{}{}
+		}
+		for _, item := range setB {
+			if _, exists := lookup[opts.KeySelector(item)]; exists {
+				return false
+			}
+		}
+		return true
+	}
+
+	// OR. Standard Path: O(n*m)
+	if opts.Compare != nil {
+		for _, a := range setA {
+			for _, b := range setB {
+				if opts.Compare(a, b) {
+					return false
+				}
+			}
+		}
+	}
+
+	return true
+
+}
+
+// FilterDisjointOpts - A struct encapsulating all supported options that may be passed to the IsDisjoint function.
+//
+//	T is the element type, K is the key type used for hashing (must be comparable)
+type DisjointSetOpts[T any, K comparable] struct {
+	Compare     func(a, b T) bool
+	KeySelector func(item T) K
+}
+
+// Represents a pairing between two nodes.
+type Pairing[T any] struct {
+	Node1 T
+	Node2 T
 }
