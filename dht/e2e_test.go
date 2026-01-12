@@ -782,83 +782,38 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//STORE THE ENTRIES TO. THAT IS: A BOOTSTRAP NODE SHOULD **NEVER** EXECUTE A FIND OPERATION ON A NODE ITS
 	//ALREADY CONNECTED TO. THIS IS THE FIRST STEP IN ENSURING THAT FIND REQUESTS ACTUALLY MAKE IT TO THE WIDER NETWORK.
 
-	//here we define a local helper function, that will produce a disjoint set pairing of
+	//our helper function, that will produce a disjoint set pairing of
 	//the provided bootstrap nodes and the specified array of all standard nodes
 	//such that no selected standard node will have a direct link to the super node
-	//its been peered with.
-	genDisjointSetOfNodePairings := func(bootStrapNodes []*Node, standardNodes []*Node, targetPairCount int) []Pairing {
-
-		//first deal with automatic failure cases.
-		if targetPairCount <= 0 {
-			t.Fatal("The specified targetPairCount must be greater than or equal 1")
-		}
-
-		if len(bootStrapNodes) < 1 || len(standardNodes) < 1 {
-			t.Fatal("The provided Bootstrap AND Standard node lists must contain at least one element.")
-		}
-
-		if len(bootStrapNodes) < targetPairCount || len(standardNodes) < targetPairCount {
-			t.Fatal("The provided Bootstrap AND Standard node lists must have a length greater than or equal to the provided targetPairCount")
-		}
-
-		//Next we begin the pairing operations
-		var allPairings []Pairing
-		for _, curBootStrapNode := range bootStrapNodes {
-
-			curBootstrapNodePaired := false
-			for _, curStandardNode := range standardNodes {
-
-				//as long as the current standard node DOES NOT include the current bootstrap node
-				//in its peer list, we may pair the nodes and exit this inner traversal early.
-				curStandardNodePeerList := curStandardNode.ListPeers()
-				for i := 0; i <= len(curStandardNodePeerList); i++ {
-
-					//if this is the last entry in the standard node peer list and a match
-					//has not been found, this would indicate that this standard node DOESN'T
-					//currently reference the current Bootstrap node and thus we may pair them.
-					if i == len(curStandardNodePeerList) {
-
-						//pair the nodes
-						pairing := Pairing{Node1: curBootStrapNode, Node2: curStandardNode}
-
-						//append the pairing to our collection of pairs
-						allPairings = append(allPairings, pairing)
-
-						//finally set paired flag to true
-						curBootstrapNodePaired = true
-						break
-					} else {
-
-						//otherwise test if the current entry in the currrent standard nodes peer
-						//list equals the current bootstrap node, where it does we can terminate
-						//the traversal early (without setting the paired flag) as this indicates
-						//this standard node DOES reference the current bootstrap node.
-						if curStandardNodePeerList[i].ID == curBootStrapNode.ID {
-							break
-						}
-
-					}
-
-				}
-
-				//if the currentbootstrap node has been successfully paired we may exit
-				//and thereby begin attempting to pair the next bootstrap node in the list
-				//where one exists
-				if curBootstrapNodePaired {
-					break
-				}
-
-			}
-
-		}
-
-		return allPairings
+	//its been paired with. To do this we carefully define the "Compare" and "KeySelector" functions
+	//in the options object.
+	disjointSetOpts := DisjointSetOpts[*Node, string]{
+		Compare: func(a, b *Node) bool { return slices.Contains(b.ListPeerIds(), a.ID.String()) },
+		//KeySelector: func(item *Node) string { return item.ID.String() },
 	}
 
-	//call into our helper function to create a disjoint set of node pairings
-	disjointNodePairings := genDisjointSetOfNodePairings(ctx.BootstrapNodes, ctx.Nodes, len(ctx.Nodes))
-	t.Log()
-	t.Logf("Using disjoint node pairings of count: %d", len(disjointNodePairings))
+	disjointNodePairings, err := CreateDisjointPairings(
+		ctx.BootstrapNodes,
+		ctx.Nodes,
+		disjointSetOpts,
+		len(ctx.BootstrapNodes),
+	)
+
+	if err != nil {
+		t.Errorf("An error occurred whilst attempting to create disjoint set of node pairings: %o", err)
+	}
+
+	//we may validate that we DO indeed have a disjoint set paring of nodes BEFORE undertaking 
+	//any storage operations by using our helper function
+	isDisjointNodePairings, _ := IsDisjointPairing(
+		disjointNodePairings,
+		disjointSetOpts,
+	
+	)
+
+	if !isDisjointNodePairings{
+		t.Errorf("The specified set pairings were NOT disjoint, BEFORE storage operations were attempted.")
+	}
 
 }
 
@@ -1076,81 +1031,64 @@ func generateRandomStringKey() string {
 /******************************************************************************************************************
  *           SET THEORY HELPER FUNCTIONS (THESE COULD LATER BE ABSTRACTED OUT INTO A SEPARATE OSS LIB)
  ******************************************************************************************************************/
-func CreateDisjointParings[T any, K comparable](setA, setB []T, opts DisjointSetOpts[T, K], targetPairingCount int) ([]Pairing[T], error) {
 
-	//in this case BOTH disjoint set options are actually required
+// CreateDisjointPairings - creates an array of disjoint pairings from the two provided sets: setA and setB.
+func CreateDisjointPairings[T any, K comparable](setA, setB []T, opts DisjointSetOpts[T, K], targetPairingCount int) ([]Pairing[T], error) {
+
+	//A valid (custom) comparator function must be provided
 	if opts.Compare == nil {
-		return nil, errors.New("A valid compare function must be provided.")
-	}
-
-	if opts.KeySelector == nil {
-		return nil, errors.New("A valid key-selector function must be provided.")
+		return nil, errors.New("A valid comparator function must be provided.")
 	}
 
 	//check both sets are of adequate length.
-	if len(setA) < targetPairingCount{
+	if len(setA) < targetPairingCount {
 		return nil, errors.New("The provided SET A contained less elements than the target pairing count.")
 	}
 
-	if len(setB) < targetPairingCount{
+	if len(setB) < targetPairingCount {
 		return nil, errors.New("The provided SET B contained less elements than the target pairing count.")
 	}
 
 	//begin disjoint pairing operation
 	var pairings []Pairing[T]
-	setaMap := make(map[K]T)
-	for _, item := range setA {
-		setaMap[opts.KeySelector(item)] = item
-	}
-	for _, item := range setB {
-		if !opts.Compare(setaMap[opts.KeySelector(item)], item) {
-			key := opts.KeySelector(item)
-			newPairing := Pairing[T]{Node1: setaMap[key], Node2: item}
-			pairings = append(pairings, newPairing)
-			delete(setaMap, key) //delete the entry from our map since we would like to build a collection of UNIQUE pairings
-
-			if len(pairings) == targetPairingCount {
+	for _, setaItem := range setA {
+		for _, setbItem := range setB {
+			if !opts.Compare(setaItem, setbItem) {
+				newPairing := Pairing[T]{Node1: setaItem, Node2: setbItem}
+				pairings = append(pairings, newPairing)
 				break
 			}
 		}
+		//exit early where we have reached the desired number of pairings, irrespective
+		//of the length of seta
+		if len(pairings) == targetPairingCount {
+			break
+		}
 	}
 
-	if len(pairings) == targetPairingCount{
-		return pairings,nil
-	}else{
-		return pairings,fmt.Errorf("Was unable to create the specified number of pairings, only %d of %d pairs was created,",len(pairings),targetPairingCount)
+	if len(pairings) == targetPairingCount {
+		return pairings, nil
+	} else {
+		return pairings, fmt.Errorf("Was unable to create the specified number of pairings, only %d of %d pairs was created,", len(pairings), targetPairingCount)
 	}
 }
 
+func IsDisjointPairing[T any, K comparable](pairings []Pairing[T], opts DisjointSetOpts[T, K]) (bool, error) {
 
-func IsDisjoint[T any, K comparable](setA, setB []T, opts DisjointSetOpts[T, K]) bool {
-
-	// Optimized Path: O(n+m)
-	if opts.KeySelector != nil {
-		lookup := make(map[K]struct{}) // Empty struct saves memory,were only really interested in key lookup anyway
-		for _, item := range setA {
-			lookup[opts.KeySelector(item)] = struct{}{}
-		}
-		for _, item := range setB {
-			if _, exists := lookup[opts.KeySelector(item)]; exists {
-				return false
-			}
-		}
-		return true
+	//A valid (custom) comparator function must be provided
+	if opts.Compare == nil {
+		return false, errors.New("A valid comparator function must be provided.")
 	}
 
-	// OR. Standard Path: O(n*m)
-	if opts.Compare != nil {
-		for _, a := range setA {
-			for _, b := range setB {
-				if opts.Compare(a, b) {
-					return false
-				}
-			}
+	//begin isDisjointPairing ops
+	for _, currentPairing := range pairings {
+
+		if opts.Compare(currentPairing.Node1, currentPairing.Node2) {
+			return false, nil
 		}
 	}
 
-	return true
+	return true, nil
 
 }
 

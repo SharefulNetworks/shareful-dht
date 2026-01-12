@@ -900,6 +900,15 @@ func (n *Node) ListPeers() []routing.Peer {
   return n.routingTable.ListKnownPeers()
 }
 
+func (n *Node) ListPeerIds() []string {
+   allPeers :=  n.routingTable.ListKnownPeers()
+   allPeerIds := make([]string,len(allPeers))
+   for _,curPeer := range allPeers{
+	  allPeerIds = append(allPeerIds, curPeer.ID.String())
+   }
+   return allPeerIds
+}
+
 // -----------------------------------------------------------------------------
 // Incoming Message Handler (uses makeMessage + encode/decode)
 // -----------------------------------------------------------------------------
