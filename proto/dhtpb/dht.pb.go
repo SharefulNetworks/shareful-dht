@@ -33,6 +33,7 @@ const (
 	Op_OP_CONNECT      Op = 6
 	Op_OP_DELETE_INDEX Op = 7
 	Op_OP_FIND_NODE    Op = 8
+	Op_OP_FIND_VALUE   Op = 9
 )
 
 // Enum value maps for Op.
@@ -47,6 +48,7 @@ var (
 		6: "OP_CONNECT",
 		7: "OP_DELETE_INDEX",
 		8: "OP_FIND_NODE",
+		9: "OP_FIND_VALUE",
 	}
 	Op_value = map[string]int32{
 		"OP_UNKNOWN":      0,
@@ -58,6 +60,7 @@ var (
 		"OP_CONNECT":      6,
 		"OP_DELETE_INDEX": 7,
 		"OP_FIND_NODE":    8,
+		"OP_FIND_VALUE":   9,
 	}
 )
 
@@ -300,6 +303,118 @@ func (x *StoreResponse) GetErr() string {
 	return ""
 }
 
+type FindValueRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FindValueRequest) Reset() {
+	*x = FindValueRequest{}
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FindValueRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FindValueRequest) ProtoMessage() {}
+
+func (x *FindValueRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FindValueRequest.ProtoReflect.Descriptor instead.
+func (*FindValueRequest) Descriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *FindValueRequest) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+type FindValueResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Value         []byte                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	Peers         []*NodeContact         `protobuf:"bytes,3,rep,name=peers,proto3" json:"peers,omitempty"`
+	Err           string                 `protobuf:"bytes,4,opt,name=err,proto3" json:"err,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FindValueResponse) Reset() {
+	*x = FindValueResponse{}
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FindValueResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FindValueResponse) ProtoMessage() {}
+
+func (x *FindValueResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FindValueResponse.ProtoReflect.Descriptor instead.
+func (*FindValueResponse) Descriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *FindValueResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *FindValueResponse) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *FindValueResponse) GetPeers() []*NodeContact {
+	if x != nil {
+		return x.Peers
+	}
+	return nil
+}
+
+func (x *FindValueResponse) GetErr() string {
+	if x != nil {
+		return x.Err
+	}
+	return ""
+}
+
 type FindRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
@@ -309,7 +424,7 @@ type FindRequest struct {
 
 func (x *FindRequest) Reset() {
 	*x = FindRequest{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[3]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -321,7 +436,7 @@ func (x *FindRequest) String() string {
 func (*FindRequest) ProtoMessage() {}
 
 func (x *FindRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[3]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -334,7 +449,7 @@ func (x *FindRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindRequest.ProtoReflect.Descriptor instead.
 func (*FindRequest) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{3}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *FindRequest) GetKey() string {
@@ -355,7 +470,7 @@ type FindResponse struct {
 
 func (x *FindResponse) Reset() {
 	*x = FindResponse{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[4]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -367,7 +482,7 @@ func (x *FindResponse) String() string {
 func (*FindResponse) ProtoMessage() {}
 
 func (x *FindResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[4]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -380,7 +495,7 @@ func (x *FindResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindResponse.ProtoReflect.Descriptor instead.
 func (*FindResponse) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{4}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *FindResponse) GetOk() bool {
@@ -418,7 +533,7 @@ type IndexEntry struct {
 
 func (x *IndexEntry) Reset() {
 	*x = IndexEntry{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[5]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -430,7 +545,7 @@ func (x *IndexEntry) String() string {
 func (*IndexEntry) ProtoMessage() {}
 
 func (x *IndexEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[5]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -443,7 +558,7 @@ func (x *IndexEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IndexEntry.ProtoReflect.Descriptor instead.
 func (*IndexEntry) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{5}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *IndexEntry) GetSource() string {
@@ -500,7 +615,7 @@ type StoreIndexRequest struct {
 
 func (x *StoreIndexRequest) Reset() {
 	*x = StoreIndexRequest{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[6]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -512,7 +627,7 @@ func (x *StoreIndexRequest) String() string {
 func (*StoreIndexRequest) ProtoMessage() {}
 
 func (x *StoreIndexRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[6]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -525,7 +640,7 @@ func (x *StoreIndexRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoreIndexRequest.ProtoReflect.Descriptor instead.
 func (*StoreIndexRequest) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{6}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *StoreIndexRequest) GetKey() string {
@@ -566,7 +681,7 @@ type StoreIndexResponse struct {
 
 func (x *StoreIndexResponse) Reset() {
 	*x = StoreIndexResponse{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[7]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -578,7 +693,7 @@ func (x *StoreIndexResponse) String() string {
 func (*StoreIndexResponse) ProtoMessage() {}
 
 func (x *StoreIndexResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[7]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -591,7 +706,7 @@ func (x *StoreIndexResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoreIndexResponse.ProtoReflect.Descriptor instead.
 func (*StoreIndexResponse) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{7}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *StoreIndexResponse) GetOk() bool {
@@ -617,7 +732,7 @@ type FindIndexRequest struct {
 
 func (x *FindIndexRequest) Reset() {
 	*x = FindIndexRequest{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[8]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -629,7 +744,7 @@ func (x *FindIndexRequest) String() string {
 func (*FindIndexRequest) ProtoMessage() {}
 
 func (x *FindIndexRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[8]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -642,7 +757,7 @@ func (x *FindIndexRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindIndexRequest.ProtoReflect.Descriptor instead.
 func (*FindIndexRequest) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{8}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *FindIndexRequest) GetKey() string {
@@ -663,7 +778,7 @@ type FindIndexResponse struct {
 
 func (x *FindIndexResponse) Reset() {
 	*x = FindIndexResponse{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[9]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -675,7 +790,7 @@ func (x *FindIndexResponse) String() string {
 func (*FindIndexResponse) ProtoMessage() {}
 
 func (x *FindIndexResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[9]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -688,7 +803,7 @@ func (x *FindIndexResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindIndexResponse.ProtoReflect.Descriptor instead.
 func (*FindIndexResponse) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{9}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *FindIndexResponse) GetOk() bool {
@@ -722,7 +837,7 @@ type ConnectRequest struct {
 
 func (x *ConnectRequest) Reset() {
 	*x = ConnectRequest{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[10]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -734,7 +849,7 @@ func (x *ConnectRequest) String() string {
 func (*ConnectRequest) ProtoMessage() {}
 
 func (x *ConnectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[10]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -747,7 +862,7 @@ func (x *ConnectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectRequest.ProtoReflect.Descriptor instead.
 func (*ConnectRequest) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{10}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ConnectRequest) GetNodeId() []byte {
@@ -775,7 +890,7 @@ type ConnectResponse struct {
 
 func (x *ConnectResponse) Reset() {
 	*x = ConnectResponse{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[11]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -787,7 +902,7 @@ func (x *ConnectResponse) String() string {
 func (*ConnectResponse) ProtoMessage() {}
 
 func (x *ConnectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[11]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -800,7 +915,7 @@ func (x *ConnectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectResponse.ProtoReflect.Descriptor instead.
 func (*ConnectResponse) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{11}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ConnectResponse) GetOk() bool {
@@ -836,7 +951,7 @@ type DeleteIndexRequest struct {
 
 func (x *DeleteIndexRequest) Reset() {
 	*x = DeleteIndexRequest{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[12]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -848,7 +963,7 @@ func (x *DeleteIndexRequest) String() string {
 func (*DeleteIndexRequest) ProtoMessage() {}
 
 func (x *DeleteIndexRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[12]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -861,7 +976,7 @@ func (x *DeleteIndexRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteIndexRequest.ProtoReflect.Descriptor instead.
 func (*DeleteIndexRequest) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{12}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DeleteIndexRequest) GetKey() string {
@@ -902,7 +1017,7 @@ type DeleteIndexResponse struct {
 
 func (x *DeleteIndexResponse) Reset() {
 	*x = DeleteIndexResponse{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[13]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -914,7 +1029,7 @@ func (x *DeleteIndexResponse) String() string {
 func (*DeleteIndexResponse) ProtoMessage() {}
 
 func (x *DeleteIndexResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[13]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -927,7 +1042,7 @@ func (x *DeleteIndexResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteIndexResponse.ProtoReflect.Descriptor instead.
 func (*DeleteIndexResponse) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{13}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DeleteIndexResponse) GetOk() bool {
@@ -954,7 +1069,7 @@ type NodeContact struct {
 
 func (x *NodeContact) Reset() {
 	*x = NodeContact{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[14]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -966,7 +1081,7 @@ func (x *NodeContact) String() string {
 func (*NodeContact) ProtoMessage() {}
 
 func (x *NodeContact) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[14]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -979,7 +1094,7 @@ func (x *NodeContact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeContact.ProtoReflect.Descriptor instead.
 func (*NodeContact) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{14}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *NodeContact) GetNodeId() []byte {
@@ -1005,7 +1120,7 @@ type FindNodeRequest struct {
 
 func (x *FindNodeRequest) Reset() {
 	*x = FindNodeRequest{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[15]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1017,7 +1132,7 @@ func (x *FindNodeRequest) String() string {
 func (*FindNodeRequest) ProtoMessage() {}
 
 func (x *FindNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[15]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1030,7 +1145,7 @@ func (x *FindNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindNodeRequest.ProtoReflect.Descriptor instead.
 func (*FindNodeRequest) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{15}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *FindNodeRequest) GetNodeId() []byte {
@@ -1051,7 +1166,7 @@ type FindNodeResponse struct {
 
 func (x *FindNodeResponse) Reset() {
 	*x = FindNodeResponse{}
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[16]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1063,7 +1178,7 @@ func (x *FindNodeResponse) String() string {
 func (*FindNodeResponse) ProtoMessage() {}
 
 func (x *FindNodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_dhtpb_dht_proto_msgTypes[16]
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1076,7 +1191,7 @@ func (x *FindNodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindNodeResponse.ProtoReflect.Descriptor instead.
 func (*FindNodeResponse) Descriptor() ([]byte, []int) {
-	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{16}
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *FindNodeResponse) GetOk() bool {
@@ -1121,7 +1236,14 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\fpublisher_id\x18\x05 \x01(\fR\vpublisherId\"1\n" +
 	"\rStoreResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
-	"\x03err\x18\x02 \x01(\tR\x03err\"\x1f\n" +
+	"\x03err\x18\x02 \x01(\tR\x03err\"$\n" +
+	"\x10FindValueRequest\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\"u\n" +
+	"\x11FindValueResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\x12(\n" +
+	"\x05peers\x18\x03 \x03(\v2\x12.dhtpb.NodeContactR\x05peers\x12\x10\n" +
+	"\x03err\x18\x04 \x01(\tR\x03err\"\x1f\n" +
 	"\vFindRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\"F\n" +
 	"\fFindResponse\x12\x0e\n" +
@@ -1173,7 +1295,7 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\x10FindNodeResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12(\n" +
 	"\x05peers\x18\x02 \x03(\v2\x12.dhtpb.NodeContactR\x05peers\x12\x10\n" +
-	"\x03err\x18\x03 \x01(\tR\x03err*\x9a\x01\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err*\xad\x01\n" +
 	"\x02Op\x12\x0e\n" +
 	"\n" +
 	"OP_UNKNOWN\x10\x00\x12\f\n" +
@@ -1185,7 +1307,8 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\n" +
 	"OP_CONNECT\x10\x06\x12\x13\n" +
 	"\x0fOP_DELETE_INDEX\x10\a\x12\x10\n" +
-	"\fOP_FIND_NODE\x10\bB6Z4github.com/SharefulNetworks/shareful-dht/proto/dhtpbb\x06proto3"
+	"\fOP_FIND_NODE\x10\b\x12\x11\n" +
+	"\rOP_FIND_VALUE\x10\tB6Z4github.com/SharefulNetworks/shareful-dht/proto/dhtpbb\x06proto3"
 
 var (
 	file_proto_dhtpb_dht_proto_rawDescOnce sync.Once
@@ -1200,37 +1323,40 @@ func file_proto_dhtpb_dht_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_dhtpb_dht_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_dhtpb_dht_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_proto_dhtpb_dht_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_proto_dhtpb_dht_proto_goTypes = []any{
 	(Op)(0),                     // 0: dhtpb.Op
 	(*Envelope)(nil),            // 1: dhtpb.Envelope
 	(*StoreRequest)(nil),        // 2: dhtpb.StoreRequest
 	(*StoreResponse)(nil),       // 3: dhtpb.StoreResponse
-	(*FindRequest)(nil),         // 4: dhtpb.FindRequest
-	(*FindResponse)(nil),        // 5: dhtpb.FindResponse
-	(*IndexEntry)(nil),          // 6: dhtpb.IndexEntry
-	(*StoreIndexRequest)(nil),   // 7: dhtpb.StoreIndexRequest
-	(*StoreIndexResponse)(nil),  // 8: dhtpb.StoreIndexResponse
-	(*FindIndexRequest)(nil),    // 9: dhtpb.FindIndexRequest
-	(*FindIndexResponse)(nil),   // 10: dhtpb.FindIndexResponse
-	(*ConnectRequest)(nil),      // 11: dhtpb.ConnectRequest
-	(*ConnectResponse)(nil),     // 12: dhtpb.ConnectResponse
-	(*DeleteIndexRequest)(nil),  // 13: dhtpb.DeleteIndexRequest
-	(*DeleteIndexResponse)(nil), // 14: dhtpb.DeleteIndexResponse
-	(*NodeContact)(nil),         // 15: dhtpb.NodeContact
-	(*FindNodeRequest)(nil),     // 16: dhtpb.FindNodeRequest
-	(*FindNodeResponse)(nil),    // 17: dhtpb.FindNodeResponse
+	(*FindValueRequest)(nil),    // 4: dhtpb.FindValueRequest
+	(*FindValueResponse)(nil),   // 5: dhtpb.FindValueResponse
+	(*FindRequest)(nil),         // 6: dhtpb.FindRequest
+	(*FindResponse)(nil),        // 7: dhtpb.FindResponse
+	(*IndexEntry)(nil),          // 8: dhtpb.IndexEntry
+	(*StoreIndexRequest)(nil),   // 9: dhtpb.StoreIndexRequest
+	(*StoreIndexResponse)(nil),  // 10: dhtpb.StoreIndexResponse
+	(*FindIndexRequest)(nil),    // 11: dhtpb.FindIndexRequest
+	(*FindIndexResponse)(nil),   // 12: dhtpb.FindIndexResponse
+	(*ConnectRequest)(nil),      // 13: dhtpb.ConnectRequest
+	(*ConnectResponse)(nil),     // 14: dhtpb.ConnectResponse
+	(*DeleteIndexRequest)(nil),  // 15: dhtpb.DeleteIndexRequest
+	(*DeleteIndexResponse)(nil), // 16: dhtpb.DeleteIndexResponse
+	(*NodeContact)(nil),         // 17: dhtpb.NodeContact
+	(*FindNodeRequest)(nil),     // 18: dhtpb.FindNodeRequest
+	(*FindNodeResponse)(nil),    // 19: dhtpb.FindNodeResponse
 }
 var file_proto_dhtpb_dht_proto_depIdxs = []int32{
 	0,  // 0: dhtpb.Envelope.op:type_name -> dhtpb.Op
-	6,  // 1: dhtpb.StoreIndexRequest.entry:type_name -> dhtpb.IndexEntry
-	6,  // 2: dhtpb.FindIndexResponse.entries:type_name -> dhtpb.IndexEntry
-	15, // 3: dhtpb.FindNodeResponse.peers:type_name -> dhtpb.NodeContact
-	4,  // [4:4] is the sub-list for method output_type
-	4,  // [4:4] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	17, // 1: dhtpb.FindValueResponse.peers:type_name -> dhtpb.NodeContact
+	8,  // 2: dhtpb.StoreIndexRequest.entry:type_name -> dhtpb.IndexEntry
+	8,  // 3: dhtpb.FindIndexResponse.entries:type_name -> dhtpb.IndexEntry
+	17, // 4: dhtpb.FindNodeResponse.peers:type_name -> dhtpb.NodeContact
+	5,  // [5:5] is the sub-list for method output_type
+	5,  // [5:5] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_proto_dhtpb_dht_proto_init() }
@@ -1244,7 +1370,7 @@ func file_proto_dhtpb_dht_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_dhtpb_dht_proto_rawDesc), len(file_proto_dhtpb_dht_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

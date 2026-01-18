@@ -32,6 +32,7 @@ const (
 	OP_CONNECT      = 6
 	OP_DELETE_INDEX = 7
 	OP_FIND_NODE    = 8
+	OP_FIND_VALUE   = 9 // NEW
 )
 
 func NewRandomID() types.NodeID {
@@ -303,6 +304,22 @@ func (n *Node) nearestK(key string) []string {
 	return addrs
 }
 
+func (n *Node) nearestKByID(target types.NodeID) []*routing.Peer {
+	closest := n.routingTable.Closest(target, n.cfg.K)
+
+	out := make([]*routing.Peer, 0, len(closest))
+	for _, p := range closest {
+		if p == nil || p.Addr == "" || p.ID == n.ID {
+			continue
+		}
+		out = append(out, p)
+		if len(out) == n.cfg.K {
+			break
+		}
+	}
+	return out
+}
+
 func (n *Node) nextReqID() uint64 {
 	return atomic.AddUint64(&n.reqSeq, 1)
 }
@@ -353,6 +370,9 @@ func (n *Node) makeMessage(op int) (req any, resp any) {
 			return &dhtpb.DeleteIndexRequest{}, &dhtpb.DeleteIndexResponse{}
 		case OP_FIND_NODE:
 			return &dhtpb.FindNodeRequest{}, &dhtpb.FindNodeResponse{}
+		case OP_FIND_VALUE:
+			return &dhtpb.FindValueRequest{}, &dhtpb.FindValueResponse{}
+
 		default:
 			return nil, nil
 		}
@@ -477,6 +497,16 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisher
 			reps = n.peersToAddrs(peers)
 		}
 
+		fmt.Println("[[[[[[[Returned NEAREST XOR DISTANCE FROM KEY. **FOR STORAGE** ]]]]]]]]]]]")
+		for i, peer := range peers {
+			fmt.Println()
+			fmt.Printf("nearest peer no: %d is XOR distance: %d from key.", i, n.routingTable.XORDistanceRank(peer.ID, HashKey(key)))
+			fmt.Println()
+			if i >= 3 {
+				break
+			}
+		}
+
 		//clamp replicas to the replication factor defined in the prevailing config
 		reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
 	}
@@ -551,7 +581,7 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisher
 	}
 }
 
-func (n *Node) Find(key string) ([]byte, bool) {
+func (n *Node) FindLocal(key string) ([]byte, bool) {
 	n.mu.RLock()
 	rec, ok := n.store[key]
 	n.mu.RUnlock()
@@ -561,7 +591,7 @@ func (n *Node) Find(key string) ([]byte, bool) {
 	return nil, false
 }
 
-func (n *Node) FindRemote(key string) ([]byte, bool) {
+func (n *Node) OldFind(key string) ([]byte, bool) {
 
 	//holds our collection of replica addresses
 	var reps []string
@@ -576,9 +606,28 @@ func (n *Node) FindRemote(key string) ([]byte, bool) {
 		reps = n.peersToAddrs(peers)
 	}
 
+	fmt.Println("[[[[[[[Returned NEAREST XOR DISTANCE FROM KEY]]]]]]]]]]]")
+	for i, peer := range peers {
+		fmt.Println()
+		fmt.Printf("nearest peer no: %d is XOR distance: %d from key.", i, n.routingTable.XORDistanceRank(peer.ID, HashKey(key)))
+		fmt.Println()
+		if i >= 3 {
+			break
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("[[[[[[[ALL DISTANCE FROM KEY]]]]]]]]]]]")
+	for i, peer := range n.ListPeers() {
+		fmt.Println()
+		fmt.Printf("peer no: %d is XOR distance: %d from key.", i, n.routingTable.XORDistanceRank(peer.ID, HashKey(key)))
+		fmt.Println()
+
+	}
+
 	//clamp replicas to the replication factor defined in the prevailing config
 	reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
-	if v, ok := n.Find(key); ok {
+	if v, ok := n.FindLocal(key); ok {
 		return v, true
 	}
 
@@ -649,7 +698,8 @@ func (n *Node) FindRemote(key string) ([]byte, bool) {
 		}(a)
 	}
 	deadline := time.After(n.cfg.RequestTimeout)
-	for i := 0; i < len(reps)-1; i++ {
+	//for i := 0; i < len(reps)-1; i++ {
+	for i := 0; i < len(reps); i++ {
 		select {
 		case r := <-ch:
 			if r.ok {
@@ -662,7 +712,540 @@ func (n *Node) FindRemote(key string) ([]byte, bool) {
 	return nil, false
 }
 
-func (n *Node) StoreIndexValue(indexKey string, e IndexEntry, ttl time.Duration) error {
+/*
+func (n *Node) Find(key string) ([]byte, bool) {
+	// 0) local fast-path
+	if v, ok := n.FindLocal(key); ok {
+		return v, true
+	}
+
+	target := HashKey(key)
+	K := n.cfg.K
+	alpha := n.cfg.Alpha
+	timeout := n.cfg.BatchRequestTimeout
+
+	shortlist := n.nearestKByID(target)
+	seen := make(map[types.NodeID]*routing.Peer, len(shortlist))
+	queried := make(map[types.NodeID]bool, len(shortlist))
+
+	for _, p := range shortlist {
+		if p == nil || p.Addr == "" || p.ID == n.ID {
+			continue
+		}
+		seen[p.ID] = p
+	}
+
+	rebuild := func() []*routing.Peer {
+		all := make([]*routing.Peer, 0, len(seen))
+		for _, p := range seen {
+			all = append(all, p)
+		}
+		sort.Slice(all, func(i, j int) bool {
+			return CompareDistance(all[i].ID, all[j].ID, target) < 0
+		})
+		if len(all) > K {
+			all = all[:K]
+		}
+		return all
+	}
+
+	//compares the two provided snapshots arrays to determine if they are identical
+	sameShortList := func(a, b []*routing.Peer) bool {
+		if len(a) != len(b) {
+			return false
+		}
+		for i := range a {
+			if a[i] == nil || b[i] == nil {
+				if a[i] != b[i] {
+					return false
+				}
+				continue
+			}
+			if a[i].ID != b[i].ID {
+				return false
+			}
+		}
+		return true
+	}
+
+	shortlist = rebuild()
+
+	for {
+		// pick α closest unqueried
+		batch := make([]*routing.Peer, 0, alpha)
+		for _, p := range shortlist {
+			if p == nil || p.ID == n.ID {
+				continue
+			}
+			if !queried[p.ID] {
+				queried[p.ID] = true
+				batch = append(batch, p)
+				if len(batch) == alpha {
+					break
+				}
+			}
+		}
+		if len(batch) == 0 {
+			break
+		}
+
+		type res struct {
+			value []byte
+			ok    bool
+			peers []*routing.Peer
+			err   error
+			from  *routing.Peer
+		}
+		ch := make(chan res, len(batch))
+
+		for _, p := range batch {
+			go func(peer *routing.Peer) {
+				req := &dhtpb.FindValueRequest{Key: key}
+
+				b, err := n.sendRequest(peer.Addr, OP_FIND_VALUE, req)
+				if err != nil {
+					ch <- res{err: err, from: peer}
+					return
+				}
+
+				resp := &dhtpb.FindValueResponse{}
+				if err := n.decode(b, resp); err != nil {
+					ch <- res{err: err, from: peer}
+					return
+				}
+
+				if resp.Ok {
+					ch <- res{ok: true, value: resp.Value, from: peer}
+					return
+				}
+
+				out := make([]*routing.Peer, 0, len(resp.Peers))
+				for _, rp := range resp.Peers {
+					if rp == nil || rp.Addr == "" || len(rp.NodeId) != len(target) {
+						continue
+					}
+					var id types.NodeID
+					copy(id[:], rp.NodeId)
+					if id == n.ID {
+						continue
+					}
+					out = append(out, &routing.Peer{ID: id, Addr: rp.Addr})
+				}
+				ch <- res{ok: false, peers: out, from: peer}
+			}(p)
+		}
+
+		timer := time.NewTimer(timeout)
+		responded := 0
+
+		for responded < len(batch) {
+			select {
+			case r := <-ch:
+				responded++
+
+				// always learn responders + their contacts
+				if r.from != nil {
+					n.routingTable.Update(r.from.ID, r.from.Addr)
+				}
+
+				if r.ok {
+					// OPTIONAL: cache value at closest node you queried that didn’t have it
+					// (classic Kademlia: store at the closest node seen that didn’t return it)
+					timer.Stop()
+					return r.value, true
+				}
+
+				for _, np := range r.peers {
+					if np == nil || np.Addr == "" || np.ID == n.ID {
+						continue
+					}
+					n.routingTable.Update(np.ID, np.Addr)
+					if _, ok := seen[np.ID]; !ok {
+						seen[np.ID] = np
+					}
+				}
+
+			case <-timer.C:
+				responded = len(batch)
+			}
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+
+		// rebuild shortlist
+		old := shortlist
+		shortlist = rebuild()
+
+		// termination: if shortlist didn’t change and nothing left to query, stop
+		if sameShortList(old, shortlist) {
+			done := true
+			for _, p := range shortlist {
+				if p != nil && !queried[p.ID] {
+					done = false
+					break
+				}
+			}
+			if done {
+				break
+			}
+		}
+	}
+
+	return nil, false
+}
+*/
+
+func (n *Node) Find(key string) ([]byte, bool) {
+	// 0) local fast-path
+	if v, ok := n.FindLocal(key); ok {
+		return v, true
+	}
+
+	target := HashKey(key)
+	K := n.cfg.K
+	alpha := n.cfg.Alpha
+	batchTimeout := n.cfg.BatchRequestTimeout
+
+	shortlist := n.nearestKByID(target)
+
+	seen := make(map[types.NodeID]*routing.Peer, len(shortlist))
+	queried := make(map[types.NodeID]bool, len(shortlist))
+
+	// NEW: track requests in-flight so we don't schedule duplicates
+	inflight := make(map[types.NodeID]bool, len(shortlist))
+
+	// NEW: optional retry budget per peer for transient failures
+	const maxRetries = 1 // set to 0 to disable retries, 1 is usually enough for tests
+	failCount := make(map[types.NodeID]int, len(shortlist))
+
+	for _, p := range shortlist {
+		if p == nil || p.Addr == "" || p.ID == n.ID {
+			continue
+		}
+		seen[p.ID] = p
+	}
+
+	rebuild := func() []*routing.Peer {
+		all := make([]*routing.Peer, 0, len(seen))
+		for _, p := range seen {
+			all = append(all, p)
+		}
+		sort.Slice(all, func(i, j int) bool {
+			return CompareDistance(all[i].ID, all[j].ID, target) < 0
+		})
+		if len(all) > K {
+			all = all[:K]
+		}
+		return all
+	}
+
+	sameShortList := func(a, b []*routing.Peer) bool {
+		if len(a) != len(b) {
+			return false
+		}
+		for i := range a {
+			if a[i] == nil || b[i] == nil {
+				if a[i] != b[i] {
+					return false
+				}
+				continue
+			}
+			if a[i].ID != b[i].ID {
+				return false
+			}
+		}
+		return true
+	}
+
+	shortlist = rebuild()
+
+	type res struct {
+		value []byte
+		ok    bool
+		peers []*routing.Peer
+		err   error
+		from  *routing.Peer
+	}
+
+	for {
+		// pick α closest not yet queried and not already in-flight
+		batch := make([]*routing.Peer, 0, alpha)
+		for _, p := range shortlist {
+			if p == nil || p.ID == n.ID || p.Addr == "" {
+				continue
+			}
+			if queried[p.ID] || inflight[p.ID] {
+				continue
+			}
+
+			// if we exceeded retry budget, treat as queried (dead for this lookup)
+			if maxRetries >= 0 && failCount[p.ID] > maxRetries {
+				queried[p.ID] = true
+				continue
+			}
+
+			inflight[p.ID] = true
+			batch = append(batch, p)
+			if len(batch) == alpha {
+				break
+			}
+		}
+
+		if len(batch) == 0 {
+			break
+		}
+
+		ch := make(chan res, len(batch))
+
+		// send requests concurrently
+		for _, p := range batch {
+			go func(peer *routing.Peer) {
+				req := &dhtpb.FindValueRequest{Key: key}
+
+				b, err := n.sendRequest(peer.Addr, OP_FIND_VALUE, req)
+				if err != nil {
+					ch <- res{err: err, from: peer}
+					return
+				}
+
+				resp := &dhtpb.FindValueResponse{}
+				if err := n.decode(b, resp); err != nil {
+					ch <- res{err: err, from: peer}
+					return
+				}
+
+				if resp.Ok {
+					ch <- res{ok: true, value: resp.Value, from: peer}
+					return
+				}
+
+				out := make([]*routing.Peer, 0, len(resp.Peers))
+				for _, rp := range resp.Peers {
+					if rp == nil || rp.Addr == "" || len(rp.NodeId) != len(target) {
+						continue
+					}
+					var id types.NodeID
+					copy(id[:], rp.NodeId)
+					if id == n.ID {
+						continue
+					}
+					out = append(out, &routing.Peer{ID: id, Addr: rp.Addr})
+				}
+				ch <- res{ok: false, peers: out, from: peer}
+			}(p)
+		}
+
+		timer := time.NewTimer(batchTimeout)
+		responded := 0
+
+		for responded < len(batch) {
+			select {
+			case r := <-ch:
+				responded++
+
+				// request is no longer in-flight
+				if r.from != nil {
+					delete(inflight, r.from.ID)
+				}
+
+				// Mark as queried only once we have a result (success OR error)
+				if r.from != nil {
+					// If error, maybe allow retry (don't mark queried yet if retrying)
+					if r.err != nil {
+						failCount[r.from.ID]++
+						// keep it unqueried so it may be retried, unless we've exceeded retry budget
+						if failCount[r.from.ID] > maxRetries {
+							queried[r.from.ID] = true
+						}
+						continue
+					}
+
+					// success response: mark queried
+					queried[r.from.ID] = true
+
+					// learn responder (alive)
+					n.routingTable.Update(r.from.ID, r.from.Addr)
+				}
+
+				// value found -> return immediately
+				if r.ok {
+					timer.Stop()
+					return r.value, true
+				}
+
+				// incorporate returned peers
+				for _, np := range r.peers {
+					if np == nil || np.Addr == "" || np.ID == n.ID {
+						continue
+					}
+					n.routingTable.Update(np.ID, np.Addr)
+					if _, ok := seen[np.ID]; !ok {
+						seen[np.ID] = np
+					}
+				}
+
+			case <-timer.C:
+				// batch timed out: mark inflight peers as no longer inflight and apply retry logic
+				for _, p := range batch {
+					delete(inflight, p.ID)
+					failCount[p.ID]++
+					if failCount[p.ID] > maxRetries {
+						queried[p.ID] = true
+					}
+				}
+				responded = len(batch)
+			}
+		}
+
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+
+		// rebuild shortlist
+		old := shortlist
+		shortlist = rebuild()
+
+		// termination: shortlist stable AND nothing left worth querying
+		if sameShortList(old, shortlist) {
+			done := true
+			for _, p := range shortlist {
+				if p == nil || p.ID == n.ID {
+					continue
+				}
+				// not done if there's an unqueried peer we can still try
+				if !queried[p.ID] && !inflight[p.ID] && failCount[p.ID] <= maxRetries {
+					done = false
+					break
+				}
+			}
+			if done {
+				break
+			}
+		}
+	}
+
+	return nil, false
+}
+
+
+/*
+func (n *Node) FindRemote(key string) ([]byte, bool) {
+	// 0) Fast-path: check local store first (cheapest, avoids pointless network work)
+	if v, ok := n.Find(key); ok {
+		return v, true
+	}
+
+	// 1) Resolve candidate replica addresses
+	var reps []string
+	peers, err := n.lookupK(HashKey(key))
+	if err != nil {
+		fmt.Printf("lookupK failed; falling back to local nearestK: %v\n", err)
+		reps = n.nearestK(key)
+	} else {
+		reps = n.peersToAddrs(peers)
+	}
+
+	// 2) Filter and dedupe BEFORE clamping, so we never:
+	//    - clamp down to [self] and then launch 0 goroutines
+	//    - wait for more replies than we actually launched
+	seen := make(map[string]struct{}, len(reps))
+	filtered := make([]string, 0, len(reps))
+	for _, a := range reps {
+		if a == "" || a == n.Addr {
+			continue
+		}
+		if _, ok := seen[a]; ok {
+			continue
+		}
+		seen[a] = struct{}{}
+		filtered = append(filtered, a)
+	}
+	reps = filtered
+
+	if len(reps) == 0 {
+		return nil, false
+	}
+
+	// 3) Clamp to replication factor after filtering
+	if rf := n.cfg.ReplicationFactor; rf > 0 && len(reps) > rf {
+		reps = reps[:rf]
+	}
+
+	// 4) Fire concurrent OP_FIND requests
+	type result struct {
+		v  []byte
+		ok bool
+	}
+	ch := make(chan result, len(reps))
+
+	for _, addr := range reps {
+		go func(a string) {
+			reqAny, _ := n.makeMessage(OP_FIND)
+			switch r := reqAny.(type) {
+			case *dhtpb.FindRequest:
+				r.Key = key
+			case *struct {
+				Key string `json:"key"`
+			}:
+				r.Key = key
+			}
+
+			b, err := n.sendRequest(a, OP_FIND, reqAny)
+			if err != nil {
+				ch <- result{nil, false}
+				return
+			}
+
+			_, respAny := n.makeMessage(OP_FIND)
+			if err := n.decode(b, respAny); err != nil {
+				ch <- result{nil, false}
+				return
+			}
+
+			switch resp := respAny.(type) {
+			case *dhtpb.FindResponse:
+				ch <- result{resp.Value, resp.Ok}
+				return
+			case *struct {
+				Ok    bool   `json:"ok"`
+				Value []byte `json:"value"`
+				Err   string `json:"err"`
+			}:
+				ch <- result{resp.Value, resp.Ok}
+				return
+			default:
+				ch <- result{nil, false}
+				return
+			}
+		}(addr)
+	}
+
+	// 5) Wait for exactly len(reps) replies (guaranteed 1 goroutine per rep), or timeout
+	timer := time.NewTimer(n.cfg.RequestTimeout)
+	defer timer.Stop()
+
+	for i := 0; i < len(reps); i++ {
+		select {
+		case r := <-ch:
+			if r.ok {
+				return r.v, true
+			}
+		case <-timer.C:
+			return nil, false
+		}
+	}
+	return nil, false
+}
+*/
+
+func (n *Node) StoreIndex(indexKey string, e IndexEntry, ttl time.Duration) error {
 	reps := n.nearestK(indexKey)
 
 	//NB: where the call to the merge function is being made as a direct result
@@ -722,7 +1305,7 @@ func (n *Node) StoreIndexValue(indexKey string, e IndexEntry, ttl time.Duration)
 
 }
 
-func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
+func (n *Node) FindIndexLocal(key string) ([]IndexEntry, bool) {
 	n.mu.RLock()
 	rec, ok := n.store[key]
 	n.mu.RUnlock()
@@ -734,9 +1317,9 @@ func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 	return entries, true
 }
 
-func (n *Node) FindIndexRemote(key string) ([]IndexEntry, bool) {
+func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 	reps := n.nearestK(key)
-	if ents, ok := n.FindIndex(key); ok {
+	if ents, ok := n.FindIndexLocal(key); ok {
 		return ents, true
 	}
 	type res struct {
@@ -897,16 +1480,16 @@ func (n *Node) ListPeersAsString() []string {
 }
 
 func (n *Node) ListPeers() []routing.Peer {
-  return n.routingTable.ListKnownPeers()
+	return n.routingTable.ListKnownPeers()
 }
 
 func (n *Node) ListPeerIds() []string {
-   allPeers :=  n.routingTable.ListKnownPeers()
-   allPeerIds := make([]string,len(allPeers))
-   for _,curPeer := range allPeers{
-	  allPeerIds = append(allPeerIds, curPeer.ID.String())
-   }
-   return allPeerIds
+	allPeers := n.routingTable.ListKnownPeers()
+	allPeerIds := make([]string, 0)
+	for _, curPeer := range allPeers {
+		allPeerIds = append(allPeerIds, curPeer.ID.String())
+	}
+	return allPeerIds
 }
 
 // -----------------------------------------------------------------------------
@@ -1053,7 +1636,7 @@ func (n *Node) onMessage(from string, data []byte) {
 			key = r.Key
 		}
 
-		val, ok := n.Find(key)
+		val, ok := n.FindLocal(key)
 		switch r := respAny.(type) {
 		case *dhtpb.FindResponse:
 			r.Ok = ok
@@ -1153,7 +1736,7 @@ func (n *Node) onMessage(from string, data []byte) {
 			key = r.Key
 		}
 
-		ents, ok := n.FindIndex(key)
+		ents, ok := n.FindIndexLocal(key)
 		switch r := respAny.(type) {
 		case *dhtpb.FindIndexResponse:
 			r.Ok = ok
@@ -1266,7 +1849,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		copy(target[:], r.NodeId)
 
 		//find nodes closest to the target id from our LOCAL routing table.
-		peers := n.routingTable.Closest(target, n.cfg.K) // K shortlist from local RT
+		peers := n.nearestKByID(target) //n.routingTable.Closest(target, n.cfg.K) // K shortlist from local RT
 
 		_, resp := n.makeMessage(OP_FIND_NODE)
 		rsp := resp.(*dhtpb.FindNodeResponse)
@@ -1282,9 +1865,40 @@ func (n *Node) onMessage(from string, data []byte) {
 		b, _ := n.encode(resp)
 		msg, _ := n.cd.Wrap(OP_FIND_NODE, reqID, true, n.ID.String(), n.Addr, b)
 		_ = n.transport.Send(fromAddr, msg)
+
+	case OP_FIND_VALUE:
+		req := &dhtpb.FindValueRequest{}
+		if err := n.decode(payload, req); err != nil {
+			return
+		}
+
+		key := req.Key
+		target := HashKey(key)
+
+		// If node has value, return it
+		if v, ok := n.FindLocal(key); ok {
+			resp := &dhtpb.FindValueResponse{Ok: true, Value: v}
+			b, _ := n.encode(resp)
+			msg, _ := n.cd.Wrap(OP_FIND_VALUE, reqID, true, n.ID.String(), n.Addr, b)
+			_ = n.transport.Send(fromAddr, msg)
+			return
+		}
+
+		// Otherwise return closest peers (Kademlia-compliant)
+		peers := n.nearestKByID(target) //n.routingTable.Closest(target, n.cfg.K)
+		resp := &dhtpb.FindValueResponse{Ok: false, Peers: make([]*dhtpb.NodeContact, 0, len(peers))}
+		for _, p := range peers {
+			resp.Peers = append(resp.Peers, &dhtpb.NodeContact{NodeId: p.ID[:], Addr: p.Addr})
+		}
+
+		b, _ := n.encode(resp)
+		msg, _ := n.cd.Wrap(OP_FIND_VALUE, reqID, true, n.ID.String(), n.Addr, b)
+		_ = n.transport.Send(fromAddr, msg)
+
 	default:
 		return
 	}
+
 }
 
 func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
@@ -1754,7 +2368,7 @@ func (n *Node) refresh() {
 					if (e.TTL - timeElapsedSinceUpdate.Milliseconds()) <= (n.cfg.RefreshInterval * 2).Milliseconds() {
 						ttlDuration := time.Duration(e.TTL) * time.Millisecond
 						e.UpdatedUnix = time.Now().UnixMilli()
-						indexRefreshErr := n.StoreIndexValue(k, e, ttlDuration)
+						indexRefreshErr := n.StoreIndex(k, e, ttlDuration)
 						if indexRefreshErr != nil {
 							fmt.Println("An error occurred whilst attempting to refresh index entry with key: " + k + " the error was: " + indexRefreshErr.Error())
 						}

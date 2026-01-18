@@ -58,14 +58,14 @@ func main() {
 	time.AfterFunc(time.Second*2, func() {
 
 		//attempt to find entry set by peer node 1 via peer node 2
-		if v, ok := n2.FindRemote("alpha"); ok {
+		if v, ok := n2.Find("alpha"); ok {
 			fmt.Println("Peer Node 2 found entry set by Peer Node 1", string(v))
 		} else {
 			fmt.Println("Error occurred whilst Peer Node 2 tried to find entry set by Peer Node 1")
 		}
 
 		//next attempt to find entry set by peer node 2 via peer node 1
-		if v, ok := n1.FindRemote("beta"); ok {
+		if v, ok := n1.Find("beta"); ok {
 			fmt.Println("Peer Node 1 found entry set by Peer Node 2", string(v))
 		} else {
 			fmt.Println("Error occurred whilst Peer Node 1 tried to find entry set by Peer Node 2")
@@ -85,12 +85,12 @@ func main() {
 	key := "leaf/alpha"
 
 	//store INDEX entry to the DHT via both nodes. note each node sets the target to be its own ID
-	peer1StoreIndexErr := n1.StoreIndexValue(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer1StoreIndexErr != nil {
 		fmt.Println("Error occurred whilst Peer Node 1 was trying to store INDEX entry:", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer2IndexIndexStoreErr != nil {
 		fmt.Println("Error occurred whilst Peer Node 2 was trying to store INDEX entry:", peer2IndexIndexStoreErr)
 	}
@@ -100,10 +100,10 @@ func main() {
 	//an entry index of length 2.
 	time.AfterFunc(2*time.Second, func() {
 
-		if ents, ok := n1.FindIndexRemote(key); ok {
+		if ents, ok := n1.FindIndex(key); ok {
 			fmt.Println("n1 FindIndexRemote entries:", len(ents))
 		}
-		if ents, ok := n2.FindIndexRemote(key); ok {
+		if ents, ok := n2.FindIndex(key); ok {
 			fmt.Println("n2 FindIndexRemote entries:", len(ents))
 		}
 	})
@@ -112,7 +112,7 @@ func main() {
 	time.AfterFunc(time.Second*60, func() {
 
 		fmt.Println("Waited. past TTL to observe refresh...")
-		if ents, ok := n2.FindIndexRemote(key); ok {
+		if ents, ok := n2.FindIndex(key); ok {
 			fmt.Println("n2 FindIndexRemote after refresh:", len(ents))
 			fmt.Println(ents)
 		} else {
@@ -125,7 +125,7 @@ func main() {
 	time.AfterFunc(time.Second*120, func() {
 
 		fmt.Println("Waited. past TTL to observe refresh 2...")
-		if ents, ok := n1.FindIndexRemote(key); ok {
+		if ents, ok := n1.FindIndex(key); ok {
 			fmt.Println("n1 FindIndexRemote after refresh 2:", len(ents))
 			fmt.Println(ents)
 		} else {

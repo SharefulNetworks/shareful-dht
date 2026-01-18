@@ -40,10 +40,10 @@ func (rt *RoutingTable) BucketFor(id types.NodeID) (int, *KBucket) {
 	return i, &rt.buckets[i]
 }
 
-//Update - Upserts (i.e Updates or Inserts) Peer in the correct bucket.
+// Update - Upserts (i.e Updates or Inserts) Peer in the correct bucket.
 // Eviction strategy here: if bucket full, evict oldest at index 0
-//(by shifting all entries to the left by one) then the new value is
-//appended to the now vacant last index in the bucket.
+// (by shifting all entries to the left by one) then the new value is
+// appended to the now vacant last index in the bucket.
 func (rt *RoutingTable) Update(id types.NodeID, addr string) {
 	i := rt.bucketIndex(rt.self, id)
 	if i < 0 {
@@ -92,13 +92,14 @@ func (rt *RoutingTable) Update(id types.NodeID, addr string) {
 	b.Peers[len(b.Peers)-1] = p
 }
 
-//Remove - Explicitly removes the node with the sepcified id from this routing
-//         table instance, where it exists. A boolean is then returned to indicate
-//         whether or not the target entry was successfully located and expunged;
-//         return TRUE where this is the case and FALSE otherwise.
-func (rt *RoutingTable) Remove(id types.NodeID) bool{
+// Remove - Explicitly removes the node with the sepcified id from this routing
+//
+//	table instance, where it exists. A boolean is then returned to indicate
+//	whether or not the target entry was successfully located and expunged;
+//	return TRUE where this is the case and FALSE otherwise.
+func (rt *RoutingTable) Remove(id types.NodeID) bool {
 
-	var removed bool = false;
+	var removed bool = false
 
 	i := rt.bucketIndex(rt.self, id)
 	if i < 0 {
@@ -110,16 +111,16 @@ func (rt *RoutingTable) Remove(id types.NodeID) bool{
 	b := &rt.buckets[i]
 
 	var targetRemovalIndex int = -1
-	for idx,curPeer := range b.Peers{
-		  if curPeer.ID == id{
+	for idx, curPeer := range b.Peers {
+		if curPeer.ID == id {
 			targetRemovalIndex = idx
 			removed = true
 			break
-		  }
+		}
 	}
 
-	if targetRemovalIndex >=0{
-      b.Remove(targetRemovalIndex)
+	if targetRemovalIndex >= 0 {
+		b.Remove(targetRemovalIndex)
 	}
 
 	return removed
@@ -175,6 +176,14 @@ func (rt *RoutingTable) Closest(target types.NodeID, count int) []*Peer {
 		count = len(all)
 	}
 	return all[:count]
+}
+
+func (rt *RoutingTable) XORDistanceRank(self, other types.NodeID) int {
+	idx := rt.bucketIndex(self, other)
+	if idx < 0 { // same node
+		return 0
+	}
+	return idx + 1
 }
 
 func (rt *RoutingTable) bucketIndex(self, other types.NodeID) int {

@@ -37,7 +37,7 @@ func Test_Create_And_Find_Standard_Entry_Value(t *testing.T) {
 
 	//after a short delay attempt to retrieve the data FROM the DHT, via node 2.
 	time.Sleep(1000 * time.Millisecond)
-	if v, ok := n2.FindRemote("alpha"); !ok || string(v) != "v" {
+	if v, ok := n2.Find("alpha"); !ok || string(v) != "v" {
 		t.Fatalf("FindRemote failed %q", string(v))
 	}
 }
@@ -53,23 +53,23 @@ func Test_Create_And_Find_Index_Entry_Value(t *testing.T) {
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
 
 	//after a short delay attempt to retrieve the merged index FROM the DHT, via node 1 and node 2
 	time.Sleep(3000 * time.Millisecond)
-	if ents, ok := n1.FindIndexRemote(key); !ok || len(ents) < 2 {
+	if ents, ok := n1.FindIndex(key); !ok || len(ents) < 2 {
 		t.Fatalf("expected merged index >=2")
 	}
 	time.Sleep(4000 * time.Millisecond)
-	if ents, ok := n2.FindIndexRemote(key); !ok || len(ents) < 2 {
+	if ents, ok := n2.FindIndex(key); !ok || len(ents) < 2 {
 		t.Fatalf("expected merged index >=2")
 
 	}
@@ -92,7 +92,7 @@ func Test_Create_And_Delete_Standard_Entry_Value(t *testing.T) {
 
 	//after a short delay attempt to retrieve the data FROM the DHT, via node 2.
 	time.Sleep(1000 * time.Millisecond)
-	if v, ok := n2.FindRemote("alpha"); !ok || string(v) != "v" {
+	if v, ok := n2.Find("alpha"); !ok || string(v) != "v" {
 		t.Fatalf("FindRemote failed %q", string(v))
 	}
 
@@ -105,7 +105,7 @@ func Test_Create_And_Delete_Standard_Entry_Value(t *testing.T) {
 	//where the delete has been properly propogated the find operation should now fail.
 	//NB: We must allow a delay greater than the Janitor interval to ensure the deletion is actioned.
 	time.Sleep(11000 * time.Millisecond)
-	if v, ok := n2.FindRemote("alpha"); ok {
+	if v, ok := n2.Find("alpha"); ok {
 		t.Fatalf("FindRemote should have failed but returned %q", string(v))
 	}
 
@@ -128,7 +128,7 @@ func Test_Create_And_Delete_Standard_Entry_Value_With_Non_Existent_Key(t *testin
 
 	//after a short delay attempt to retrieve the data FROM the DHT, via node 2.
 	time.Sleep(1000 * time.Millisecond)
-	if v, ok := n2.FindRemote("alpha"); !ok || string(v) != "v" {
+	if v, ok := n2.Find("alpha"); !ok || string(v) != "v" {
 		t.Fatalf("FindRemote failed %q", string(v))
 	}
 
@@ -141,7 +141,7 @@ func Test_Create_And_Delete_Standard_Entry_Value_With_Non_Existent_Key(t *testin
 	//then to be absolutely sure the deletion was not actioned nor propergated we attempt to
 	//find the entry again via node 2.
 	time.Sleep(3000 * time.Millisecond)
-	if v, ok := n2.FindRemote("alpha"); !ok || string(v) != "v" {
+	if v, ok := n2.Find("alpha"); !ok || string(v) != "v" {
 		t.Fatalf("FindRemote after non-actioned delete failed %q", string(v))
 	}
 
@@ -164,7 +164,7 @@ func Test_Create_And_Delete_Standard_Entry_Value_With_PublisherId_Mismatch(t *te
 
 	//after a short delay attempt to retrieve the data FROM the DHT, via node 2.
 	time.Sleep(1000 * time.Millisecond)
-	if v, ok := n2.FindRemote("alpha"); !ok || string(v) != "v" {
+	if v, ok := n2.Find("alpha"); !ok || string(v) != "v" {
 		t.Fatalf("FindRemote failed %q", string(v))
 	}
 
@@ -180,14 +180,14 @@ func Test_Create_And_Delete_Standard_Entry_Value_With_PublisherId_Mismatch(t *te
 	//in order to verify that the node was not deleted,after a short delay attempt to retreive the entry
 	//locally, via the node that created it, node 1 in this case.
 	time.Sleep(3000 * time.Millisecond)
-	if v, ok := n1.FindRemote("alpha"); !ok || string(v) != "v" {
+	if v, ok := n1.Find("alpha"); !ok || string(v) != "v" {
 		t.Fatalf("FindRemote after non-actioned delete failed %q", string(v))
 	}
 
 	//then to be absolutely sure the deletion was not actioned nor propergated we attempt to
 	//find the entry again via node 2.
 	time.Sleep(3000 * time.Millisecond)
-	if v, ok := n2.FindRemote("alpha"); !ok || string(v) != "v" {
+	if v, ok := n2.Find("alpha"); !ok || string(v) != "v" {
 		t.Fatalf("FindRemote after non-actioned delete failed %q", string(v))
 	}
 
@@ -204,23 +204,23 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
 
 	//after a short delay attempt to retrieve the merged index FROM the DHT, via node 1 and node 2
 	time.Sleep(3000 * time.Millisecond)
-	if ents, ok := n1.FindIndexRemote(key); !ok || len(ents) < 2 {
+	if ents, ok := n1.FindIndex(key); !ok || len(ents) < 2 {
 		t.Fatalf("expected merged index >=2")
 	}
 	time.Sleep(4000 * time.Millisecond)
-	if ents, ok := n2.FindIndexRemote(key); !ok || len(ents) < 2 {
+	if ents, ok := n2.FindIndex(key); !ok || len(ents) < 2 {
 		t.Fatalf("expected merged index >=2")
 
 	}
@@ -233,7 +233,7 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 	//after a short delay to allow the deletion to propergate attempt to retreive the index from the DHT via node 2.
 	//which should now only contain a single entry
 	time.Sleep(6000 * time.Millisecond)
-	if ents, ok := n2.FindIndexRemote(key); !ok || len(ents) != 1 {
+	if ents, ok := n2.FindIndex(key); !ok || len(ents) != 1 {
 		t.Fatalf("expected merged index = 1")
 	}
 
@@ -250,23 +250,23 @@ func Test_Create_And_Delete_Index_Entry_Value_With_Non_Existent_Key(t *testing.T
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
 
 	//after a short delay attempt to retrieve the merged index FROM the DHT, via node 1 and node 2
 	time.Sleep(3000 * time.Millisecond)
-	if ents, ok := n1.FindIndexRemote(key); !ok || len(ents) < 2 {
+	if ents, ok := n1.FindIndex(key); !ok || len(ents) < 2 {
 		t.Fatalf("expected merged index >=2")
 	}
 	time.Sleep(4000 * time.Millisecond)
-	if ents, ok := n2.FindIndexRemote(key); !ok || len(ents) < 2 {
+	if ents, ok := n2.FindIndex(key); !ok || len(ents) < 2 {
 		t.Fatalf("expected merged index >=2")
 
 	}
@@ -280,12 +280,12 @@ func Test_Create_And_Delete_Index_Entry_Value_With_Non_Existent_Key(t *testing.T
 	//after a short delay verify that the deltion operation was aborted
 	//by checking the length of the index it should still be equal to two.
 	time.Sleep(6000 * time.Millisecond)
-	if ents, ok := n1.FindIndexRemote(key); !ok || len(ents) != 2 {
+	if ents, ok := n1.FindIndex(key); !ok || len(ents) != 2 {
 		t.Fatalf("expected merged index = 2")
 	}
 
 	time.Sleep(7000 * time.Millisecond)
-	if ents, ok := n2.FindIndexRemote(key); !ok || len(ents) != 2 {
+	if ents, ok := n2.FindIndex(key); !ok || len(ents) != 2 {
 		t.Fatalf("expected merged index = 2")
 	}
 
@@ -303,19 +303,19 @@ func Test_Create_And_Delete_Index_Entry_Value_With_PublisherId_Mismatch(t *testi
 
 	//store index entries from the first two nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
 
 	//next fetch entries from node 3 to ensure the storage operation was successsfully propogated
 	time.Sleep(3000 * time.Millisecond)
-	if ents, ok := n3.FindIndexRemote(key); !ok || len(ents) != 2 {
+	if ents, ok := n3.FindIndex(key); !ok || len(ents) != 2 {
 		t.Fatalf("expected merged index = 2")
 	}
 
@@ -331,7 +331,7 @@ func Test_Create_And_Delete_Index_Entry_Value_With_PublisherId_Mismatch(t *testi
 	//after a short delay to allow any propergated deletion to take effect, attempt to retreive the index from
 	// the DHT, which should still contain both entries
 	time.Sleep(6000 * time.Millisecond)
-	if ents, ok := n3.FindIndexRemote(key); !ok || len(ents) != 2 {
+	if ents, ok := n3.FindIndex(key); !ok || len(ents) != 2 {
 		t.Fatalf("expected merged index = 2")
 	}
 
@@ -362,22 +362,22 @@ func Test_Standard_Entry_Auto_Expiration(t *testing.T) {
 	//after a short delay attempt to retrieve the data FROM the DHT, via an alternate node
 	//to the node that created it, ensure the store operation was propagated.
 	time.Sleep(1000 * time.Millisecond)
-	if v, ok := n2.FindRemote("alpha"); !ok || string(v) != "v" {
+	if v, ok := n2.Find("alpha"); !ok || string(v) != "v" {
 		t.Fatalf("FindRemote failed %q", string(v))
 	}
 
 	time.Sleep(2000 * time.Millisecond)
-	if w, ok := n1.FindRemote("beta"); !ok || string(w) != "w" {
+	if w, ok := n1.Find("beta"); !ok || string(w) != "w" {
 		t.Fatalf("FindRemote failed %q", string(w))
 	}
 
 	time.Sleep(2500 * time.Millisecond)
-	if w, ok := n3.FindRemote("beta"); !ok || string(w) != "w" {
+	if w, ok := n3.Find("beta"); !ok || string(w) != "w" {
 		t.Fatalf("FindRemote failed %q", string(w))
 	}
 
 	time.Sleep(3000 * time.Millisecond)
-	if v, ok := n3.FindRemote("alpha"); !ok || string(v) != "v" {
+	if v, ok := n3.Find("alpha"); !ok || string(v) != "v" {
 		t.Fatalf("FindRemote failed %q", string(v))
 	}
 
@@ -390,7 +390,7 @@ func Test_Standard_Entry_Auto_Expiration(t *testing.T) {
 
 	//finally attempt to retreive node 1's entry via node 2 and 3 which should fail, in both cases.
 	time.Sleep(3000 * time.Millisecond)
-	_, node3FundOK := n3.FindRemote("alpha")
+	_, node3FundOK := n3.Find("alpha")
 	if node3FundOK {
 		t.Fatal("Expected lookup for entry to fail on account of it having been expired.")
 	} else {
@@ -398,7 +398,7 @@ func Test_Standard_Entry_Auto_Expiration(t *testing.T) {
 	}
 
 	time.Sleep(3500 * time.Millisecond)
-	_, node2FundOK := n2.FindRemote("alpha")
+	_, node2FundOK := n2.Find("alpha")
 	if node2FundOK {
 		t.Fatal("Expected lookup for entry to fail on account of it having been expired.")
 	} else {
@@ -421,19 +421,19 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 
 	//store index entries from the first two nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second)
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndexValue(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second)
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
 
 	//next fetch entries from node 3 to ensure the storage operation was successsfully propogated
 	time.Sleep(3000 * time.Millisecond)
-	if ents, ok := n3.FindIndexRemote(key); !ok || len(ents) != 2 {
+	if ents, ok := n3.FindIndex(key); !ok || len(ents) != 2 {
 		t.Fatalf("expected merged index = 2")
 	} else {
 
@@ -451,7 +451,7 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 
 	//finally attempt to retrieve the collection of entries associated with the key which
 	//should now be of length 1 as node 2's entry should have automatically expired.
-	if ents, ok := n3.FindIndexRemote(key); !ok || len(ents) != 1 {
+	if ents, ok := n3.FindIndex(key); !ok || len(ents) != 1 {
 		t.Fatalf("expected merged index count to now equal: 1, it actually was equal to: " + strconv.Itoa(len(ents)))
 	} else {
 		t.Log("The only remaining entry was:")
@@ -687,7 +687,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry(t *te
 	}
 
 	//call into our helper function to pepare some sample data for us to store, we set the
-	//samplke entry count equal to the number of standard nodes we randomly selected for the
+	//sample entry count equal to the number of standard nodes we randomly selected for the
 	//purposes of this test.
 	sampleData := prepSampleEntryData(t, randomNodeSelectionCount)
 
@@ -714,7 +714,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry(t *te
 
 			//if we cannot find an entry for the current key via this node OR if the entry doesn't have the
 			//expected value, we fail the test.
-			if val, ok := curBootstrapNode.FindRemote(k); !ok && string(val) != k {
+			if val, ok := curBootstrapNode.Find(k); !ok && string(val) != k {
 				t.Fatalf("FindRemote failed on bootstrap node: %s for resource with key: %s", curBootstrapNode.ID, k)
 			} else {
 				t.Log()
@@ -792,27 +792,144 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 		//KeySelector: func(item *Node) string { return item.ID.String() },
 	}
 
-	disjointNodePairings, err := CreateDisjointPairings(
+	nodePairingCount := len(ctx.BootstrapNodes)
+	var disjointNodePairings []Pairing[*Node]
+	var createPairingErr error
+	disjointNodePairings, createPairingErr = CreateDisjointPairings(
 		ctx.BootstrapNodes,
 		ctx.Nodes,
 		disjointSetOpts,
-		len(ctx.BootstrapNodes),
+		nodePairingCount,
 	)
 
-	if err != nil {
-		t.Errorf("An error occurred whilst attempting to create disjoint set of node pairings: %o", err)
+	if createPairingErr != nil {
+		t.Errorf("An error occurred whilst attempting to create disjoint set of node pairings: %o", createPairingErr)
 	}
 
-	//we may validate that we DO indeed have a disjoint set paring of nodes BEFORE undertaking 
+	//we may validate that we DO indeed have a disjoint set paring of nodes BEFORE undertaking
 	//any storage operations by using our helper function
 	isDisjointNodePairings, _ := IsDisjointPairing(
 		disjointNodePairings,
 		disjointSetOpts,
-	
 	)
 
-	if !isDisjointNodePairings{
+	if !isDisjointNodePairings {
 		t.Errorf("The specified set pairings were NOT disjoint, BEFORE storage operations were attempted.")
+	}
+
+	//call into our helper function to pepare some sample data for us to store, we set the
+	//sample entry count equal to the number of bootstrap/standard node pairings we created.
+	//NB: The sample data will be ultimately decomposed into separate key/value sets in order
+	//    to allow for iteration over the entries in a deterministic fashion; iterating over
+	//    the map, directly, is not guarenteed to return values in a consistent order.
+	sampleData := prepSampleEntryData(t, nodePairingCount)
+
+	//produce a keyset so we are able to deterministicly pick the same indexes
+	//in sequence, from our sample data, for the duration/entire bounds of this function.
+	var sampleDataKeySet []string
+	for k := range *sampleData {
+		sampleDataKeySet = append(sampleDataKeySet, k)
+	}
+
+	
+
+	//next iterate over sample data array and store each entry to the
+	//corresponding STANDARD node in each pairing.
+	//NOTE: Order is important here, you'll note that in the above call to CreateDisjointPairings
+	//      we specify the Bootstrap nodes as SET A, thus in the resulting node pairing data
+	//      the Bootstrap node will be NODE 1 and the Standard node will be set as NODE 2
+	storeToStandardNodesInPairings := func() {
+
+		var storeErr error = nil
+		for i, curSampleDataKey := range sampleDataKeySet {
+			curSampleDataValue := (*sampleData)[curSampleDataKey]
+			curPairing := disjointNodePairings[i] //.Store(k, v)
+			curPairingStandardNode := curPairing.Node2
+			storeErr = curPairingStandardNode.Store(curSampleDataKey, curSampleDataValue)
+
+			if storeErr != nil{
+			t.Fatalf("store failed (i=%d, key=%q, node=%s): %v",
+				i, curSampleDataKey, curPairingStandardNode.Addr, storeErr)
+			}
+		}
+
+
+	}
+
+	storeToStandardNodesInPairings()
+
+	//allow some time for the storage operation to complete and be propagated across the network
+	t.Log("Allowing time for storage of entries to random standard nodes to propergate...")
+	time.Sleep(28000 * time.Millisecond)
+
+	//test if the set pairings are still disjoint, they likely WILL NOT be now
+	//as the storage operation implicitly requires a node to undertake some degree
+	//of network discovery in order to resolve the closest peers (from data key) to store the data to.
+	isDisjointNodePairingsAfter, _ := IsDisjointPairing(
+		disjointNodePairings,
+		disjointSetOpts,
+	)
+
+	if !isDisjointNodePairingsAfter {
+		t.Log("****** The specified set pairings were NOT disjoint, AFTER storage operations were attempted. Attempting to drop UNIONS to return pairings to a disjoint state")
+
+		//declare our resolver function which will take a union pairing and make it disjoint
+		//this implementation  will ensure that a standard node does not
+		//contain a bootstrap node in its peer list and vice-versa
+		disjointSetOpts2 := DisjointSetOpts[*Node, string]{
+
+			Compare: func(a, b *Node) bool { return slices.Contains(b.ListPeerIds(), a.ID.String()) },
+			Resolver: func(unionPairing Pairing[*Node]) Pairing[*Node] {
+
+				//remove reference to bootstrap node in standard node peer list and vice-versa
+				unionPairing.Node2.DropPeer(unionPairing.Node1.ID)
+				unionPairing.Node1.DropPeer(unionPairing.Node2.ID)
+				return unionPairing
+			},
+		}
+
+		//call our ToDisjoint function to revert the pairing to a disjointed state
+		disjointNodePairings, _ = ToDisjoint(disjointNodePairings, disjointSetOpts2)
+
+	}
+
+	//next recheck if the pairings are disjoint, they now should be
+	areNowDisjoint, _ := IsDisjointPairing(
+		disjointNodePairings,
+		disjointSetOpts)
+
+	//if they are still not disjoint fail the test.
+	if !areNowDisjoint {
+		t.Error("Node pairings are still not Disjoint after the call to: ToDisjoint()")
+	}
+
+	fmt.Println(len(disjointNodePairings[0].Node2.ListPeerIds()))
+
+	//next attempt to look up value stored to each selected standard node via it's
+	//associated bootstrap pairing. The pairing ensures that no pre-existing link
+	//between the given bootstrap node and the standard node.
+	for i, pairing := range disjointNodePairings {
+		dataKey := sampleDataKeySet[i]
+		dataValue := (*sampleData)[dataKey]
+		pairingBootstrapNode := pairing.Node1
+
+		queryStart := time.Now()
+		if v, ok := pairingBootstrapNode.Find(dataKey); !ok || string(v) != string(dataValue) {
+			fmt.Println("Failed Peer List Count: " + strconv.Itoa(len(pairingBootstrapNode.ListPeerIds())))
+			fmt.Println("Failed Query Duration: ")
+			queryDuration := time.Since(queryStart)
+			fmt.Println(queryDuration)
+			t.Fatalf("Find failed on node pairing %d", i)
+		}
+		queryDuration := time.Since(queryStart)
+		fmt.Println("Query Duration: ")
+		fmt.Println(queryDuration)
+
+		fmt.Println("Peer List Count" + strconv.Itoa(len(pairingBootstrapNode.ListPeerIds())))
+
+		//after a short delay
+		//time.Sleep(5000 * time.Millisecond)
+
 	}
 
 }
@@ -1073,6 +1190,9 @@ func CreateDisjointPairings[T any, K comparable](setA, setB []T, opts DisjointSe
 	}
 }
 
+// IsDisjointPairing - test if each of the provided pairings are disjoint according to the provided
+//
+//	comparator function.
 func IsDisjointPairing[T any, K comparable](pairings []Pairing[T], opts DisjointSetOpts[T, K]) (bool, error) {
 
 	//A valid (custom) comparator function must be provided
@@ -1092,16 +1212,55 @@ func IsDisjointPairing[T any, K comparable](pairings []Pairing[T], opts Disjoint
 
 }
 
+func ToDisjoint[T any, K comparable](pairings []Pairing[T], opts DisjointSetOpts[T, K]) ([]Pairing[T], error) {
+
+	var disjointPairings []Pairing[T]
+
+	//A valid (custom) comparator function must be provided
+	if opts.Compare == nil {
+		return nil, errors.New("A valid comparator function must be provided.")
+	}
+
+	if opts.Resolver == nil {
+		return nil, errors.New("A valid (disjoint) resolver function must be provided.")
+	}
+
+	for _, currentPairing := range pairings {
+
+		if opts.Compare(currentPairing.Node1, currentPairing.Node2) {
+
+			//if we have arrived here there is some UNION between the
+			//current pairing we thus call our resolver function to
+			//revert the pairing to a disjoint state and append the pairing
+			//to our list
+			disjointedPairing := opts.Resolver(currentPairing)
+			disjointPairings = append(disjointPairings, disjointedPairing)
+		} else {
+			disjointPairings = append(disjointPairings, currentPairing)
+		}
+	}
+
+	return disjointPairings, nil
+}
+
 // FilterDisjointOpts - A struct encapsulating all supported options that may be passed to the IsDisjoint function.
 //
 //	T is the element type, K is the key type used for hashing (must be comparable)
 type DisjointSetOpts[T any, K comparable] struct {
-	Compare     func(a, b T) bool
+
+	//Compare - Determines if the provided sets a and b are equal
+	Compare func(a, b T) bool
+
+	//KeySelector - Derives a key from the privided item which may be the identity of the item or the value of one of its properties.
 	KeySelector func(item T) K
+
+	//Resolver - A resolver function which will take the provided union set pairing and make it disjoint.
+	Resolver func(Pairing[T]) Pairing[T]
 }
 
 // Represents a pairing between two nodes.
 type Pairing[T any] struct {
-	Node1 T
-	Node2 T
+	Node1   T
+	Node2   T
+	DataKey string
 }
