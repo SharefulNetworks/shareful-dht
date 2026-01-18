@@ -1134,7 +1134,6 @@ func (n *Node) Find(key string) ([]byte, bool) {
 	return nil, false
 }
 
-
 /*
 func (n *Node) FindRemote(key string) ([]byte, bool) {
 	// 0) Fast-path: check local store first (cheapest, avoids pointless network work)

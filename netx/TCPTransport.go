@@ -10,32 +10,36 @@ import (
 	"sync"
 )
 
-// TCPTransport - A TCP specific, Transport implementation.
 type TCPTransport struct {
-	ln       net.Listener
-	conns    sync.Map
-	closed   chan struct{}
+	ln        net.Listener
+	conns     sync.Map // map[string]*pooledConn
+	closed    chan struct{}
+	closeOnce sync.Once
+
 	outQueue chan *Outbound
+	wg       sync.WaitGroup
 }
 
-// Outbound - ecapsulates outbound message data.
 type Outbound struct {
 	to   string
 	data []byte
 }
 
+type pooledConn struct {
+	c  net.Conn
+	w  *bufio.Writer
+	mu sync.Mutex
+}
+
+const MaxMsgSize = 1 << 20 // 1MB safety guard; tune if needed
+
 func NewTCP() *TCPTransport {
-
-	//instantiate new TCP transport
-	newTCPTransport := &TCPTransport{
+	t := &TCPTransport{
 		closed:   make(chan struct{}),
-		outQueue: make(chan *Outbound, 256),
+		outQueue: make(chan *Outbound, 4096), // larger buffer helps tests
 	}
-
-	//start outbound (message) processing
-	newTCPTransport.startOutboundProcessing()
-
-	return newTCPTransport
+	t.startOutboundProcessing()
+	return t
 }
 
 func (t *TCPTransport) Listen(addr string, handler MessageHandler) error {
@@ -44,6 +48,7 @@ func (t *TCPTransport) Listen(addr string, handler MessageHandler) error {
 		return err
 	}
 	t.ln = ln
+
 	go func() {
 		for {
 			c, err := ln.Accept()
@@ -55,87 +60,148 @@ func (t *TCPTransport) Listen(addr string, handler MessageHandler) error {
 				}
 				continue
 			}
+
 			go func(conn net.Conn) {
 				defer conn.Close()
 				r := bufio.NewReader(conn)
+
 				for {
 					lenb := make([]byte, 4)
 					if _, err := io.ReadFull(r, lenb); err != nil {
 						return
 					}
+
 					n := binary.BigEndian.Uint32(lenb)
+					if n == 0 || n > MaxMsgSize {
+						return
+					}
+
 					buf := make([]byte, n)
 					if _, err := io.ReadFull(r, buf); err != nil {
 						return
 					}
+
 					handler(conn.RemoteAddr().String(), buf)
 				}
 			}(c)
 		}
 	}()
+
 	return nil
 }
 
-// Send - Queues the provided (message) data for async dispatch to the provided address and returns immediately.
 func (t *TCPTransport) Send(to string, data []byte) error {
 	return t.sendAsync(to, data)
 }
 
 func (t *TCPTransport) Close() error {
-	close(t.closed)
-	if t.ln != nil {
-		_ = t.ln.Close()
-	}
-	t.conns.Range(func(_, v any) bool { v.(net.Conn).Close(); return true })
+	t.closeOnce.Do(func() {
+		close(t.closed)
+
+		if t.ln != nil {
+			_ = t.ln.Close()
+		}
+
+		// Close pooled outbound conns
+		t.conns.Range(func(_, v any) bool {
+			pc := v.(*pooledConn)
+			_ = pc.c.Close()
+			return true
+		})
+
+		// Wait for dispatchers to exit (they exit on <-t.closed)
+		t.wg.Wait()
+	})
 	return nil
 }
 
-//private helpers/utility funcions.
-
-// sendSync sends provided data to the specified address, synchronously.
-func (t *TCPTransport) sendSync(address string, data []byte) error {
+func (t *TCPTransport) getConn(address string) (*pooledConn, error) {
 	v, ok := t.conns.Load(address)
-	var c net.Conn
-	var err error
 	if ok {
-		c = v.(net.Conn)
-	} else {
-		c, err = net.Dial("tcp", address)
-		if err != nil {
-			return err
-		}
-		t.conns.Store(address, c)
+		return v.(*pooledConn), nil
 	}
-	w := bufio.NewWriter(c)
-	lenb := make([]byte, 4)
-	binary.BigEndian.PutUint32(lenb, uint32(len(data)))
-	if _, err := w.Write(lenb); err != nil {
-		return err
-	}
-	if _, err := w.Write(data); err != nil {
-		return err
-	}
-	return w.Flush()
 
+	c, err := net.Dial("tcp", address)
+	if err != nil {
+		return nil, err
+	}
+
+	pc := &pooledConn{
+		c: c,
+		w: bufio.NewWriter(c),
+	}
+
+	actual, loaded := t.conns.LoadOrStore(address, pc)
+	if loaded {
+		_ = c.Close()
+		return actual.(*pooledConn), nil
+	}
+
+	return pc, nil
 }
 
-// sendAsync sends provided data to the specified address, asynchronously.
+func (t *TCPTransport) sendSync(address string, data []byte) error {
+	pc, err := t.getConn(address)
+	if err != nil {
+		return err
+	}
+
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+
+	lenb := make([]byte, 4)
+	binary.BigEndian.PutUint32(lenb, uint32(len(data)))
+
+	if _, err := pc.w.Write(lenb); err != nil {
+		_ = pc.c.Close()
+		t.conns.Delete(address)
+		return err
+	}
+	if _, err := pc.w.Write(data); err != nil {
+		_ = pc.c.Close()
+		t.conns.Delete(address)
+		return err
+	}
+	if err := pc.w.Flush(); err != nil {
+		_ = pc.c.Close()
+		t.conns.Delete(address)
+		return err
+	}
+
+	return nil
+}
+
+// This version applies backpressure: it blocks until the job is enqueued or transport closes.
+// This is the most reliable approach for unit tests (no dropped messages).
 func (t *TCPTransport) sendAsync(to string, data []byte) error {
+	// Fast check if transport is closed
 	select {
 	case <-t.closed:
 		return errors.New("transport closed")
-	case t.outQueue <- &Outbound{to, data}:
+	default:
+	}
+
+	job := &Outbound{to: to, data: data}
+
+	// Attempt to enqueue the job
+	select {
+	case <-t.closed:
+		return errors.New("transport closed")
+	case t.outQueue <- job:
 		return nil
 	default:
-		//return fmt.Errorf("send queue full — applying backpressure")
-		return nil
+		//add log here before returning.
+		return errors.New("unable to queue message to be sent, the queue is full; message will be dropped.")
 	}
 }
 
 func (t *TCPTransport) startOutboundProcessing() {
-	//start worker goroutines
 	for i := 0; i < 4; i++ {
-		go t.outQueueDispatcher()
+		t.wg.Add(1)
+		go func() {
+			defer t.wg.Done()
+			t.outQueueDispatcher()
+		}()
 	}
 }
 
@@ -146,6 +212,9 @@ func (t *TCPTransport) outQueueDispatcher() {
 			return
 
 		case job := <-t.outQueue:
+			if job == nil {
+				continue
+			}
 			if err := t.sendSync(job.to, job.data); err != nil {
 				log.Printf("Error sending to %s: %v", job.to, err)
 			}
