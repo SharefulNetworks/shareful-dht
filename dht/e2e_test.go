@@ -725,7 +725,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry(t *te
 
 }
 
-func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_Disjoint_Replica_Set(t *testing.T) {
+func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_Disjoint_Peer_List_Pairings(t *testing.T) {
 
 	//prepare our core network, bootstrap node addresses.
 	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
@@ -788,7 +788,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//its been paired with. To do this we carefully define the "Compare" and "KeySelector" functions
 	//in the options object.
 	disjointSetOpts := DisjointSetOpts[*Node, string]{
-		Compare: func(a, b *Node) bool { return slices.Contains(b.ListPeerIds(), a.ID.String()) },
+		Compare: func(a, b *Node) bool { return slices.Contains(b.ListPeerIdsAsStrings(), a.ID.String()) },
 		//KeySelector: func(item *Node) string { return item.ID.String() },
 	}
 
@@ -831,8 +831,6 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 		sampleDataKeySet = append(sampleDataKeySet, k)
 	}
 
-	
-
 	//next iterate over sample data array and store each entry to the
 	//corresponding STANDARD node in each pairing.
 	//NOTE: Order is important here, you'll note that in the above call to CreateDisjointPairings
@@ -847,12 +845,11 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 			curPairingStandardNode := curPairing.Node2
 			storeErr = curPairingStandardNode.Store(curSampleDataKey, curSampleDataValue)
 
-			if storeErr != nil{
-			t.Fatalf("store failed (i=%d, key=%q, node=%s): %v",
-				i, curSampleDataKey, curPairingStandardNode.Addr, storeErr)
+			if storeErr != nil {
+				t.Fatalf("store failed (i=%d, key=%q, node=%s): %v",
+					i, curSampleDataKey, curPairingStandardNode.Addr, storeErr)
 			}
 		}
-
 
 	}
 
@@ -878,7 +875,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 		//contain a bootstrap node in its peer list and vice-versa
 		disjointSetOpts2 := DisjointSetOpts[*Node, string]{
 
-			Compare: func(a, b *Node) bool { return slices.Contains(b.ListPeerIds(), a.ID.String()) },
+			Compare: func(a, b *Node) bool { return slices.Contains(b.ListPeerIdsAsStrings(), a.ID.String()) },
 			Resolver: func(unionPairing Pairing[*Node]) Pairing[*Node] {
 
 				//remove reference to bootstrap node in standard node peer list and vice-versa
@@ -903,7 +900,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 		t.Error("Node pairings are still not Disjoint after the call to: ToDisjoint()")
 	}
 
-	fmt.Println(len(disjointNodePairings[0].Node2.ListPeerIds()))
+	fmt.Println(len(disjointNodePairings[0].Node2.ListPeerIdsAsStrings()))
 
 	//next attempt to look up value stored to each selected standard node via it's
 	//associated bootstrap pairing. The pairing ensures that no pre-existing link
@@ -915,7 +912,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 
 		queryStart := time.Now()
 		if v, ok := pairingBootstrapNode.Find(dataKey); !ok || string(v) != string(dataValue) {
-			fmt.Println("Failed Peer List Count: " + strconv.Itoa(len(pairingBootstrapNode.ListPeerIds())))
+			fmt.Println("Failed Peer List Count: " + strconv.Itoa(len(pairingBootstrapNode.ListPeerIdsAsStrings())))
 			fmt.Println("Failed Query Duration: ")
 			queryDuration := time.Since(queryStart)
 			fmt.Println(queryDuration)
@@ -925,17 +922,157 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 		fmt.Println("Query Duration: ")
 		fmt.Println(queryDuration)
 
-		fmt.Println("Peer List Count" + strconv.Itoa(len(pairingBootstrapNode.ListPeerIds())))
-
-		//after a short delay
-		//time.Sleep(5000 * time.Millisecond)
+		fmt.Println("Peer List Count" + strconv.Itoa(len(pairingBootstrapNode.ListPeerIdsAsStrings())))
 
 	}
 }
 
+func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_One_Level_Of_Indirection_And_Sparse_Peer_List(t *testing.T) {
 
+	//prepare our core network, bootstrap node addresses.
+	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
 
+	//desired standard node count (we pick a number that is evenly divisiable by the number of core nodes
+	// to simply the connection distibutation validation logic) we pick 20 here (4 standard nodes per core node)
+	standardNodeMultiplier := 4
+	standardNodeCount := standardNodeMultiplier * len(coreNetworkBootstrapNodeAddrs)
 
+	//next call into our helper function to create a new configurable test context complete
+	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
+	//distribute connections to the core nodes from these standard nodes.
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1)
+
+	//next we wait some time for the bootstrap process to complete on each node, by default
+	//each node will wait 20 seconds before attempting to actually connect to the provided
+	//bootstrap addresses
+	time.Sleep(40000 * time.Millisecond)
+
+	//grab reference to our (now hopefully bootstrapped nodes)
+	n1 := ctx.BootstrapNodes[0]
+	n2 := ctx.BootstrapNodes[1]
+	n3 := ctx.BootstrapNodes[2]
+	n4 := ctx.BootstrapNodes[3]
+	n5 := ctx.BootstrapNodes[4]
+
+	//next we validate that each bootstrap node has a full view of the core network and their respective
+	//directly connected standard nodes by checking that each node has a peer list length
+	//equal the the number of core nodes minus 1 (itself) plus the number of standard nodes
+	//connected to it (which should be equal to the standardNodeMultiplier)
+	expectedPeerListLength := (len(coreNetworkBootstrapNodeAddrs) - 1) + standardNodeMultiplier
+
+	if len(n1.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeersAsString()))
+	}
+
+	if len(n2.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeersAsString()))
+	}
+
+	if len(n3.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeersAsString()))
+	}
+
+	if len(n4.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeersAsString()))
+	}
+
+	if len(n5.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeersAsString()))
+	}
+
+	//OK next we add a brand new node to the network, however we only connect it to a SINGLE
+	//other bootstrap node, which will ultimately result in it having a sparse peer list.
+	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
+	//the new node connected to) to undertake the lookup operation.
+	edgeBootstrapNode := NewNode("edgeBootstrapNode", ":1981", netx.NewTCP(), *ctx.Config)
+	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
+	edgeBootstrapNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 20000)          //after some nominal time has elapsed, attempt to bootstrap the edge node
+
+	//Next we pick a small subset of STANDARD nodes at random, to store the data to.
+	targetStorageNodeCount := 3
+
+	//stores our chosen indexes
+	randomlySelectedNodeIndexes := make([]int, 0)
+
+	//local function to choose some unqiue STANDARD nodes to store data to.
+	//forward-leke declaration to allow the func to be called recursively.
+	var uniqueRandomSelectionFunc func(int)
+	uniqueRandomSelectionFunc = func(count int) {
+
+		if len(randomlySelectedNodeIndexes) == count {
+			return
+		}
+
+		randIdxVal := rand.Intn(len(ctx.Nodes) - 1)
+		if !slices.Contains(randomlySelectedNodeIndexes, randIdxVal) {
+			randomlySelectedNodeIndexes = append(randomlySelectedNodeIndexes, randIdxVal)
+		}
+
+		uniqueRandomSelectionFunc(count)
+
+	}
+
+	//call our local random node selection which will popuilate the above array of indexes.
+	uniqueRandomSelectionFunc(targetStorageNodeCount)
+
+	//before going any further check that our requested amount of standard node indexes
+	//have been randomly selected
+	if len(randomlySelectedNodeIndexes) != targetStorageNodeCount {
+		t.Errorf("Incorrect number of storage node selected, expected: %d and actually got: %d", targetStorageNodeCount, len(randomlySelectedNodeIndexes))
+
+	}
+
+	//obtain reference to STANDARD nodes at our randomly selected indexes.
+	randomlySelectedNodes := make([]*Node, 0)
+	for _, currentIdx := range randomlySelectedNodeIndexes {
+		randomlySelectedNodes = append(randomlySelectedNodes, ctx.Nodes[currentIdx])
+	}
+
+	//generate sample data that will be later stored to a small subset of STANDARD nodes.
+	sampleData := prepSampleEntryData(t, targetStorageNodeCount)
+
+	//since have our sample data count and seleted nodes are equal we may loop
+	//over any of the two collection and store data to the corresponding indexes.
+	currentCount := 0
+	for k, v := range *sampleData {
+		curNode := randomlySelectedNodes[currentCount]
+		curNode.Store(k, v)
+		currentCount++
+	}
+
+	t.Log()
+	t.Logf("@@@@FootholdBootstrapNode data store length pre store operation is: %d", footHoldBootstrapNode.DataStoreLength())
+
+	//allow some time for the storage operation to complete and be propagated across the network
+	t.Log("Allowing time for storage of entries to random standard nodes to propergate...")
+	time.Sleep(28000 * time.Millisecond)
+
+	t.Log()
+	t.Logf("@@@@FootholdBootstrapNode data store length post store operation is: %d", footHoldBootstrapNode.DataStoreLength())
+
+	//log the edge nodes peer list count BEFORE the find operation (hint: should be equal to 1)
+	t.Logf("Edge bootstrap node peer list count BEFORE find operation: %d", edgeBootstrapNode.PeerCount())
+
+	//attempt to find each sample data entry via our edge bootstrap node which is one level
+	//of indirection removed from the core bootstrap nodes.
+	for k, expectedVal := range *sampleData {
+
+		//ensure that an entry is retreived for each provided key and further that it has the expected value.
+		if v, ok := edgeBootstrapNode.Find(k); !ok {
+			t.Errorf("Failed to find entry with the specified key %s", k)
+			if string(v) != string(expectedVal) {
+				t.Errorf("Entry with the specified key %s was found BUT it had the wrong value. Got: %s Was Expecting: %s", k, v, expectedVal)
+			}
+		}
+	}
+
+	//log the edge nodes peer list count AFTER the find operation, this will indicate
+	//how much of the network the node has been able to automatically discover via the
+	//DHT's internal, recursive lookup process.
+	time.Sleep(5000 * time.Millisecond)
+	t.Logf("Edge bootstrap node peer list count AFTER find operation: %d", edgeBootstrapNode.PeerCount())
+
+}
 
 /*****************************************************************************************************************
  *                                     HELPER/UTILITY TYPES AND FUNCTIONS FOR E2E TESTS
@@ -1069,6 +1206,7 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 		cfg.DefaultTTL = 30 * time.Second
 		cfg.RefreshInterval = 5 * time.Second
 		cfg.JanitorInterval = 10 * time.Second
+		cfg.ReplicationFactor = 1
 
 	} else {
 		cfg = config
@@ -1244,6 +1382,77 @@ func ToDisjoint[T any, K comparable](pairings []Pairing[T], opts DisjointSetOpts
 	}
 
 	return disjointPairings, nil
+}
+
+func ToSparsePairings(pairings []Pairing[*Node], bootstrapNodes []*Node) []Pairing[*Node] {
+
+	//forward-like, function declaration to allow us to call the fuction recursively.
+	var selectRandomNode func([]*Node, *Node, int, int) (*Node, error)
+	selectRandomNode = func(allNodes []*Node, callerNode *Node, retryCount int, maxRetries int) (*Node, error) {
+
+		selected := rand.Intn(len(bootstrapNodes) - 1)
+
+		if bootstrapNodes[selected].ID.String() != callerNode.ID.String() {
+			return bootstrapNodes[selected], nil
+		} else if retryCount < maxRetries {
+			return selectRandomNode(allNodes, callerNode, (retryCount - 1), maxRetries)
+		} else {
+			return nil, errors.New("Unable to select random node from provide set of nodes")
+		}
+	}
+
+	for _, currentPairing := range pairings {
+
+		//remove reference to all but 1 bootstrap node peer, selected at random
+		//from the current bootstrap node peer list.
+		curBN := currentPairing.Node1
+		randRetainedBN, randomSelectErr := selectRandomNode(bootstrapNodes, curBN, 0, len(bootstrapNodes)*2)
+		if randomSelectErr != nil {
+			panic("Unable to select random node for sparse pairing")
+		}
+		for _, curBootstrapNode := range bootstrapNodes {
+
+			if curBootstrapNode.ID.String() == curBN.ID.String() || curBootstrapNode.ID.String() == randRetainedBN.ID.String() {
+				continue
+			}
+
+			curBN.DropPeer(curBootstrapNode.ID)
+		}
+
+		//at this point the bootstrap node in the current pairing will only
+		//have access to the RETAINED bootstrap node above and any standard
+		//nodes its been paried with. we now remove all standard nodes
+		//i.e. nodes with ids NOT equal to the retained node above.
+		bootstrapNodePeerIds := curBN.ListPeerIds()
+		for _, curPeerId := range bootstrapNodePeerIds {
+			if curPeerId.String() != randRetainedBN.ID.String() {
+				curBN.DropPeer(curPeerId)
+			}
+		}
+
+		//where the STANDARD node is concerned, where it has a peer count
+		//greater than 1, we remove all nodes in its peer list apart from
+		//a single super node.
+
+	}
+
+	return pairings
+}
+
+func IsSparsePairing(pairings []Pairing[*Node]) bool {
+
+	for _, pairing := range pairings {
+
+		pairingBootstrapNode := pairing.Node1
+		pairingStandardNode := pairing.Node2
+
+		if pairingBootstrapNode.PeerCount() > 1 || pairingStandardNode.PeerCount() > 1 {
+			fmt.Println("!!!!NOT SPARSE!!!!!")
+			return false
+		}
+	}
+
+	return true
 }
 
 // FilterDisjointOpts - A struct encapsulating all supported options that may be passed to the IsDisjoint function.

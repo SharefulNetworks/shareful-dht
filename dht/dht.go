@@ -174,7 +174,7 @@ type Node struct {
 	transport    netx.Transport
 	cd           wire.Codec
 	mu           sync.RWMutex
-	store        map[string]*record
+	dataStore    map[string]*record
 	routingTable *routing.RoutingTable
 	stop         chan struct{}
 	reqSeq       uint64
@@ -199,7 +199,7 @@ func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node
 		transport:    transport,
 		cd:           codec,
 		mu:           sync.RWMutex{},
-		store:        map[string]*record{},
+		dataStore:    map[string]*record{},
 		routingTable: routing.NewRoutingTable(HashKey(id), cfg.K),
 		stop:         make(chan struct{}),
 		refreshCount: 0,
@@ -507,9 +507,10 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisher
 			}
 		}
 
-		//clamp replicas to the replication factor defined in the prevailing config
-		reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
 	}
+
+	//clamp replicas to the replication factor defined in the prevailing config
+	reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
 
 	var exp time.Time
 	switch {
@@ -524,13 +525,13 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisher
 	//obtained previously stored record's local refresh count
 	var prevLocalRefresh uint64
 	n.mu.RLock()
-	if old, ok := n.store[key]; ok && old != nil {
+	if old, ok := n.dataStore[key]; ok && old != nil {
 		prevLocalRefresh = old.LocalRefreshCount
 	}
 	n.mu.RUnlock()
 
 	n.mu.Lock()
-	n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: ttl, Publisher: publisherId, LocalRefreshCount: prevLocalRefresh}
+	n.dataStore[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: ttl, Publisher: publisherId, LocalRefreshCount: prevLocalRefresh}
 	n.mu.Unlock()
 
 	reqAny, _ := n.makeMessage(OP_STORE)
@@ -583,12 +584,18 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisher
 
 func (n *Node) FindLocal(key string) ([]byte, bool) {
 	n.mu.RLock()
-	rec, ok := n.store[key]
+	rec, ok := n.dataStore[key]
 	n.mu.RUnlock()
 	if ok && (rec.Expiry.IsZero() || time.Now().Before(rec.Expiry)) {
 		return append([]byte(nil), rec.Value...), true
 	}
 	return nil, false
+}
+
+func (n *Node) DataStoreLength() int {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return len(n.dataStore)
 }
 
 func (n *Node) OldFind(key string) ([]byte, bool) {
@@ -1074,6 +1081,23 @@ func (n *Node) Find(key string) ([]byte, bool) {
 				// value found -> return immediately
 				if r.ok {
 					timer.Stop()
+
+					/* learn everything that already got scheduled in this batch
+					go func(expected int, ch <-chan res) {
+						for i := responded; i < expected; i++ {
+							rr := <-ch
+							if rr.from != nil && rr.err == nil {
+								n.routingTable.Update(rr.from.ID, rr.from.Addr)
+							}
+							for _, np := range rr.peers {
+								if np != nil && np.Addr != "" && np.ID != n.ID {
+									n.routingTable.Update(np.ID, np.Addr)
+								}
+							}
+						}
+					}(len(batch), ch)
+					*/
+
 					return r.value, true
 				}
 
@@ -1306,7 +1330,7 @@ func (n *Node) StoreIndex(indexKey string, e IndexEntry, ttl time.Duration) erro
 
 func (n *Node) FindIndexLocal(key string) ([]IndexEntry, bool) {
 	n.mu.RLock()
-	rec, ok := n.store[key]
+	rec, ok := n.dataStore[key]
 	n.mu.RUnlock()
 	if !ok {
 		return nil, false
@@ -1410,7 +1434,7 @@ func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 
 func (n *Node) Delete(key string) error {
 	n.mu.RLock()
-	rec, ok := n.store[key]
+	rec, ok := n.dataStore[key]
 	n.mu.RUnlock()
 
 	if !ok {
@@ -1482,13 +1506,26 @@ func (n *Node) ListPeers() []routing.Peer {
 	return n.routingTable.ListKnownPeers()
 }
 
-func (n *Node) ListPeerIds() []string {
-	allPeers := n.routingTable.ListKnownPeers()
-	allPeerIds := make([]string, 0)
+func (n *Node) ListPeerIds() []types.NodeID {
+	allPeers := n.ListPeers()
+	allPeerIds := make([]types.NodeID, 0)
 	for _, curPeer := range allPeers {
-		allPeerIds = append(allPeerIds, curPeer.ID.String())
+		allPeerIds = append(allPeerIds, curPeer.ID)
 	}
 	return allPeerIds
+}
+
+func (n *Node) ListPeerIdsAsStrings() []string {
+	allPeerIds := n.ListPeerIds()
+	allPeerIdStrings := make([]string, 0)
+	for _, curPeerId := range allPeerIds {
+		allPeerIdStrings = append(allPeerIdStrings, curPeerId.String())
+	}
+	return allPeerIdStrings
+}
+
+func (n *Node) PeerCount() int {
+	return len(n.ListPeers())
 }
 
 // -----------------------------------------------------------------------------
@@ -1586,7 +1623,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		n.mu.Lock()
 		var publisherId types.NodeID
 		copy(publisherId[:], pubId)
-		n.store[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: time.Duration(ttlms) * time.Millisecond, Publisher: publisherId}
+		n.dataStore[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: time.Duration(ttlms) * time.Millisecond, Publisher: publisherId}
 		n.mu.Unlock()
 
 		fmt.Println("Node: " + n.Addr + "Succesfully handled request to store/update standard entry for key:" + key)
@@ -2139,7 +2176,7 @@ func (n *Node) mergeIndexLocal(key string, e IndexEntry, reps []string, publishe
 		return fmt.Errorf("only the original publisher can update their own index entries")
 	}
 
-	rec, ok := n.store[key]
+	rec, ok := n.dataStore[key]
 	if !ok {
 		//PublisherId is not used for index records, it will be stored per enry instead
 		//TTL is also stored per entry.
@@ -2161,7 +2198,7 @@ func (n *Node) mergeIndexLocal(key string, e IndexEntry, reps []string, publishe
 	b, _ := json.Marshal(entries)
 	rec.Value = b
 	rec.Replicas = reps
-	n.store[key] = rec
+	n.dataStore[key] = rec
 	return nil
 }
 
@@ -2185,7 +2222,7 @@ func (n *Node) janitor() {
 			n.mu.Lock()
 			now := time.Now()
 			expiredEntries := make([]string, 0)
-			for k, rec := range n.store {
+			for k, rec := range n.dataStore {
 
 				if rec.IsIndex {
 
@@ -2217,7 +2254,7 @@ func (n *Node) janitor() {
 					} else {
 						//otherwise update the record with the filtered entries
 						rec.Value, _ = json.Marshal(filtered)
-						n.store[k] = rec
+						n.dataStore[k] = rec
 					}
 
 				} else {
@@ -2235,7 +2272,7 @@ func (n *Node) janitor() {
 			}
 			//now actually delete the expired records
 			for _, exp := range expiredEntries {
-				delete(n.store, exp)
+				delete(n.dataStore, exp)
 			}
 
 			n.mu.Unlock()
@@ -2249,7 +2286,7 @@ func (n *Node) deleteIndexLocal(key string, publisher types.NodeID, source strin
 
 	var deleted bool = false
 
-	rec, ok := n.store[key]
+	rec, ok := n.dataStore[key]
 	if !ok || !rec.IsIndex {
 		return false, fmt.Errorf("no index record found for key: %s", key)
 	}
@@ -2280,13 +2317,13 @@ func (n *Node) deleteIndexLocal(key string, publisher types.NodeID, source strin
 
 	// If nothing remains, remove the whole index record for the specified key
 	if len(filtered) == 0 {
-		delete(n.store, key)
+		delete(n.dataStore, key)
 		fmt.Println("All index entries have been deleted for index with key: " + key + " on node: " + string(n.ID[:]))
 		return deleted, nil
 	}
 
 	rec.Value, _ = json.Marshal(filtered)
-	n.store[key] = rec
+	n.dataStore[key] = rec
 
 	return deleted, nil
 }
@@ -2325,9 +2362,9 @@ func (n *Node) refresh() {
 	n.refreshCount++
 
 	n.mu.RLock()
-	keys := make([]string, 0, len(n.store))
-	recs := make([]*record, 0, len(n.store))
-	for k, r := range n.store {
+	keys := make([]string, 0, len(n.dataStore))
+	recs := make([]*record, 0, len(n.dataStore))
+	for k, r := range n.dataStore {
 		keys = append(keys, k)
 		recs = append(recs, r)
 	}
