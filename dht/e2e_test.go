@@ -985,7 +985,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	edgeBootstrapNode := NewNode("edgeBootstrapNode", ":1981", netx.NewTCP(), *ctx.Config)
+	edgeBootstrapNode, _ := NewNode("edgeBootstrapNode", ":1981", netx.NewTCP(), *ctx.Config, NT_CORE)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	edgeBootstrapNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)           //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1088,7 +1088,6 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 
 func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_Two_Levels_Of_Indirection_And_Sparse_Peer_List(t *testing.T) {
 
-	
 	//prepare our core network, bootstrap node addresses.
 	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
 
@@ -1145,7 +1144,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	edgeBootstrapNode := NewNode("edgeBootstrapNode", ":1981", netx.NewTCP(), *ctx.Config)
+	edgeBootstrapNode, _ := NewNode("edgeBootstrapNode", ":1981", netx.NewTCP(), *ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	edgeBootstrapNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)           //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1153,7 +1152,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//node created in the immediately preceeding instructions, thereby setting up a single thread of
 	//of interconnectivity from the outerEdge to the edge and finally to  the foothold bootstrap node
 	//which should in tuen provide the outer edge node with full network reachability.
-	outerEdgeBootstrapNode := NewNode("outerEdgeBootstrapNode", ":1982", netx.NewTCP(), *ctx.Config)
+	outerEdgeBootstrapNode, _ := NewNode("outerEdgeBootstrapNode", ":1982", netx.NewTCP(), *ctx.Config, NT_EXTERNAL)
 	outerEdgeBootstrapNode.Bootstrap([]string{edgeBootstrapNode.Addr}, 7000) //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -1251,7 +1250,6 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	time.Sleep(5000 * time.Millisecond)
 	t.Logf("Edge bootstrap node peer list count AFTER find operation: %d", edgeBootstrapNode.PeerCount())
 
-
 }
 
 /*****************************************************************************************************************
@@ -1278,8 +1276,8 @@ func NewDefaultTestContext(t *testing.T) *TestContext {
 	cfg.JanitorInterval = 10 * time.Second
 
 	//create nodes
-	n1 := NewNode("node1", ":9321", netx.NewTCP(), cfg)
-	n2 := NewNode("node2", ":9322", netx.NewTCP(), cfg)
+	n1, _ := NewNode("node1", ":9321", netx.NewTCP(), cfg, NT_CORE)
+	n2, _ := NewNode("node2", ":9322", netx.NewTCP(), cfg, NT_CORE)
 	Nodes := []*Node{n1, n2}
 
 	//we now bootstrap via the connect public interface method.
@@ -1328,7 +1326,7 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, config *Config, pri
 		nodeIP := startingIP + 1
 		nodeNameStr := "node" + strconv.Itoa(i+1)
 		nodeIpStr := strconv.Itoa(nodeIP)
-		node := NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), *cfg)
+		node, _ := NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), *cfg, NT_CORE)
 		Nodes = append(Nodes, node)
 	}
 
@@ -1395,7 +1393,10 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 	//first create and bootstrap the core network (bootstrap) nodes.
 	bootstrapNodes := make([]*Node, 0)
 	for i, addr := range bootstrapAddresses {
-		bootstrapNode := NewNode("bootstrapNode"+strconv.Itoa(i), addr, netx.NewTCP(), *cfg)
+		bootstrapNode, instantiationErr := NewNode("bootstrapNode"+strconv.Itoa(i), addr, netx.NewTCP(), *cfg, NT_CORE)
+		if instantiationErr != nil {
+			t.Fatalf("Failed to create bootstrap node %d at address %s: %v", i+1, addr, instantiationErr)
+		}
 		bootstrapNode.Bootstrap(bootstrapAddresses, connectDelayMillis) //crucially bootstrap the node, witch the provided addresses. The node will ignore its own address.
 		bootstrapNodes = append(bootstrapNodes, bootstrapNode)
 
@@ -1409,7 +1410,10 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 		nodeIP := startingIP + 1
 		nodeNameStr := "node" + strconv.Itoa(i+1)
 		nodeIpStr := strconv.Itoa(nodeIP)
-		node := NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), *cfg)
+		node, instantiationErr := NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), *cfg, NT_EXTERNAL)
+		if instantiationErr != nil {
+			t.Fatalf("Failed to create standard node %d at address %s: %v", i+1, ":"+nodeIpStr, instantiationErr)
+		}
 		standardNodes = append(standardNodes, node)
 	}
 

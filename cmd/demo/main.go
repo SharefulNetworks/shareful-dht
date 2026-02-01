@@ -19,8 +19,8 @@ func main() {
 	cfg.JanitorInterval = 10 * time.Second
 
 	//create two nodes
-	n1 := dht.NewNode("node1", ":9301", netx.NewTCP(), cfg)
-	n2 := dht.NewNode("node2", ":9302", netx.NewTCP(), cfg)
+	n1,_ := dht.NewNode("node1", ":9301", netx.NewTCP(), cfg,dht.NT_CORE)
+	n2,_ := dht.NewNode("node2", ":9302", netx.NewTCP(), cfg,dht.NT_CORE)
 	defer n1.Close()
 	defer n2.Close()
 

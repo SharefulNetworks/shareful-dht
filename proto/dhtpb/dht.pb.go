@@ -91,6 +91,58 @@ func (Op) EnumDescriptor() ([]byte, []int) {
 	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{0}
 }
 
+type NodeType int32
+
+const (
+	NodeType_NT_UNKNOWN  NodeType = 0
+	NodeType_NT_CORE     NodeType = 1
+	NodeType_NT_ENTRY    NodeType = 2
+	NodeType_NT_EXTERNAL NodeType = 3
+)
+
+// Enum value maps for NodeType.
+var (
+	NodeType_name = map[int32]string{
+		0: "NT_UNKNOWN",
+		1: "NT_CORE",
+		2: "NT_ENTRY",
+		3: "NT_EXTERNAL",
+	}
+	NodeType_value = map[string]int32{
+		"NT_UNKNOWN":  0,
+		"NT_CORE":     1,
+		"NT_ENTRY":    2,
+		"NT_EXTERNAL": 3,
+	}
+)
+
+func (x NodeType) Enum() *NodeType {
+	p := new(NodeType)
+	*p = x
+	return p
+}
+
+func (x NodeType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (NodeType) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_dhtpb_dht_proto_enumTypes[1].Descriptor()
+}
+
+func (NodeType) Type() protoreflect.EnumType {
+	return &file_proto_dhtpb_dht_proto_enumTypes[1]
+}
+
+func (x NodeType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use NodeType.Descriptor instead.
+func (NodeType) EnumDescriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{1}
+}
+
 type Envelope struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Op            Op                     `protobuf:"varint,1,opt,name=op,proto3,enum=dhtpb.Op" json:"op,omitempty"`
@@ -99,6 +151,7 @@ type Envelope struct {
 	Payload       []byte                 `protobuf:"bytes,4,opt,name=payload,proto3" json:"payload,omitempty"`
 	FromId        []byte                 `protobuf:"bytes,5,opt,name=from_id,json=fromId,proto3" json:"from_id,omitempty"`
 	FromAddr      string                 `protobuf:"bytes,6,opt,name=from_addr,json=fromAddr,proto3" json:"from_addr,omitempty"`
+	NodeType      NodeType               `protobuf:"varint,7,opt,name=node_type,json=nodeType,proto3,enum=dhtpb.NodeType" json:"node_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -173,6 +226,13 @@ func (x *Envelope) GetFromAddr() string {
 		return x.FromAddr
 	}
 	return ""
+}
+
+func (x *Envelope) GetNodeType() NodeType {
+	if x != nil {
+		return x.NodeType
+	}
+	return NodeType_NT_UNKNOWN
 }
 
 type StoreRequest struct {
@@ -1063,6 +1123,7 @@ type NodeContact struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NodeId        []byte                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	Addr          string                 `protobuf:"bytes,2,opt,name=addr,proto3" json:"addr,omitempty"`
+	NodeType      NodeType               `protobuf:"varint,3,opt,name=node_type,json=nodeType,proto3,enum=dhtpb.NodeType" json:"node_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1109,6 +1170,13 @@ func (x *NodeContact) GetAddr() string {
 		return x.Addr
 	}
 	return ""
+}
+
+func (x *NodeContact) GetNodeType() NodeType {
+	if x != nil {
+		return x.NodeType
+	}
+	return NodeType_NT_UNKNOWN
 }
 
 type FindNodeRequest struct {
@@ -1219,7 +1287,7 @@ var File_proto_dhtpb_dht_proto protoreflect.FileDescriptor
 
 const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\n" +
-	"\x15proto/dhtpb/dht.proto\x12\x05dhtpb\"\xad\x01\n" +
+	"\x15proto/dhtpb/dht.proto\x12\x05dhtpb\"\xdb\x01\n" +
 	"\bEnvelope\x12\x19\n" +
 	"\x02op\x18\x01 \x01(\x0e2\t.dhtpb.OpR\x02op\x12\x15\n" +
 	"\x06req_id\x18\x02 \x01(\x04R\x05reqId\x12\x1f\n" +
@@ -1227,7 +1295,8 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"isResponse\x12\x18\n" +
 	"\apayload\x18\x04 \x01(\fR\apayload\x12\x17\n" +
 	"\afrom_id\x18\x05 \x01(\fR\x06fromId\x12\x1b\n" +
-	"\tfrom_addr\x18\x06 \x01(\tR\bfromAddr\"\x8c\x01\n" +
+	"\tfrom_addr\x18\x06 \x01(\tR\bfromAddr\x12,\n" +
+	"\tnode_type\x18\a \x01(\x0e2\x0f.dhtpb.NodeTypeR\bnodeType\"\x8c\x01\n" +
 	"\fStoreRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\x12\x15\n" +
@@ -1286,10 +1355,11 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\x06target\x18\x04 \x01(\tR\x06target\"7\n" +
 	"\x13DeleteIndexResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
-	"\x03err\x18\x02 \x01(\tR\x03err\":\n" +
+	"\x03err\x18\x02 \x01(\tR\x03err\"h\n" +
 	"\vNodeContact\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\fR\x06nodeId\x12\x12\n" +
-	"\x04addr\x18\x02 \x01(\tR\x04addr\"*\n" +
+	"\x04addr\x18\x02 \x01(\tR\x04addr\x12,\n" +
+	"\tnode_type\x18\x03 \x01(\x0e2\x0f.dhtpb.NodeTypeR\bnodeType\"*\n" +
 	"\x0fFindNodeRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\fR\x06nodeId\"^\n" +
 	"\x10FindNodeResponse\x12\x0e\n" +
@@ -1308,7 +1378,13 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"OP_CONNECT\x10\x06\x12\x13\n" +
 	"\x0fOP_DELETE_INDEX\x10\a\x12\x10\n" +
 	"\fOP_FIND_NODE\x10\b\x12\x11\n" +
-	"\rOP_FIND_VALUE\x10\tB6Z4github.com/SharefulNetworks/shareful-dht/proto/dhtpbb\x06proto3"
+	"\rOP_FIND_VALUE\x10\t*F\n" +
+	"\bNodeType\x12\x0e\n" +
+	"\n" +
+	"NT_UNKNOWN\x10\x00\x12\v\n" +
+	"\aNT_CORE\x10\x01\x12\f\n" +
+	"\bNT_ENTRY\x10\x02\x12\x0f\n" +
+	"\vNT_EXTERNAL\x10\x03B6Z4github.com/SharefulNetworks/shareful-dht/proto/dhtpbb\x06proto3"
 
 var (
 	file_proto_dhtpb_dht_proto_rawDescOnce sync.Once
@@ -1322,41 +1398,44 @@ func file_proto_dhtpb_dht_proto_rawDescGZIP() []byte {
 	return file_proto_dhtpb_dht_proto_rawDescData
 }
 
-var file_proto_dhtpb_dht_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_proto_dhtpb_dht_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_proto_dhtpb_dht_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_proto_dhtpb_dht_proto_goTypes = []any{
 	(Op)(0),                     // 0: dhtpb.Op
-	(*Envelope)(nil),            // 1: dhtpb.Envelope
-	(*StoreRequest)(nil),        // 2: dhtpb.StoreRequest
-	(*StoreResponse)(nil),       // 3: dhtpb.StoreResponse
-	(*FindValueRequest)(nil),    // 4: dhtpb.FindValueRequest
-	(*FindValueResponse)(nil),   // 5: dhtpb.FindValueResponse
-	(*FindRequest)(nil),         // 6: dhtpb.FindRequest
-	(*FindResponse)(nil),        // 7: dhtpb.FindResponse
-	(*IndexEntry)(nil),          // 8: dhtpb.IndexEntry
-	(*StoreIndexRequest)(nil),   // 9: dhtpb.StoreIndexRequest
-	(*StoreIndexResponse)(nil),  // 10: dhtpb.StoreIndexResponse
-	(*FindIndexRequest)(nil),    // 11: dhtpb.FindIndexRequest
-	(*FindIndexResponse)(nil),   // 12: dhtpb.FindIndexResponse
-	(*ConnectRequest)(nil),      // 13: dhtpb.ConnectRequest
-	(*ConnectResponse)(nil),     // 14: dhtpb.ConnectResponse
-	(*DeleteIndexRequest)(nil),  // 15: dhtpb.DeleteIndexRequest
-	(*DeleteIndexResponse)(nil), // 16: dhtpb.DeleteIndexResponse
-	(*NodeContact)(nil),         // 17: dhtpb.NodeContact
-	(*FindNodeRequest)(nil),     // 18: dhtpb.FindNodeRequest
-	(*FindNodeResponse)(nil),    // 19: dhtpb.FindNodeResponse
+	(NodeType)(0),               // 1: dhtpb.NodeType
+	(*Envelope)(nil),            // 2: dhtpb.Envelope
+	(*StoreRequest)(nil),        // 3: dhtpb.StoreRequest
+	(*StoreResponse)(nil),       // 4: dhtpb.StoreResponse
+	(*FindValueRequest)(nil),    // 5: dhtpb.FindValueRequest
+	(*FindValueResponse)(nil),   // 6: dhtpb.FindValueResponse
+	(*FindRequest)(nil),         // 7: dhtpb.FindRequest
+	(*FindResponse)(nil),        // 8: dhtpb.FindResponse
+	(*IndexEntry)(nil),          // 9: dhtpb.IndexEntry
+	(*StoreIndexRequest)(nil),   // 10: dhtpb.StoreIndexRequest
+	(*StoreIndexResponse)(nil),  // 11: dhtpb.StoreIndexResponse
+	(*FindIndexRequest)(nil),    // 12: dhtpb.FindIndexRequest
+	(*FindIndexResponse)(nil),   // 13: dhtpb.FindIndexResponse
+	(*ConnectRequest)(nil),      // 14: dhtpb.ConnectRequest
+	(*ConnectResponse)(nil),     // 15: dhtpb.ConnectResponse
+	(*DeleteIndexRequest)(nil),  // 16: dhtpb.DeleteIndexRequest
+	(*DeleteIndexResponse)(nil), // 17: dhtpb.DeleteIndexResponse
+	(*NodeContact)(nil),         // 18: dhtpb.NodeContact
+	(*FindNodeRequest)(nil),     // 19: dhtpb.FindNodeRequest
+	(*FindNodeResponse)(nil),    // 20: dhtpb.FindNodeResponse
 }
 var file_proto_dhtpb_dht_proto_depIdxs = []int32{
 	0,  // 0: dhtpb.Envelope.op:type_name -> dhtpb.Op
-	17, // 1: dhtpb.FindValueResponse.peers:type_name -> dhtpb.NodeContact
-	8,  // 2: dhtpb.StoreIndexRequest.entry:type_name -> dhtpb.IndexEntry
-	8,  // 3: dhtpb.FindIndexResponse.entries:type_name -> dhtpb.IndexEntry
-	17, // 4: dhtpb.FindNodeResponse.peers:type_name -> dhtpb.NodeContact
-	5,  // [5:5] is the sub-list for method output_type
-	5,  // [5:5] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	1,  // 1: dhtpb.Envelope.node_type:type_name -> dhtpb.NodeType
+	18, // 2: dhtpb.FindValueResponse.peers:type_name -> dhtpb.NodeContact
+	9,  // 3: dhtpb.StoreIndexRequest.entry:type_name -> dhtpb.IndexEntry
+	9,  // 4: dhtpb.FindIndexResponse.entries:type_name -> dhtpb.IndexEntry
+	1,  // 5: dhtpb.NodeContact.node_type:type_name -> dhtpb.NodeType
+	18, // 6: dhtpb.FindNodeResponse.peers:type_name -> dhtpb.NodeContact
+	7,  // [7:7] is the sub-list for method output_type
+	7,  // [7:7] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_proto_dhtpb_dht_proto_init() }
@@ -1369,7 +1448,7 @@ func file_proto_dhtpb_dht_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_dhtpb_dht_proto_rawDesc), len(file_proto_dhtpb_dht_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,

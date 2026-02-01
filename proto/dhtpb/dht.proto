@@ -3,7 +3,8 @@ package dhtpb;
 option go_package = "github.com/SharefulNetworks/shareful-dht/proto/dhtpb";
 
 enum Op { OP_UNKNOWN=0; OP_STORE=1; OP_FIND=2; OP_STORE_INDEX=3; OP_FIND_INDEX=4; OP_PING=5; OP_CONNECT=6; OP_DELETE_INDEX=7; OP_FIND_NODE=8; OP_FIND_VALUE=9;}
-message Envelope { Op op=1; uint64 req_id=2; bool is_response=3; bytes payload=4; bytes from_id = 5; string from_addr = 6; }
+enum NodeType {NT_UNKNOWN=0; NT_CORE=1; NT_ENTRY=2; NT_EXTERNAL=3;}
+message Envelope { Op op=1; uint64 req_id=2; bool is_response=3; bytes payload=4; bytes from_id = 5; string from_addr = 6; NodeType node_type = 7;}
 message StoreRequest { string key=1; bytes value=2; int64 ttl_ms=3; repeated string replicas=4; bytes publisher_id=5; }
 message StoreResponse { bool ok=1; string err=2; }
 message FindValueRequest {string key = 1;}
@@ -19,7 +20,7 @@ message ConnectRequest {bytes node_id = 1;string addr   = 2;}
 message ConnectResponse {bool ok  = 1; bytes node_id = 2;string err = 3;}
 message DeleteIndexRequest {string key = 1; bytes publisher_id = 2; string source = 3; string target = 4;}
 message DeleteIndexResponse {bool ok = 1;string err = 2;}
-message NodeContact {bytes node_id = 1;string addr   = 2;}
+message NodeContact {bytes node_id = 1;string addr   = 2; NodeType node_type = 3;}
 message FindNodeRequest {bytes node_id = 1;}
 message FindNodeResponse {bool ok = 1; repeated NodeContact peers = 2; string err = 3;}
 

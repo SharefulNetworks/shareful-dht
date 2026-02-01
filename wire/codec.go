@@ -12,11 +12,11 @@ import (
 type Codec interface {
 	// Wrap wraps the given payload in a transport envelope.
 	// "from" is the sender identity (typically hex-encoded NodeID).
-	Wrap(op int, reqID uint64, isResp bool, fromId string, fromAddr string, payload []byte) ([]byte, error)
+	Wrap(op int, reqID uint64, isResp bool, fromId string, fromAddr string, nodeType int, payload []byte) ([]byte, error)
 
 	// Unwrap decodes a transport envelope into its components.
 	// It returns the operation, request id, response flag, sender identity and payload.
-	Unwrap(b []byte) (op int, reqID uint64, isResp bool, fromId string, fromAddr string, payload []byte, err error)
+	Unwrap(b []byte) (op int, reqID uint64, isResp bool, fromId string, fromAddr string, nodeType int, payload []byte, err error)
 }
 
 // ---------------- JSON codec ----------------
@@ -29,50 +29,53 @@ type jsonEnvelope struct {
 	IsResponse bool            `json:"is_response"`
 	FromId     string          `json:"from_id"`
 	FromAddr   string          `json:"from_addr"`
+	NodeType   int             `json:"node_type"`
 	Payload    json.RawMessage `json:"payload"`
 }
 
-func (JSONCodec) Wrap(op int, reqID uint64, isResp bool, fromId string, fromAddr string, payload []byte) ([]byte, error) {
+func (JSONCodec) Wrap(op int, reqID uint64, isResp bool, fromId string, fromAddr string, nodeType int, payload []byte) ([]byte, error) {
 	env := jsonEnvelope{
 		Op:         op,
 		ReqID:      reqID,
 		IsResponse: isResp,
 		FromId:     fromId,
 		FromAddr:   fromAddr,
+		NodeType:   nodeType,
 		Payload:    payload,
 	}
 	return json.Marshal(&env)
 }
 
-func (JSONCodec) Unwrap(b []byte) (int, uint64, bool, string, string, []byte, error) {
+func (JSONCodec) Unwrap(b []byte) (int, uint64, bool, string, string,int, []byte, error) {
 	var env jsonEnvelope
 	if err := json.Unmarshal(b, &env); err != nil {
-		return 0, 0, false, "", "", nil, fmt.Errorf("json unmarshal: %w", err)
+		return 0, 0, false, "", "",0, nil, fmt.Errorf("json unmarshal: %w", err)
 	}
-	return env.Op, env.ReqID, env.IsResponse, env.FromId, env.FromAddr, env.Payload, nil
+	return env.Op, env.ReqID, env.IsResponse, env.FromId, env.FromAddr,env.NodeType, env.Payload, nil
 }
 
 // ---------------- Protobuf codec ----------------
 
 type ProtobufCodec struct{}
 
-func (ProtobufCodec) Wrap(op int, reqID uint64, isResp bool, fromId string, fromAddr string, payload []byte) ([]byte, error) {
+func (ProtobufCodec) Wrap(op int, reqID uint64, isResp bool, fromId string, fromAddr string, nodeType int, payload []byte) ([]byte, error) {
 	env := &dhtpb.Envelope{
 		Op:         dhtpb.Op(op),
 		ReqId:      reqID,
 		IsResponse: isResp,
 		FromId:     []byte(fromId),
 		FromAddr:   fromAddr,
+		NodeType:   dhtpb.NodeType(nodeType),
 		Payload:    payload,
 	}
 	return proto.Marshal(env)
 }
 
-func (ProtobufCodec) Unwrap(b []byte) (int, uint64, bool, string, string, []byte, error) {
+func (ProtobufCodec) Unwrap(b []byte) (int, uint64, bool, string, string, int, []byte, error) {
 	var env dhtpb.Envelope
 	if err := proto.Unmarshal(b, &env); err != nil {
-		return 0, 0, false, "", "", nil, fmt.Errorf("protobuf unmarshal: %w", err)
+		return 0, 0, false, "", "", 0, nil, fmt.Errorf("protobuf unmarshal: %w", err)
 	}
 	fromId := string(env.FromId)
-	return int(env.Op), env.ReqId, env.IsResponse, fromId, env.FromAddr, env.Payload, nil
+	return int(env.Op), env.ReqId, env.IsResponse, fromId, env.FromAddr, int(env.NodeType), env.Payload, nil
 }

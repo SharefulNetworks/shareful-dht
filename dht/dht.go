@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// op type enum-like
 const (
 	OP_STORE        = 1
 	OP_FIND         = 2
@@ -33,6 +34,14 @@ const (
 	OP_DELETE_INDEX = 7
 	OP_FIND_NODE    = 8
 	OP_FIND_VALUE   = 9 // NEW
+)
+
+// node type enum-like
+const (
+	NT_UNKNOWN  = 0
+	NT_CORE     = 1
+	NT_ENTRY    = 2
+	NT_EXTERNAL = 3
 )
 
 func NewRandomID() types.NodeID {
@@ -170,8 +179,9 @@ type record struct {
 type Node struct {
 	ID           types.NodeID
 	Addr         string
-	cfg          Config
 	transport    netx.Transport
+	cfg          Config
+	nodeType     int
 	cd           wire.Codec
 	mu           sync.RWMutex
 	dataStore    map[string]*record
@@ -184,19 +194,25 @@ type Node struct {
 	closeOnce    sync.Once
 }
 
-func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node {
+func NewNode(id string, addr string, transport netx.Transport, cfg Config, nodeType int) (*Node, error) {
 	var codec wire.Codec
 	codec = wire.JSONCodec{}
 	if cfg.UseProtobuf {
 		codec = wire.ProtobufCodec{}
 	}
 
+	//NB: Don't forget to increment this if/when new types are added.
+	if nodeType <= 0 || nodeType >= 4 {
+		return nil, fmt.Errorf("An unsupported node type was provided: %d", nodeType)
+	}
+
 	//instantiate the new DHT node
 	n := &Node{
 		ID:           HashKey(id),
 		Addr:         addr,
-		cfg:          cfg,
 		transport:    transport,
+		cfg:          cfg,
+		nodeType:     nodeType,
 		cd:           codec,
 		mu:           sync.RWMutex{},
 		dataStore:    map[string]*record{},
@@ -213,7 +229,7 @@ func NewNode(id string, addr string, transport netx.Transport, cfg Config) *Node
 	go n.janitor()
 	go n.refresher()
 
-	return n
+	return n, nil
 }
 
 func (n *Node) Bootstrap(bootstrapAddrs []string, connectDelayMillis int) error {
@@ -1533,11 +1549,11 @@ func (n *Node) PeerCount() int {
 // -----------------------------------------------------------------------------
 
 func (n *Node) onMessage(from string, data []byte) {
-	op, reqID, isResp, fromID, fromAddr, payload, err := n.cd.Unwrap(data)
+	op, reqID, isResp, fromID, fromAddr, nodeType, payload, err := n.cd.Unwrap(data)
 
 	//if an error occurred during the unwrap, log and exit
 	if err != nil {
-		fmt.Println("Failed to Unwrap message received from node @:", fromAddr, "failed on node:", n.Addr, "ERROR:", err)
+		fmt.Println("Failed to Unwrap message received from node @:", fromAddr, "of type:", nodeType, "failed on node:", n.Addr, "ERROR:", err)
 		return
 	}
 
@@ -1650,7 +1666,7 @@ func (n *Node) onMessage(from string, data []byte) {
 			r.Err = ""
 		}
 		b, _ := n.encode(respAny)
-		msg, _ := n.cd.Wrap(OP_STORE, reqID, true, n.ID.String(), n.Addr, b)
+		msg, _ := n.cd.Wrap(OP_STORE, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
 		//fmt.Println("Sending response to: ")
 		//fmt.Println(from)
 		_ = n.transport.Send(fromAddr, msg)
@@ -1687,7 +1703,7 @@ func (n *Node) onMessage(from string, data []byte) {
 			r.Err = ""
 		}
 		b, _ := n.encode(respAny)
-		msg, _ := n.cd.Wrap(OP_FIND, reqID, true, n.ID.String(), n.Addr, b)
+		msg, _ := n.cd.Wrap(OP_FIND, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
 		//fmt.Println("Sending response to: ")
 		//fmt.Println(from)
 		_ = n.transport.Send(fromAddr, msg)
@@ -1750,7 +1766,7 @@ func (n *Node) onMessage(from string, data []byte) {
 			r.Err = ""
 		}
 		b, _ := n.encode(respAny)
-		msg, _ := n.cd.Wrap(OP_STORE_INDEX, reqID, true, n.ID.String(), n.Addr, b)
+		msg, _ := n.cd.Wrap(OP_STORE_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
 		//fmt.Println("Sending response to: ")
 		//fmt.Println(from)
 		_ = n.transport.Send(fromAddr, msg)
@@ -1801,7 +1817,7 @@ func (n *Node) onMessage(from string, data []byte) {
 			r.Err = ""
 		}
 		b, _ := n.encode(respAny)
-		msg, _ := n.cd.Wrap(OP_FIND_INDEX, reqID, true, n.ID.String(), n.Addr, b)
+		msg, _ := n.cd.Wrap(OP_FIND_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
 		//fmt.Println("Sending response to: ")
 		//fmt.Println(from)
 		_ = n.transport.Send(fromAddr, msg)
@@ -1817,7 +1833,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		resp.Ok = true
 		resp.NodeId = n.ID[:]
 		encoded, _ := n.encode(resp)
-		reply, _ := n.cd.Wrap(OP_CONNECT, reqID, true, n.ID.String(), n.Addr, encoded)
+		reply, _ := n.cd.Wrap(OP_CONNECT, reqID, true, n.ID.String(), n.Addr, n.nodeType, encoded)
 
 		// respond directly to TCP connection origin
 		_ = n.transport.Send(fromAddr, reply)
@@ -1872,7 +1888,7 @@ func (n *Node) onMessage(from string, data []byte) {
 			r.Err = ""
 		}
 		b, _ := n.encode(resp)
-		msg, _ := n.cd.Wrap(OP_DELETE_INDEX, reqID, true, n.ID.String(), n.Addr, b)
+		msg, _ := n.cd.Wrap(OP_DELETE_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
 		_ = n.transport.Send(fromAddr, msg)
 
 	case OP_FIND_NODE:
@@ -1899,7 +1915,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		}
 
 		b, _ := n.encode(resp)
-		msg, _ := n.cd.Wrap(OP_FIND_NODE, reqID, true, n.ID.String(), n.Addr, b)
+		msg, _ := n.cd.Wrap(OP_FIND_NODE, reqID, true, n.ID.String(), n.Addr, nodeType, b)
 		_ = n.transport.Send(fromAddr, msg)
 
 	case OP_FIND_VALUE:
@@ -1915,7 +1931,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		if v, ok := n.FindLocal(key); ok {
 			resp := &dhtpb.FindValueResponse{Ok: true, Value: v}
 			b, _ := n.encode(resp)
-			msg, _ := n.cd.Wrap(OP_FIND_VALUE, reqID, true, n.ID.String(), n.Addr, b)
+			msg, _ := n.cd.Wrap(OP_FIND_VALUE, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
 			_ = n.transport.Send(fromAddr, msg)
 			return
 		}
@@ -1928,7 +1944,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		}
 
 		b, _ := n.encode(resp)
-		msg, _ := n.cd.Wrap(OP_FIND_VALUE, reqID, true, n.ID.String(), n.Addr, b)
+		msg, _ := n.cd.Wrap(OP_FIND_VALUE, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
 		_ = n.transport.Send(fromAddr, msg)
 
 	default:
@@ -2147,7 +2163,7 @@ func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
 		return nil, err
 	}
 	reqID := n.nextReqID()
-	msg, err := n.cd.Wrap(op, reqID, false, n.ID.String(), n.Addr, b)
+	msg, err := n.cd.Wrap(op, reqID, false, n.ID.String(), n.Addr, n.nodeType, b)
 	if err != nil {
 		return nil, err
 	}
