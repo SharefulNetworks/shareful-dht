@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/SharefulNetworks/shareful-dht/netx"
+	"github.com/SharefulNetworks/shareful-dht/types"
 )
 
 /*****************************************************************************************************************
@@ -501,7 +502,7 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity(t *testing.T) {
 	//we are ONLY concerend with testing the interconnectivity of the core bootstrap nodes.
 	//NB: We set the connect delay to -1 to prompt the node to use the default connection delay as
 	//    specified in the preveiling configuration.
-	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, coreNetworkBootstrapNodeAddrs, -1,0)
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, coreNetworkBootstrapNodeAddrs, -1, 0)
 
 	//next we wait some time for the bootstrap process to complete on each node, by default
 	//each node will wait 20 seconds before attempting to actually connect to the provided
@@ -554,7 +555,7 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes
 	//next call into our helper function to create a new configurable test context complete
 	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
 	//distribute connections to the core nodes from these standard nodes.
-	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, 0,0)
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, 0, 0)
 
 	//next we wait some time for the bootstrap process to complete on each node, by default
 	//each node will wait 20 seconds before attempting to actually connect to the provided
@@ -608,7 +609,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry(t *te
 	//next call into our helper function to create a new configurable test context complete
 	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
 	//distribute connections to the core nodes from these standard nodes.
-	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1,300)
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1, 300)
 
 	//next we wait some time for the bootstrap process to complete on each node, by default
 	//each node will wait 20 seconds before attempting to actually connect to the provided
@@ -738,7 +739,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//next call into our helper function to create a new configurable test context complete
 	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
 	//distribute connections to the core nodes from these standard nodes.
-	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1,300)
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1, 300)
 
 	//next we wait some time for the bootstrap process to complete on each node, by default
 	//each node will wait 20 seconds before attempting to actually connect to the provided
@@ -940,7 +941,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//next call into our helper function to create a new configurable test context complete
 	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
 	//distribute connections to the core nodes from these standard nodes.
-	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1,300)
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1, 300)
 
 	//fmt.Printf("Replication factor is: %d", ctx.Config.ReplicationFactor)
 	//next we wait some time for the bootstrap process to complete on each node, by default
@@ -1099,7 +1100,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//next call into our helper function to create a new configurable test context complete
 	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
 	//distribute connections to the core nodes from these standard nodes.
-	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1,300)
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1, 300)
 
 	//fmt.Printf("Replication factor is: %d", ctx.Config.ReplicationFactor)
 	//next we wait some time for the bootstrap process to complete on each node, by default
@@ -1252,15 +1253,13 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 
 }
 
-
 func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry(t *testing.T) {
 
-
-	/** 
+	/**
 	    The first of a series of tests that aims to test the end-to-end retreival
-	    of data from one standard node from another. Of course each of the standard 
+	    of data from one standard node from another. Of course each of the standard
 		nodes will have a relatively narrow view of the network (a single direct connection
-		to a core bootstrap node) Later tests will more closely model the production 
+		to a core bootstrap node) Later tests will more closely model the production
 		environment, where each standard node is indirectly connected to the core network
 		via a chain of one or more ENTRY nodes.
 	*/
@@ -1276,7 +1275,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry(t *tes
 	//next call into our helper function to create a new configurable test context complete
 	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
 	//distribute connections to the core nodes from these standard nodes.
-	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1,300)
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1, 300)
 
 	//next we wait some time for the bootstrap process to complete on each node, by default
 	//each node will wait 20 seconds before attempting to actually connect to the provided
@@ -1374,17 +1373,16 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry(t *tes
 	t.Log("Allowing time for storage of entries to random standard nodes to propergate...")
 	time.Sleep(20000 * time.Millisecond)
 
-
 	//next select a disjoint set of standard nodes to undertake the find operation, that is:
 	//none of the nodes selected should have been used to store entries earlier as this would
-	//obviously result in a short circuit of the lookup process; a node will always be 
+	//obviously result in a short circuit of the lookup process; a node will always be
 	//able to find an entry directly stored to itself..
 
 	//to ensure we don't pick the same nodes we pass in the same list of randomly selected
-	//standard nodes used for storage earlier as the exclusion list and then double the 
+	//standard nodes used for storage earlier as the exclusion list and then double the
 	//desired node count.
 	randomlySelectedIndexesForFind := selectRandomNodeIndexes(randomlySelectedIndexes, len(allStandardNodes), randomNodeSelectionCount*2)
-	
+
 	//next shift off the first randomNodeSelectionCount indexes from the list of randomly selected indexes for find.
 	//to ensure we only have indexes that were NOT used for storage earlier.
 	randomlySelectedIndexesForFind = randomlySelectedIndexesForFind[randomNodeSelectionCount:]
@@ -1409,6 +1407,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry(t *tes
 
 func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_One_Level_Of_Indirection_And_Sparse_Peer_List(t *testing.T) {
 
+
 	//prepare our core network, bootstrap node addresses.
 	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
 
@@ -1420,7 +1419,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_O
 	//next call into our helper function to create a new configurable test context complete
 	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
 	//distribute connections to the core nodes from these standard nodes.
-	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1,300)
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1, 300)
 
 	//fmt.Printf("Replication factor is: %d", ctx.Config.ReplicationFactor)
 	//next we wait some time for the bootstrap process to complete on each node, by default
@@ -1465,10 +1464,10 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_O
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
 	edgeBootstrapNode1, _ := NewNode("edgeBootstrapNode1", ":1981", netx.NewTCP(), *ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
-	edgeBootstrapNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)           //after some nominal time has elapsed, attempt to bootstrap the edge node
+	edgeBootstrapNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)          //after some nominal time has elapsed, attempt to bootstrap the edge node
 	edgeBootstrapNode2, _ := NewNode("edgeBootstrapNode2", ":1982", netx.NewTCP(), *ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
-	edgeBootstrapNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)         //after some nominal time has elapsed, attempt to bootstrap the edge node
+	edgeBootstrapNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)          //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
 	//we wait double the connect delay time.
@@ -1540,14 +1539,48 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_O
 	t.Logf("@@@@FootholdBootstrapNode data store length post store operation is: %d", footHoldBootstrapNode.DataStoreLength())
 
 	//log the edge nodes peer list count BEFORE the find operation (hint: should be equal to 1)
-	t.Logf("Edge bootstrap node peer list count BEFORE find operation: %d", edgeBootstrapNode1.PeerCount())
+	entryNode1RemovalIdLog := make([]types.NodeID, 0)
+	if edgeBootstrapNode1.PeerCount() > 1 {
+		for _, peerId := range edgeBootstrapNode1.ListPeerIds() {
+			//if the current id is NOT equal to nodes assigned foothold
+			//node queue it for deletion.
+			if peerId.String() != footHoldBootstrapNode.ID.String() {
+				entryNode1RemovalIdLog = append(entryNode1RemovalIdLog, peerId)
+			}
+		}
+	}
+
+	entryNode2RemovalIdLog := make([]types.NodeID, 0)
+	if edgeBootstrapNode2.PeerCount() > 1 {
+		for _, peerId := range edgeBootstrapNode2.ListPeerIds() {
+			//if the current id is NOT equal to nodes assigned foothold
+			//node queue it for deletion.
+			if peerId.String() != footHoldBootstrapNode2.ID.String() {
+				entryNode2RemovalIdLog = append(entryNode2RemovalIdLog, peerId)
+			}
+		}
+	}
+
+	t.Log()
+	t.Logf("Entry node 1 peer removal id log count: %d", len(entryNode1RemovalIdLog))
+	t.Logf("Entry node 2 peer removal id log count: %d", len(entryNode2RemovalIdLog))
+	for _, removeId := range entryNode1RemovalIdLog {
+		edgeBootstrapNode1.DropPeer(removeId)
+	}
+
+	for _, removeId := range entryNode2RemovalIdLog {
+		edgeBootstrapNode2.DropPeer(removeId)
+	}
+
+	t.Logf("Entry node 1 peer list count BEFORE find operation: %d", edgeBootstrapNode1.PeerCount())
+	t.Logf("Entry node 2 peer list count BEFORE find operation: %d", edgeBootstrapNode2.PeerCount())
 
 	//attempt to find each sample data entry via our edge, entry node which are one level
 	//of indirection removed from the core bootstrap nodes.
 	findExecCount := 1
 	for k, expectedVal := range *sampleData {
 
-		//ensure that an entry is retreived for each provided key 
+		//ensure that an entry is retreived for each provided key
 		//and further that it has the expected value.
 		v, ok := edgeBootstrapNode1.Find(k)
 		if !ok {
@@ -1572,12 +1605,11 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_O
 	//how much of the network the node has been able to automatically discover via the
 	//DHT's internal, recursive lookup process.
 	time.Sleep(5000 * time.Millisecond)
-	t.Logf("Edge bootstrap node peer list count AFTER find operation: %d", edgeBootstrapNode1.PeerCount())
+	t.Logf("Entry node: %s peer list count AFTER find operation: %d", edgeBootstrapNode1.ID.String(), edgeBootstrapNode1.PeerCount())
+	t.Logf("Entry node: %s peer list count AFTER find operation: %d", edgeBootstrapNode2.ID.String(), edgeBootstrapNode2.PeerCount())
 
+	
 }
-
-
-
 
 /*****************************************************************************************************************
  *                                     HELPER/UTILITY TYPES AND FUNCTIONS FOR E2E TESTS
@@ -1690,7 +1722,7 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, config *Config, pri
 
 }
 
-func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNodeCount int, config *Config, bootstrapAddresses []string, connectDelayMillis int,refreshTime int) *TestContext {
+func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNodeCount int, config *Config, bootstrapAddresses []string, connectDelayMillis int, refreshTime int) *TestContext {
 	t.Helper()
 
 	if len(bootstrapAddresses) <= 0 {
