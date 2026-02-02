@@ -985,7 +985,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	edgeBootstrapNode, _ := NewNode("edgeBootstrapNode", ":1981", netx.NewTCP(), *ctx.Config, NT_CORE)
+	edgeBootstrapNode, _ := NewNode("edgeBootstrapNode", ":1981", netx.NewTCP(), *ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	edgeBootstrapNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)           //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1251,6 +1251,164 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	t.Logf("Edge bootstrap node peer list count AFTER find operation: %d", edgeBootstrapNode.PeerCount())
 
 }
+
+
+func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry(t *testing.T) {
+
+	
+	/** 
+	    The first of a series of tests that aims to test the end-to-end retreival
+	    of data from one standard node from another. Of course each of the standard 
+		nodes will have a relatively narrow view of the network (a single direct connection
+		to a core bootstrap node) Later tests will more closely model the production 
+		environment, where each standard node is indirectly connected to the core network
+		via a chain of one or more ENTRY nodes.
+	*/
+
+	//prepare our core network, bootstrap node addresses.
+	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//desired standard node count (we pick a number that is evenly divisiable by the number of core nodes
+	// to simply the connection distibutation validation logic) we pick 20 here (4 standard nodes per core node)
+	standardNodeMultiplier := 4
+	standardNodeCount := standardNodeMultiplier * len(coreNetworkBootstrapNodeAddrs)
+
+	//next call into our helper function to create a new configurable test context complete
+	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
+	//distribute connections to the core nodes from these standard nodes.
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, -1)
+
+	//next we wait some time for the bootstrap process to complete on each node, by default
+	//each node will wait 20 seconds before attempting to actually connect to the provided
+	//bootstrap addresses
+	time.Sleep(40000 * time.Millisecond)
+
+	//grab reference to our (now hopefully bootstrapped nodes)
+	n1 := ctx.BootstrapNodes[0]
+	n2 := ctx.BootstrapNodes[1]
+	n3 := ctx.BootstrapNodes[2]
+	n4 := ctx.BootstrapNodes[3]
+	n5 := ctx.BootstrapNodes[4]
+
+	//next we validate that each bootstrap node has a full view of the core network and their respective
+	//directly connected standard nodes by checking that each node has a peer list length
+	//equal the the number of core nodes minus 1 (itself) plus the number of standard nodes
+	//connected to it (which should be equal to the standardNodeMultiplier)
+	expectedPeerListLength := (len(coreNetworkBootstrapNodeAddrs) - 1) + standardNodeMultiplier
+
+	if len(n1.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeersAsString()))
+	}
+
+	if len(n2.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeersAsString()))
+	}
+
+	if len(n3.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeersAsString()))
+	}
+
+	if len(n4.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeersAsString()))
+	}
+
+	if len(n5.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeersAsString()))
+	}
+
+	//NEXT WE DEAL WITH STORING ENTRIES TO SOME RANDOM SUBSET OF THE STANDARD NODES IN THE NETWORK...
+
+	//Firstly, here we define a helper function to pick random indexes according to the specified count.
+	var selectRandomNodeIndexes func([]int, int, int) []int
+	selectRandomNodeIndexes = func(picked []int, totalCount int, desiredCount int) []int {
+		if desiredCount > totalCount {
+			t.Fatal("Count exceeds available entries.")
+		}
+		if len(picked) == desiredCount {
+			return picked
+		}
+
+		//select a random index between 0 and createdStandardNodeCount -1
+		//and append it to our index
+		randIdx := rand.Intn(totalCount - 1)
+		if !slices.Contains(picked, randIdx) {
+			picked = append(picked, randIdx)
+		}
+		return selectRandomNodeIndexes(picked, totalCount, desiredCount)
+	}
+
+	//next obtain references to the complete list of standard nodes from the test context.
+	allStandardNodes := ctx.Nodes
+
+	//var to hold the number of nodes we should randomly select
+	randomNodeSelectionCount := 5
+
+	//pick. small subset of stabdard nodes, at random, to store entries to.
+	randomlySelectedIndexes := selectRandomNodeIndexes(make([]int, 0), len(allStandardNodes), randomNodeSelectionCount)
+	fmt.Println()
+	fmt.Printf("Selected random indexes for storage were: %v", randomlySelectedIndexes)
+
+	//select nodes at the random indexes
+	var randomlySelectedStandardNodes []*Node
+	for _, currentSelIdx := range randomlySelectedIndexes {
+		randomlySelectedStandardNodes = append(randomlySelectedStandardNodes, allStandardNodes[currentSelIdx])
+	}
+
+	//call into our helper function to pepare some sample data for us to store, we set the
+	//sample entry count equal to the number of standard nodes we randomly selected for the
+	//purposes of this test.
+	sampleData := prepSampleEntryData(t, randomNodeSelectionCount)
+
+	//iterate over the sample data, storing each entry to the corresponding
+	//randomly selected node as the current index.
+	curIdx := 0
+	for k, v := range *sampleData {
+		storageErr := randomlySelectedStandardNodes[curIdx].Store(k, v)
+		if storageErr != nil {
+			t.Fatalf("Failed to store entry with key: %s and value: %s on standard node: %s", k, v, randomlySelectedStandardNodes[curIdx].ID)
+		}
+		curIdx++
+	}
+
+	//allow some time for the storage operation to complete and be propagated across the network
+	t.Log("Allowing time for storage of entries to random standard nodes to propergate...")
+	time.Sleep(20000 * time.Millisecond)
+
+
+	//next select a disjoint set of standard nodes to undertake the find operation, that is:
+	//none of the nodes selected should have been used to store entries earlier as this would
+	//obviously result in a short circuit of the lookup process; a node will always be 
+	//able to find an entry directly stored to itself..
+
+	//to ensure we don't pick the same nodes we pass in the same list of randomly selected
+	//standard nodes used for storage earlier as the exclusion list and then double the 
+	//desired node count.
+	randomlySelectedIndexesForFind := selectRandomNodeIndexes(randomlySelectedIndexes, len(allStandardNodes), randomNodeSelectionCount*2)
+	
+	//next shift off the first randomNodeSelectionCount indexes from the list of randomly selected indexes for find.
+	//to ensure we only have indexes that were NOT used for storage earlier.
+	randomlySelectedIndexesForFind = randomlySelectedIndexesForFind[randomNodeSelectionCount:]
+	fmt.Printf("Selected random indexes for find were: %v", randomlySelectedIndexesForFind)
+
+	//next obtain references to the standard nodes at the selected indexes.
+	var randomlySelectedStandardNodesForFind []*Node
+	for _, currentSelIdx := range randomlySelectedIndexesForFind {
+		randomlySelectedStandardNodesForFind = append(randomlySelectedStandardNodesForFind, allStandardNodes[currentSelIdx])
+	}
+
+	//now we have our disjoint set of standard nodes to undertake the find operation on each node.
+	for _, curStandardNodeForFind := range randomlySelectedStandardNodesForFind {
+		for k := range *sampleData {
+			if val, ok := curStandardNodeForFind.Find(k); !ok && string(val) != k {
+				t.Fatalf("FindRemote failed on standard node: %s for resource with key: %s", curStandardNodeForFind.ID, k)
+			}
+		}
+	}
+
+}
+
+
+
 
 /*****************************************************************************************************************
  *                                     HELPER/UTILITY TYPES AND FUNCTIONS FOR E2E TESTS
