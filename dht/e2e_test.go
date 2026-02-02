@@ -1671,6 +1671,12 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
+	//finally add our EXTERNAL nodes which will bootstrap via the ENTRY nodes created above.
+	externalNode1, _ := NewNode("externalNode1", ":1983", netx.NewTCP(), *ctx.Config, NT_EXTERNAL)
+	externalNode1.Bootstrap([]string{entryNode1.Addr}, 7000)
+	externalNode2, _ := NewNode("externalNode2", ":1984", netx.NewTCP(), *ctx.Config, NT_EXTERNAL)
+	externalNode2.Bootstrap([]string{entryNode2.Addr}, 7000)
+
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
 	//we wait double the connect delay time.
 	time.Sleep(14000 * time.Millisecond)
@@ -1740,7 +1746,9 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 	t.Log()
 	t.Logf("@@@@FootholdBootstrapNode data store length post store operation is: %d", footHoldBootstrapNode.DataStoreLength())
 
-	//log the edge nodes peer list count BEFORE the find operation (hint: should be equal to 1)
+	
+	//just incase the store operation resulted in propegation of peer info to our entry nodes
+	//we now forcibly prune their peer lists back to just the foothold bootstrap node.
 	entryNode1RemovalIdLog := make([]types.NodeID, 0)
 	if entryNode1.PeerCount() > 1 {
 		for _, peerId := range entryNode1.ListPeerIds() {
@@ -1774,8 +1782,47 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 		entryNode2.DropPeer(removeId)
 	}
 
+	//log the edge nodes peer list count BEFORE the find operation (hint: should be equal to 1)
 	t.Logf("Entry node 1 peer list count BEFORE find operation: %d", entryNode1.PeerCount())
 	t.Logf("Entry node 2 peer list count BEFORE find operation: %d", entryNode2.PeerCount())
+
+	//next do the same for the external nodes
+	externalNode1RemovalIdLog := make([]types.NodeID, 0)
+	if externalNode1.PeerCount() > 1 {
+		for _, peerId := range externalNode1.ListPeerIds() {
+			//if the current id is NOT equal to nodes assigned foothold
+			//node queue it for deletion.
+			if peerId.String() != entryNode1.ID.String() {
+				externalNode1RemovalIdLog = append(externalNode1RemovalIdLog, peerId)
+			}
+		}
+	}
+	
+	externalNode2RemovalIdLog := make([]types.NodeID, 0)		
+	if externalNode2.PeerCount() > 1 {
+		for _, peerId := range externalNode2.ListPeerIds() {
+			//if the current id is NOT equal to nodes assigned foothold
+			//node queue it for deletion.
+			if peerId.String() != entryNode2.ID.String() {
+				externalNode2RemovalIdLog = append(externalNode2RemovalIdLog, peerId)
+			}
+		}
+	}
+
+	t.Log()
+	t.Logf("External node 1 peer removal id log count: %d", len(externalNode1RemovalIdLog))
+	t.Logf("External node 2 peer removal id log count: %d", len(externalNode2RemovalIdLog))
+	for _, removeId := range externalNode1RemovalIdLog {
+		externalNode1.DropPeer(removeId)
+	}
+
+	for _, removeId := range externalNode2RemovalIdLog {
+		externalNode2.DropPeer(removeId)
+	}
+
+	t.Logf("External node 1 peer list count BEFORE find operation: %d", externalNode1.PeerCount())
+	t.Logf("External node 2 peer list count BEFORE find operation: %d", externalNode2.PeerCount())
+
 	//attempt to find each sample data entry via our edge, entry node which are one level
 	//of indirection removed from the core bootstrap nodes.
 	findExecCount := 1
@@ -1783,17 +1830,17 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 
 		//ensure that an entry is retreived for each provided key
 		//and further that it has the expected value.
-		v, ok := entryNode1.Find(k)
+		v, ok := externalNode1.Find(k)
 		if !ok {
-			t.Errorf("Failed to find entry key=%s at execution index: %d on edge node: %s", k, findExecCount, entryNode1.ID.String())
+			t.Errorf("Failed to find entry key=%s at execution index: %d on edge node: %s", k, findExecCount, externalNode1.ID.String())
 		}
 		if string(v) != string(expectedVal) {
 			t.Errorf("Wrong value for key=%s got=%q want=%q", k, v, expectedVal)
 		}
 
-		v2, ok2 := entryNode2.Find(k)
+		v2, ok2 := externalNode2.Find(k)
 		if !ok2 {
-			t.Errorf("Failed to find entry key=%s at execution index: %d on edge node: %s", k, findExecCount, entryNode2.ID.String())
+			t.Errorf("Failed to find entry key=%s at execution index: %d on edge node: %s", k, findExecCount, externalNode2.ID.String())
 		}
 		if string(v2) != string(expectedVal) {
 			t.Errorf("Wrong value for key=%s got=%q want=%q", k, v2, expectedVal)
@@ -1806,8 +1853,8 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 	//how much of the network the node has been able to automatically discover via the
 	//DHT's internal, recursive lookup process.
 	time.Sleep(5000 * time.Millisecond)
-	t.Logf("Entry node: %s peer list count AFTER find operation: %d", entryNode1.ID.String(), entryNode1.PeerCount())
-	t.Logf("Entry node: %s peer list count AFTER find operation: %d", entryNode2.ID.String(), entryNode2.PeerCount())
+	t.Logf("External node: %s peer list count AFTER find operation: %d", externalNode1.ID.String(), externalNode1.PeerCount())
+	t.Logf("External node: %s peer list count AFTER find operation: %d", externalNode2.ID.String(), externalNode2.PeerCount())
 
 }
 
