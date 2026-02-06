@@ -54,12 +54,12 @@ func Test_Create_And_Find_Index_Entry_Value(t *testing.T) {
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -205,12 +205,12 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -251,12 +251,12 @@ func Test_Create_And_Delete_Index_Entry_Value_With_Non_Existent_Key(t *testing.T
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -304,12 +304,12 @@ func Test_Create_And_Delete_Index_Entry_Value_With_PublisherId_Mismatch(t *testi
 
 	//store index entries from the first two nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -422,12 +422,12 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 
 	//store index entries from the first two nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second,false)
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second,false)
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}

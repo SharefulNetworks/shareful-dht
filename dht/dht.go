@@ -136,24 +136,25 @@ func pickEvenDistribution(all []int, k int) []int {
 }
 
 type Config struct {
-	K                           int
-	Alpha                       int
-	DefaultTTL                  time.Duration
-	AllowPermanentDefault       bool
-	RefreshInterval             time.Duration
-	JanitorInterval             time.Duration
-	UseProtobuf                 bool
-	RequestTimeout              time.Duration
-	BatchRequestTimeout         time.Duration
-	OutboundQueueWorkerCount    int
-	ReplicationFactor           int
-	EnableAuthorativeStorage    bool
-	MaxLocalRefreshCount        int //the max local refhreshes (i.e refresh to known nodes) that the node can undertake before a network-wide refresh is required which may result in new k-nearest candidates.
-	BootstrapConnectDelayMillis int //the delay, in milliseconds, that should elapse before the node attempts to connect to each bootstrap node. The delay is useful where all or multiple nodes in the list are being started in tandem as it allows sufficient time for each respective node to spin up and drop into a ready state.
+	K                              int
+	Alpha                          int
+	DefaultTTL                     time.Duration
+	AllowPermanentDefault          bool
+	RefreshInterval                time.Duration
+	JanitorInterval                time.Duration
+	UseProtobuf                    bool
+	RequestTimeout                 time.Duration
+	BatchRequestTimeout            time.Duration
+	OutboundQueueWorkerCount       int
+	ReplicationFactor              int
+	EnableAuthorativeStorage       bool
+	MaxLocalEntryRefreshCount      int //the max local stabndard entry refreshes (i.e refresh to known nodes) that the node can undertake before a network-wide refresh is required which may result in new k-nearest candidates.
+	MaxLocalIndexEntryRefreshCount int //the max local index entry refreshes (i.e refresh to known nodes) that the node can undertake before a network-wide refresh is required which may result in new k-nearest candidates.
+	BootstrapConnectDelayMillis    int //the delay, in milliseconds, that should elapse before the node attempts to connect to each bootstrap node. The delay is useful where all or multiple nodes in the list are being started in tandem as it allows sufficient time for each respective node to spin up and drop into a ready state.
 }
 
 func DefaultConfig() Config {
-	return Config{K: 20, Alpha: 3, DefaultTTL: 10 * time.Minute, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, BatchRequestTimeout: 4500 * time.Millisecond, OutboundQueueWorkerCount: 4, ReplicationFactor: 3, EnableAuthorativeStorage: false, MaxLocalRefreshCount: 50, BootstrapConnectDelayMillis: 20000}
+	return Config{K: 20, Alpha: 3, DefaultTTL: 10 * time.Minute, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, BatchRequestTimeout: 4500 * time.Millisecond, OutboundQueueWorkerCount: 4, ReplicationFactor: 3, EnableAuthorativeStorage: false, MaxLocalEntryRefreshCount: 50, MaxLocalIndexEntryRefreshCount: 50, BootstrapConnectDelayMillis: 20000}
 }
 
 type IndexEntry struct {
@@ -511,16 +512,6 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisher
 			reps = n.nearestK(key)
 		} else {
 			reps = n.peersToAddrs(peers)
-		}
-
-		fmt.Println("[[[[[[[Returned NEAREST XOR DISTANCE FROM KEY. **FOR STORAGE** ]]]]]]]]]]]")
-		for i, peer := range peers {
-			fmt.Println()
-			fmt.Printf("nearest peer no: %d is XOR distance: %d from key.", i, n.routingTable.XORDistanceRank(peer.ID, HashKey(key)))
-			fmt.Println()
-			if i >= 3 {
-				break
-			}
 		}
 
 	}
@@ -1284,11 +1275,33 @@ func (n *Node) FindRemote(key string) ([]byte, bool) {
 }
 */
 
-func (n *Node) StoreIndex(indexKey string, e IndexEntry, ttl time.Duration) error {
-	reps := n.nearestK(indexKey)
+func (n *Node) StoreIndex(indexKey string, e IndexEntry, ttl time.Duration, recomputeReplicas bool) error {
+
+	//holds our collection of replica addresses
+	var reps []string
+
+	if !recomputeReplicas {
+		fmt.Println("Note: local only flag provided: index storage will only be propagated to known nodes in the local routing table.")
+		reps = n.nearestK(indexKey)
+	} else {
+
+		//look up k nearest nodes over network, only fall back to localised search
+		//in the event of an error.
+		peers, err := n.lookupK(HashKey(indexKey))
+		if err != nil {
+			fmt.Printf("An error occurred whilst attemptiing to lookup nearest nodes over the network, falling back to local search. the error was: %v", err)
+			reps = n.nearestK(indexKey)
+		} else {
+			reps = n.peersToAddrs(peers)
+		}
+
+	}
+
+	//clamp replicas to the replication factor defined in the prevailing config
+	reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
 
 	//NB: where the call to the merge function is being made as a direct result
-	//of a call to StoreIndexValue we cn safely pass in the id of THIS node as the publisher.
+	//of a call to StoreIndex we cn safely pass in the id of THIS node as the publisher.
 	e.Publisher = n.ID
 	e.TTL = ttl.Milliseconds()
 	e.UpdatedUnix = time.Now().UnixMilli()
@@ -2418,9 +2431,24 @@ func (n *Node) refresh() {
 
 					//...and is close to expiry, refresh it
 					if (e.TTL - timeElapsedSinceUpdate.Milliseconds()) <= (n.cfg.RefreshInterval * 2).Milliseconds() {
+
+						//increament the local refresh count for this record
+						rec.mu.Lock()
+						if rec.LocalRefreshCount == math.MaxUint64 {
+							rec.LocalRefreshCount = 0
+						}
+						rec.LocalRefreshCount++
+						rec.mu.Unlock()
+
+						//if we have hit the max number of local refresh attempts set "recomputeReplicas" parameter to true
+						//to prompt the StoreIndex function to recompute the network-wide, k nearest nodes afresh
+						rec.mu.RLock()
+						recomputeReplicas := rec.LocalRefreshCount > uint64(n.cfg.MaxLocalIndexEntryRefreshCount) && rec.LocalRefreshCount%uint64(n.cfg.MaxLocalIndexEntryRefreshCount) == 0
+						rec.mu.RUnlock()
+
 						ttlDuration := time.Duration(e.TTL) * time.Millisecond
 						e.UpdatedUnix = time.Now().UnixMilli()
-						indexRefreshErr := n.StoreIndex(k, e, ttlDuration)
+						indexRefreshErr := n.StoreIndex(k, e, ttlDuration,recomputeReplicas)
 						if indexRefreshErr != nil {
 							fmt.Println("An error occurred whilst attempting to refresh index entry with key: " + k + " the error was: " + indexRefreshErr.Error())
 						}
@@ -2463,8 +2491,10 @@ func (n *Node) refresh() {
 			rec.mu.Unlock()
 
 			//if we have hit the max number of local refresh attempts set "recomputeReplicas" parameter to true
-			//to prompt the StoreWithTTL function to recompute the network-wide,  k nearest nodes afresh
-			recomputeReplicas := rec.LocalRefreshCount > uint64(n.cfg.MaxLocalRefreshCount) && rec.LocalRefreshCount%uint64(n.cfg.MaxLocalRefreshCount) == 0
+			//to prompt the StoreWithTTL function to recompute the network-wide, k nearest nodes afresh
+			rec.mu.RLock()
+			recomputeReplicas := rec.LocalRefreshCount > uint64(n.cfg.MaxLocalEntryRefreshCount) && rec.LocalRefreshCount%uint64(n.cfg.MaxLocalEntryRefreshCount) == 0
+			rec.mu.RUnlock()
 
 			entryRefreshErr := n.StoreWithTTL(k, rec.Value, left, rec.Publisher, recomputeReplicas)
 			if entryRefreshErr != nil {

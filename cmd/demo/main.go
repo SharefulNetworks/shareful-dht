@@ -85,12 +85,12 @@ func main() {
 	key := "leaf/alpha"
 
 	//store INDEX entry to the DHT via both nodes. note each node sets the target to be its own ID
-	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
 	if peer1StoreIndexErr != nil {
 		fmt.Println("Error occurred whilst Peer Node 1 was trying to store INDEX entry:", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
 	if peer2IndexIndexStoreErr != nil {
 		fmt.Println("Error occurred whilst Peer Node 2 was trying to store INDEX entry:", peer2IndexIndexStoreErr)
 	}
