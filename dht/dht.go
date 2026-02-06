@@ -138,7 +138,8 @@ func pickEvenDistribution(all []int, k int) []int {
 type Config struct {
 	K                              int
 	Alpha                          int
-	DefaultTTL                     time.Duration
+	DefaultEntryTTL                time.Duration
+	DefaultIndexEntryTTL           time.Duration
 	AllowPermanentDefault          bool
 	RefreshInterval                time.Duration
 	JanitorInterval                time.Duration
@@ -154,7 +155,7 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	return Config{K: 20, Alpha: 3, DefaultTTL: 10 * time.Minute, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, BatchRequestTimeout: 4500 * time.Millisecond, OutboundQueueWorkerCount: 4, ReplicationFactor: 3, EnableAuthorativeStorage: false, MaxLocalEntryRefreshCount: 50, MaxLocalIndexEntryRefreshCount: 50, BootstrapConnectDelayMillis: 20000}
+	return Config{K: 20, Alpha: 3, DefaultEntryTTL: 10 * time.Minute, DefaultIndexEntryTTL: 15 * time.Second, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, BatchRequestTimeout: 4500 * time.Millisecond, OutboundQueueWorkerCount: 4, ReplicationFactor: 3, EnableAuthorativeStorage: false, MaxLocalEntryRefreshCount: 50, MaxLocalIndexEntryRefreshCount: 50, BootstrapConnectDelayMillis: 20000}
 }
 
 type IndexEntry struct {
@@ -478,7 +479,7 @@ func (n *Node) Connect(remoteAddr string) error {
 }
 
 func (n *Node) Store(key string, val []byte) error {
-	ttl := n.cfg.DefaultTTL
+	ttl := n.cfg.DefaultEntryTTL
 	if n.cfg.AllowPermanentDefault {
 		ttl = 0
 	}
@@ -1165,117 +1166,12 @@ func (n *Node) Find(key string) ([]byte, bool) {
 	return nil, false
 }
 
-/*
-func (n *Node) FindRemote(key string) ([]byte, bool) {
-	// 0) Fast-path: check local store first (cheapest, avoids pointless network work)
-	if v, ok := n.Find(key); ok {
-		return v, true
-	}
-
-	// 1) Resolve candidate replica addresses
-	var reps []string
-	peers, err := n.lookupK(HashKey(key))
-	if err != nil {
-		fmt.Printf("lookupK failed; falling back to local nearestK: %v\n", err)
-		reps = n.nearestK(key)
-	} else {
-		reps = n.peersToAddrs(peers)
-	}
-
-	// 2) Filter and dedupe BEFORE clamping, so we never:
-	//    - clamp down to [self] and then launch 0 goroutines
-	//    - wait for more replies than we actually launched
-	seen := make(map[string]struct{}, len(reps))
-	filtered := make([]string, 0, len(reps))
-	for _, a := range reps {
-		if a == "" || a == n.Addr {
-			continue
-		}
-		if _, ok := seen[a]; ok {
-			continue
-		}
-		seen[a] = struct{}{}
-		filtered = append(filtered, a)
-	}
-	reps = filtered
-
-	if len(reps) == 0 {
-		return nil, false
-	}
-
-	// 3) Clamp to replication factor after filtering
-	if rf := n.cfg.ReplicationFactor; rf > 0 && len(reps) > rf {
-		reps = reps[:rf]
-	}
-
-	// 4) Fire concurrent OP_FIND requests
-	type result struct {
-		v  []byte
-		ok bool
-	}
-	ch := make(chan result, len(reps))
-
-	for _, addr := range reps {
-		go func(a string) {
-			reqAny, _ := n.makeMessage(OP_FIND)
-			switch r := reqAny.(type) {
-			case *dhtpb.FindRequest:
-				r.Key = key
-			case *struct {
-				Key string `json:"key"`
-			}:
-				r.Key = key
-			}
-
-			b, err := n.sendRequest(a, OP_FIND, reqAny)
-			if err != nil {
-				ch <- result{nil, false}
-				return
-			}
-
-			_, respAny := n.makeMessage(OP_FIND)
-			if err := n.decode(b, respAny); err != nil {
-				ch <- result{nil, false}
-				return
-			}
-
-			switch resp := respAny.(type) {
-			case *dhtpb.FindResponse:
-				ch <- result{resp.Value, resp.Ok}
-				return
-			case *struct {
-				Ok    bool   `json:"ok"`
-				Value []byte `json:"value"`
-				Err   string `json:"err"`
-			}:
-				ch <- result{resp.Value, resp.Ok}
-				return
-			default:
-				ch <- result{nil, false}
-				return
-			}
-		}(addr)
-	}
-
-	// 5) Wait for exactly len(reps) replies (guaranteed 1 goroutine per rep), or timeout
-	timer := time.NewTimer(n.cfg.RequestTimeout)
-	defer timer.Stop()
-
-	for i := 0; i < len(reps); i++ {
-		select {
-		case r := <-ch:
-			if r.ok {
-				return r.v, true
-			}
-		case <-timer.C:
-			return nil, false
-		}
-	}
-	return nil, false
+func (n *Node) StoreIndex(indexKey string, e IndexEntry) error {
+	ttl := n.cfg.DefaultIndexEntryTTL
+	return n.StoreIndexWithTTL(indexKey, e, ttl, n.ID, false) //TODO: Set the recompute replicas flag to true after testing to ensure that entries are being propagated to the prevailing nearest K nodes across the network and not just the local routing table.
 }
-*/
 
-func (n *Node) StoreIndex(indexKey string, e IndexEntry, ttl time.Duration, recomputeReplicas bool) error {
+func (n *Node) StoreIndexWithTTL(indexKey string, e IndexEntry, ttl time.Duration, publisherId types.NodeID, recomputeReplicas bool) error {
 
 	//holds our collection of replica addresses
 	var reps []string
@@ -1301,11 +1197,11 @@ func (n *Node) StoreIndex(indexKey string, e IndexEntry, ttl time.Duration, reco
 	reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
 
 	//NB: where the call to the merge function is being made as a direct result
-	//of a call to StoreIndex we cn safely pass in the id of THIS node as the publisher.
-	e.Publisher = n.ID
+	//of a call to StoreIndex we can safely pass in the id of THIS node as the publisher.
+	e.Publisher = publisherId
 	e.TTL = ttl.Milliseconds()
 	e.UpdatedUnix = time.Now().UnixMilli()
-	mergeIndexError := n.mergeIndexLocal(indexKey, e, reps, n.ID)
+	mergeIndexError := n.mergeIndexLocal(indexKey, e, reps, publisherId)
 	if mergeIndexError != nil {
 		return fmt.Errorf("an error occurred whilst attempting to store index value %s", mergeIndexError.Error())
 	}
@@ -2432,23 +2328,15 @@ func (n *Node) refresh() {
 					//...and is close to expiry, refresh it
 					if (e.TTL - timeElapsedSinceUpdate.Milliseconds()) <= (n.cfg.RefreshInterval * 2).Milliseconds() {
 
-						//increament the local refresh count for this record
-						rec.mu.Lock()
-						if rec.LocalRefreshCount == math.MaxUint64 {
-							rec.LocalRefreshCount = 0
-						}
-						rec.LocalRefreshCount++
-						rec.mu.Unlock()
-
 						//if we have hit the max number of local refresh attempts set "recomputeReplicas" parameter to true
 						//to prompt the StoreIndex function to recompute the network-wide, k nearest nodes afresh
 						rec.mu.RLock()
-						recomputeReplicas := rec.LocalRefreshCount > uint64(n.cfg.MaxLocalIndexEntryRefreshCount) && rec.LocalRefreshCount%uint64(n.cfg.MaxLocalIndexEntryRefreshCount) == 0
+						recomputeReplicas := false //rec.LocalRefreshCount > uint64(n.cfg.MaxLocalIndexEntryRefreshCount) && rec.LocalRefreshCount%uint64(n.cfg.MaxLocalIndexEntryRefreshCount) == 0
 						rec.mu.RUnlock()
 
 						ttlDuration := time.Duration(e.TTL) * time.Millisecond
 						e.UpdatedUnix = time.Now().UnixMilli()
-						indexRefreshErr := n.StoreIndex(k, e, ttlDuration,recomputeReplicas)
+						indexRefreshErr := n.StoreIndexWithTTL(k, e, ttlDuration, e.Publisher, recomputeReplicas)
 						if indexRefreshErr != nil {
 							fmt.Println("An error occurred whilst attempting to refresh index entry with key: " + k + " the error was: " + indexRefreshErr.Error())
 						}

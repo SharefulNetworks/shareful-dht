@@ -54,12 +54,12 @@ func Test_Create_And_Find_Index_Entry_Value(t *testing.T) {
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -205,12 +205,12 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -251,12 +251,12 @@ func Test_Create_And_Delete_Index_Entry_Value_With_Non_Existent_Key(t *testing.T
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -304,12 +304,12 @@ func Test_Create_And_Delete_Index_Entry_Value_With_PublisherId_Mismatch(t *testi
 
 	//store index entries from the first two nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 15*time.Second,false)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -422,12 +422,12 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 
 	//store index entries from the first two nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second,false)
+	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()}, 12*time.Second,false)
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -448,7 +448,7 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 	n2.Close()
 
 	//next allow sufficient time for the TTL duration (12 seconds in this case) to elapse
-	time.Sleep(15 * time.Second)
+	time.Sleep(18 * time.Second)
 
 	//finally attempt to retrieve the collection of entries associated with the key which
 	//should now be of length 1 as node 2's entry should have automatically expired.
@@ -1746,7 +1746,6 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 	t.Log()
 	t.Logf("@@@@FootholdBootstrapNode data store length post store operation is: %d", footHoldBootstrapNode.DataStoreLength())
 
-	
 	//just incase the store operation resulted in propegation of peer info to our entry nodes
 	//we now forcibly prune their peer lists back to just the foothold bootstrap node.
 	entryNode1RemovalIdLog := make([]types.NodeID, 0)
@@ -1797,8 +1796,8 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 			}
 		}
 	}
-	
-	externalNode2RemovalIdLog := make([]types.NodeID, 0)		
+
+	externalNode2RemovalIdLog := make([]types.NodeID, 0)
 	if externalNode2.PeerCount() > 1 {
 		for _, peerId := range externalNode2.ListPeerIds() {
 			//if the current id is NOT equal to nodes assigned foothold
@@ -1877,7 +1876,7 @@ func NewDefaultTestContext(t *testing.T) *TestContext {
 	cfg := DefaultConfig()
 	cfg.UseProtobuf = true // set true after generating pb
 	cfg.RequestTimeout = 2000 * time.Millisecond
-	cfg.DefaultTTL = 30 * time.Second
+	cfg.DefaultEntryTTL = 30 * time.Second
 	cfg.RefreshInterval = 5 * time.Second
 	cfg.JanitorInterval = 10 * time.Second
 
@@ -1916,7 +1915,7 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, config *Config, pri
 		cfg = &cf
 		cfg.UseProtobuf = true
 		cfg.RequestTimeout = 2000 * time.Millisecond
-		cfg.DefaultTTL = 30 * time.Second
+		cfg.DefaultEntryTTL = 30 * time.Second
 		cfg.RefreshInterval = 5 * time.Second
 		cfg.JanitorInterval = 10 * time.Second
 
@@ -1987,7 +1986,7 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 		cfg = &cf
 		cfg.UseProtobuf = true
 		cfg.RequestTimeout = 2000 * time.Millisecond
-		cfg.DefaultTTL = 30 * time.Second
+		cfg.DefaultEntryTTL = 30 * time.Second
 		cfg.RefreshInterval = 5 * time.Second
 		cfg.JanitorInterval = 10 * time.Second
 		cfg.ReplicationFactor = 1
