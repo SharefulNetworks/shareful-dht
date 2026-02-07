@@ -1085,6 +1085,11 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	time.Sleep(5000 * time.Millisecond)
 	t.Logf("Edge bootstrap node peer list count AFTER find operation: %d", entryNode.PeerCount())
 
+	//clean up
+	t.Cleanup(func() {
+		entryNode.Close()
+	})
+
 }
 
 func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_Two_Levels_Of_Indirection_And_Sparse_Peer_List(t *testing.T) {
@@ -1251,6 +1256,11 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	time.Sleep(5000 * time.Millisecond)
 	t.Logf("Edge bootstrap node peer list count AFTER find operation: %d", entryNode.PeerCount())
 
+	//clean up
+	t.Cleanup(func() {
+		entryNode.Close()
+		externalNode.Close()
+	})
 }
 
 func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry(t *testing.T) {
@@ -1522,7 +1532,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_O
 		curNode := randomlySelectedNodes[currentCount]
 		storeErr := curNode.Store(k, v)
 		if storeErr != nil {
-			t.Fatalf("An error occurred whilst attempting to store entry to node at index: %d", currentCount)
+			t.Fatalf("An error occurred whilst attempting to store entry to node at index: %d the error was: %v", currentCount, storeErr)
 		}
 		currentCount++
 	}
@@ -1606,6 +1616,11 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_O
 	t.Logf("Entry node: %s peer list count AFTER find operation: %d", entryNode1.ID.String(), entryNode1.PeerCount())
 	t.Logf("Entry node: %s peer list count AFTER find operation: %d", entryNode2.ID.String(), entryNode2.PeerCount())
 
+	//clean up
+	t.Cleanup(func() {
+		entryNode1.Close()
+		entryNode2.Close()
+	})
 }
 
 func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_Two_Level_Of_Indirection_And_Sparse_Peer_List(t *testing.T) {
@@ -1855,6 +1870,13 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 	t.Logf("External node: %s peer list count AFTER find operation: %d", externalNode1.ID.String(), externalNode1.PeerCount())
 	t.Logf("External node: %s peer list count AFTER find operation: %d", externalNode2.ID.String(), externalNode2.PeerCount())
 
+	//clean up
+	t.Cleanup(func() {
+		entryNode1.Close()
+		entryNode2.Close()
+		externalNode1.Close()
+		externalNode2.Close()
+	})
 }
 
 /*****************************************************************************************************************

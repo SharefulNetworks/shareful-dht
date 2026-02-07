@@ -159,13 +159,15 @@ func DefaultConfig() Config {
 }
 
 type IndexEntry struct {
-	Source      string       `json:"source"`
-	Target      string       `json:"target"`
-	Meta        []byte       `json:"meta"`
-	UpdatedUnix int64        `json:"updated_unix"`
-	Publisher   types.NodeID `json:"publisher"`
-	TTL         int64        `json:"ttl"`
+	Source            string       `json:"source"`
+	Target            string       `json:"target"`
+	Meta              []byte       `json:"meta"`
+	UpdatedUnix       int64        `json:"updated_unix"`
+	Publisher         types.NodeID `json:"publisher"`
+	TTL               int64        `json:"ttl"`
+	LocalRefreshCount uint64       `json:"local_refresh_count"` //record level refresh count doesn't make sense for IndexEntry as each entry in the record will be maintained by different nodes, each of which will have their own respective refresh intervals.
 }
+
 type record struct {
 	Key               string
 	Value             []byte
@@ -2328,11 +2330,15 @@ func (n *Node) refresh() {
 					//...and is close to expiry, refresh it
 					if (e.TTL - timeElapsedSinceUpdate.Milliseconds()) <= (n.cfg.RefreshInterval * 2).Milliseconds() {
 
+						//increament the IndexEntry's local refresh count
+						if e.LocalRefreshCount == math.MaxUint64 {
+							e.LocalRefreshCount = 0
+						}
+						e.LocalRefreshCount++
+
 						//if we have hit the max number of local refresh attempts set "recomputeReplicas" parameter to true
 						//to prompt the StoreIndex function to recompute the network-wide, k nearest nodes afresh
-						rec.mu.RLock()
-						recomputeReplicas := false //rec.LocalRefreshCount > uint64(n.cfg.MaxLocalIndexEntryRefreshCount) && rec.LocalRefreshCount%uint64(n.cfg.MaxLocalIndexEntryRefreshCount) == 0
-						rec.mu.RUnlock()
+						recomputeReplicas := e.LocalRefreshCount > uint64(n.cfg.MaxLocalIndexEntryRefreshCount) && e.LocalRefreshCount%uint64(n.cfg.MaxLocalIndexEntryRefreshCount) == 0
 
 						ttlDuration := time.Duration(e.TTL) * time.Millisecond
 						e.UpdatedUnix = time.Now().UnixMilli()
