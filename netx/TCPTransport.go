@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"sync"
+
 )
 
 type TCPTransport struct {
@@ -238,3 +239,29 @@ func (t *TCPTransport) outQueueDispatcher() {
 		}
 	}
 }
+
+/*
+func  (t *TCPTransport) idleConnChecker() {
+	t.wg.Add(1)
+	defer t.wg.Done()
+	timer := time.NewTicker(config.Config.PooledConnectionIdleTimeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-t.closed:
+			return
+		case <-timer.C:
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Println("Recovered from panic in refresher tick:", r)
+					}
+				}()
+				n.refresh()
+			}()
+
+		}
+	}
+}
+	*/

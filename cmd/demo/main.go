@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/dht"
 	"github.com/SharefulNetworks/shareful-dht/netx"
 )
@@ -11,7 +12,7 @@ import (
 func main() {
 
 	//setup config.
-	cfg := dht.DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.UseProtobuf = true // set true after generating pb
 	cfg.RequestTimeout = 1000 * time.Millisecond
 	cfg.DefaultEntryTTL = 30 * time.Second

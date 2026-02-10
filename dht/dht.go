@@ -15,11 +15,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/netx"
 	"github.com/SharefulNetworks/shareful-dht/proto/dhtpb"
 	"github.com/SharefulNetworks/shareful-dht/routing"
 	"github.com/SharefulNetworks/shareful-dht/types"
 	"github.com/SharefulNetworks/shareful-dht/wire"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -135,29 +137,6 @@ func pickEvenDistribution(all []int, k int) []int {
 	return out
 }
 
-type Config struct {
-	K                              int
-	Alpha                          int
-	DefaultEntryTTL                time.Duration
-	DefaultIndexEntryTTL           time.Duration
-	AllowPermanentDefault          bool
-	RefreshInterval                time.Duration
-	JanitorInterval                time.Duration
-	UseProtobuf                    bool
-	RequestTimeout                 time.Duration
-	BatchRequestTimeout            time.Duration
-	OutboundQueueWorkerCount       int
-	ReplicationFactor              int
-	EnableAuthorativeStorage       bool
-	MaxLocalEntryRefreshCount      int //the max local stabndard entry refreshes (i.e refresh to known nodes) that the node can undertake before a network-wide refresh is required which may result in new k-nearest candidates.
-	MaxLocalIndexEntryRefreshCount int //the max local index entry refreshes (i.e refresh to known nodes) that the node can undertake before a network-wide refresh is required which may result in new k-nearest candidates.
-	BootstrapConnectDelayMillis    int //the delay, in milliseconds, that should elapse before the node attempts to connect to each bootstrap node. The delay is useful where all or multiple nodes in the list are being started in tandem as it allows sufficient time for each respective node to spin up and drop into a ready state.
-}
-
-func DefaultConfig() Config {
-	return Config{K: 20, Alpha: 3, DefaultEntryTTL: 10 * time.Minute, DefaultIndexEntryTTL: 10 * time.Minute, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, BatchRequestTimeout: 4500 * time.Millisecond, OutboundQueueWorkerCount: 4, ReplicationFactor: 3, EnableAuthorativeStorage: false, MaxLocalEntryRefreshCount: 50, MaxLocalIndexEntryRefreshCount: 50, BootstrapConnectDelayMillis: 20000}
-}
-
 type IndexEntry struct {
 	Source            string       `json:"source"`
 	Target            string       `json:"target"`
@@ -184,7 +163,7 @@ type Node struct {
 	ID           types.NodeID
 	Addr         string
 	transport    netx.Transport
-	cfg          Config
+	cfg          config.Config
 	nodeType     int
 	cd           wire.Codec
 	mu           sync.RWMutex
@@ -198,7 +177,7 @@ type Node struct {
 	closeOnce    sync.Once
 }
 
-func NewNode(id string, addr string, transport netx.Transport, cfg Config, nodeType int) (*Node, error) {
+func NewNode(id string, addr string, transport netx.Transport, cfg config.Config, nodeType int) (*Node, error) {
 	var codec wire.Codec
 	codec = wire.JSONCodec{}
 	if cfg.UseProtobuf {
@@ -289,7 +268,7 @@ func (n *Node) AddPeer(addr string, id types.NodeID) {
 
 func (n *Node) DropPeer(id types.NodeID) bool {
 
-	//well need the peer address to close any active connections
+	//we'll need the peer address to close any active connections
 	//currently being held to it. OK will be false where no active connection exist to the peer.
 	peerAddr, ok := n.routingTable.GetAddr(id)
 	if ok {

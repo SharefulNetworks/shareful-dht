@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/netx"
 	"github.com/SharefulNetworks/shareful-dht/types"
 )
@@ -411,7 +412,7 @@ func Test_Standard_Entry_Auto_Expiration(t *testing.T) {
 func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 
 	//explicitly set a short TTL duration to allow us to validate the auto expiration of index entries.
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.UseProtobuf = true
 	cfg.RequestTimeout = 2000 * time.Millisecond
 	cfg.DefaultEntryTTL = 30 * time.Second
@@ -419,10 +420,8 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 	cfg.RefreshInterval = 5 * time.Second
 	cfg.JanitorInterval = 10 * time.Second
 
-
 	//create new default test context
 	ctx := NewConfigurableTestContext(t, 3, &cfg, false)
-
 
 	//obtain nodes from the test context
 	n1 := ctx.Nodes[0]
@@ -2262,7 +2261,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry(t *testin
 
 	//now we have our disjoint set of standard nodes to undertake the find operation on each node.
 	for _, curStandardNodeForFind := range randomlySelectedStandardNodesForFind {
-		for k,v := range *sampleData {
+		for k, v := range *sampleData {
 			if indexEntries, ok := curStandardNodeForFind.FindIndex(k); !ok {
 				t.Fatalf("FindIndex failed on standard node: %s for resource with key: %s", curStandardNodeForFind.ID, k)
 			} else {
@@ -2673,7 +2672,6 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_One_
 		if string(indexEntries[0].Target) != string(expectedVal) {
 			t.Errorf("Wrong value for key=%s got=%q want=%q", k, indexEntries[0].Target, expectedVal)
 		}
-		
 
 		indexEntries2, ok2 := entryNode2.FindIndex(k)
 		if !ok2 {
@@ -3228,7 +3226,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_Two_
 // TestContext is used to hold context info for e2e tests
 type TestContext struct {
 	Nodes          []*Node
-	Config         *Config
+	Config         *config.Config
 	BootstrapNodes []*Node
 }
 
@@ -3237,7 +3235,7 @@ func NewDefaultTestContext(t *testing.T) *TestContext {
 	t.Helper()
 
 	//prepare config.
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.UseProtobuf = true // set true after generating pb
 	cfg.RequestTimeout = 2000 * time.Millisecond
 	cfg.DefaultEntryTTL = 30 * time.Second
@@ -3269,13 +3267,13 @@ func NewDefaultTestContext(t *testing.T) *TestContext {
 	}
 }
 
-func NewConfigurableTestContext(t *testing.T, nodeCount int, config *Config, printPeerMap bool) *TestContext {
+func NewConfigurableTestContext(t *testing.T, nodeCount int, conf *config.Config, printPeerMap bool) *TestContext {
 	t.Helper()
 
-	var cfg *Config
-	if config == nil {
+	var cfg *config.Config
+	if conf == nil {
 		//prepare default config if a config has not been provided
-		cf := DefaultConfig()
+		cf := config.DefaultConfig()	
 		cfg = &cf
 		cfg.UseProtobuf = true
 		cfg.RequestTimeout = 2000 * time.Millisecond
@@ -3284,7 +3282,7 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, config *Config, pri
 		cfg.JanitorInterval = 10 * time.Second
 
 	} else {
-		cfg = config
+		cfg = conf
 	}
 
 	//attempt to create the requested number of nodes specified via the node count.
@@ -3332,7 +3330,7 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, config *Config, pri
 
 }
 
-func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNodeCount int, config *Config, bootstrapAddresses []string, connectDelayMillis int, refreshTime int) *TestContext {
+func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNodeCount int, conf *config.Config, bootstrapAddresses []string, connectDelayMillis int, refreshTime int) *TestContext {
 	t.Helper()
 
 	if len(bootstrapAddresses) <= 0 {
@@ -3343,10 +3341,10 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 		t.Log("WARNING: The requested standard node count was less than 1 thus the configurable context is solely comprised of core, bootstrap nodes.")
 	}
 
-	var cfg *Config
-	if config == nil {
+	var cfg *config.Config
+	if conf == nil {
 		//prepare default config if a config has not been provided
-		cf := DefaultConfig()
+		cf := config.DefaultConfig()
 		cfg = &cf
 		cfg.UseProtobuf = true
 		cfg.RequestTimeout = 2000 * time.Millisecond
@@ -3360,7 +3358,7 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 		}
 
 	} else {
-		cfg = config
+		cfg = conf
 	}
 
 	//first create and bootstrap the core network (bootstrap) nodes.
