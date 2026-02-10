@@ -155,7 +155,7 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	return Config{K: 20, Alpha: 3, DefaultEntryTTL: 10 * time.Minute, DefaultIndexEntryTTL: 15 * time.Second, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, BatchRequestTimeout: 4500 * time.Millisecond, OutboundQueueWorkerCount: 4, ReplicationFactor: 3, EnableAuthorativeStorage: false, MaxLocalEntryRefreshCount: 50, MaxLocalIndexEntryRefreshCount: 50, BootstrapConnectDelayMillis: 20000}
+	return Config{K: 20, Alpha: 3, DefaultEntryTTL: 10 * time.Minute, DefaultIndexEntryTTL: 10 * time.Minute, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, BatchRequestTimeout: 4500 * time.Millisecond, OutboundQueueWorkerCount: 4, ReplicationFactor: 3, EnableAuthorativeStorage: false, MaxLocalEntryRefreshCount: 50, MaxLocalIndexEntryRefreshCount: 50, BootstrapConnectDelayMillis: 20000}
 }
 
 type IndexEntry struct {
@@ -1170,7 +1170,7 @@ func (n *Node) Find(key string) ([]byte, bool) {
 
 func (n *Node) StoreIndex(indexKey string, e IndexEntry) error {
 	ttl := n.cfg.DefaultIndexEntryTTL
-	return n.StoreIndexWithTTL(indexKey, e, ttl, n.ID, false) //TODO: Set the recompute replicas flag to true after testing to ensure that entries are being propagated to the prevailing nearest K nodes across the network and not just the local routing table.
+	return n.StoreIndexWithTTL(indexKey, e, ttl, n.ID, true)
 }
 
 func (n *Node) StoreIndexWithTTL(indexKey string, e IndexEntry, ttl time.Duration, publisherId types.NodeID, recomputeReplicas bool) error {
@@ -1183,6 +1183,7 @@ func (n *Node) StoreIndexWithTTL(indexKey string, e IndexEntry, ttl time.Duratio
 		reps = n.nearestK(indexKey)
 	} else {
 
+		fmt.Println("Note: recomputeReplicas flag provided: node will attempt to lookup nearest nodes over the network to propagate index storage to, only falling back to localised search in the event of an error.")
 		//look up k nearest nodes over network, only fall back to localised search
 		//in the event of an error.
 		peers, err := n.lookupK(HashKey(indexKey))
@@ -1267,6 +1268,7 @@ func (n *Node) FindIndexLocal(key string) ([]IndexEntry, bool) {
 	return entries, true
 }
 
+/*
 func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 	reps := n.nearestK(key)
 	if ents, ok := n.FindIndexLocal(key); ok {
@@ -1356,6 +1358,188 @@ func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 	for _, e := range merged {
 		out = append(out, e)
 	}
+	return out, true
+}
+*/
+
+func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
+	// 0) local fast-path
+	if ents, ok := n.FindIndexLocal(key); ok {
+		return ents, true
+	}
+
+	target := HashKey(key)
+	K := n.cfg.K
+	alpha := n.cfg.Alpha
+	timeout := n.cfg.BatchRequestTimeout
+
+	shortlist := n.nearestKByID(target)
+	seen := make(map[types.NodeID]*routing.Peer, len(shortlist))
+	queried := make(map[types.NodeID]bool, len(shortlist))
+
+	for _, p := range shortlist {
+		if p == nil || p.Addr == "" || p.ID == n.ID {
+			continue
+		}
+		seen[p.ID] = p
+	}
+
+	rebuild := func() []*routing.Peer {
+		all := make([]*routing.Peer, 0, len(seen))
+		for _, p := range seen {
+			all = append(all, p)
+		}
+		sort.Slice(all, func(i, j int) bool {
+			return CompareDistance(all[i].ID, all[j].ID, target) < 0
+		})
+		if len(all) > K {
+			all = all[:K]
+		}
+		return all
+	}
+
+	sameShortList := func(a, b []*routing.Peer) bool {
+		if len(a) != len(b) {
+			return false
+		}
+		for i := range a {
+			if a[i] == nil || b[i] == nil {
+				if a[i] != b[i] {
+					return false
+				}
+				continue
+			}
+			if a[i].ID != b[i].ID {
+				return false
+			}
+		}
+		return true
+	}
+
+	shortlist = rebuild()
+
+	// aggregated index entries (deduped)
+	merged := make(map[string]IndexEntry)
+
+	for {
+		// pick α closest unqueried
+		batch := make([]*routing.Peer, 0, alpha)
+		for _, p := range shortlist {
+			if p == nil || p.ID == n.ID {
+				continue
+			}
+			if !queried[p.ID] {
+				queried[p.ID] = true
+				batch = append(batch, p)
+				if len(batch) == alpha {
+					break
+				}
+			}
+		}
+
+		if len(batch) == 0 {
+			break
+		}
+
+		type res struct {
+			ents  []IndexEntry
+			peers []*routing.Peer
+		}
+
+		ch := make(chan res, len(batch))
+
+		for _, p := range batch {
+			go func(peer *routing.Peer) {
+				reqAny, _ := n.makeMessage(OP_FIND_INDEX)
+
+				switch r := reqAny.(type) {
+				case *dhtpb.FindIndexRequest:
+					r.Key = key
+				case *struct {
+					Key string `json:"key"`
+				}:
+					r.Key = key
+				}
+
+				b, err := n.sendRequest(peer.Addr, OP_FIND_INDEX, reqAny)
+				if err != nil {
+					ch <- res{}
+					return
+				}
+
+				_, respAny := n.makeMessage(OP_FIND_INDEX)
+				if err := n.decode(b, respAny); err != nil {
+					ch <- res{}
+					return
+				}
+
+				switch resp := respAny.(type) {
+				case *dhtpb.FindIndexResponse:
+					out := make([]IndexEntry, 0, len(resp.Entries))
+					for _, ie := range resp.Entries {
+						e := IndexEntry{
+							Source:      ie.Source,
+							Target:      ie.Target,
+							Meta:        ie.Meta,
+							UpdatedUnix: ie.UpdatedUnix,
+							TTL:         ie.Ttl,
+						}
+						copy(e.Publisher[:], ie.PublisherId[:])
+						out = append(out, e)
+					}
+					ch <- res{out, n.nodeContactsToPeers(resp.GetPeers())}
+					return
+
+					//TODO:GT Remove JSON support its not used.
+				case *struct {
+					Ok      bool         `json:"ok"`
+					Entries []IndexEntry `json:"entries"`
+					Peers   []string     `json:"peers"`
+				}:
+					if resp.Ok {
+						//	ch <- res{resp.Entries, n.nodeContactToPeer(resp.GetPeers())}
+						return
+					}
+				}
+
+				ch <- res{}
+			}(p)
+		}
+
+		prev := shortlist
+
+		deadline := time.After(timeout)
+		for i := 0; i < len(batch); i++ {
+			select {
+			case r := <-ch:
+				for _, e := range r.ents {
+					merged[e.Source+"\x1f"+e.Target] = e
+				}
+				for _, np := range r.peers {
+					if np != nil && np.ID != n.ID {
+						seen[np.ID] = np
+					}
+				}
+			case <-deadline:
+				break
+			}
+		}
+
+		shortlist = rebuild()
+		if sameShortList(prev, shortlist) {
+			break
+		}
+	}
+
+	if len(merged) == 0 {
+		return nil, false
+	}
+
+	out := make([]IndexEntry, 0, len(merged))
+	for _, e := range merged {
+		out = append(out, e)
+	}
+
 	return out, true
 }
 
@@ -1689,44 +1873,40 @@ func (n *Node) onMessage(from string, data []byte) {
 			return
 		}
 
-		var key string
-		switch r := reqAny.(type) {
-		case *dhtpb.FindIndexRequest:
-			key = r.Key
-		case *struct {
-			Key string `json:"key"`
-		}:
-			key = r.Key
+		req := reqAny.(*dhtpb.FindIndexRequest)
+		key := req.Key
+		target := HashKey(key)
+
+		resp := respAny.(*dhtpb.FindIndexResponse)
+		if ents, ok := n.FindIndexLocal(key); ok {
+			resp.Ok = ok
+			resp.Entries = make([]*dhtpb.IndexEntry, 0, len(ents))
+			for _, e := range ents {
+				resp.Entries = append(resp.Entries, &dhtpb.IndexEntry{
+					Source:      e.Source,
+					Target:      e.Target,
+					Meta:        e.Meta,
+					UpdatedUnix: e.UpdatedUnix,
+					PublisherId: e.Publisher[:],
+					Ttl:         e.TTL,
+				})
+			}
+		} else {
+			//otherwise where the entry is NOT found locally,we return the
+			//nearest peers to the target key that we know about from our rooting table.
+			//Ok is also set to false to indicate that this node does not directly have reference to the target entry.
+			resp.Ok = false
+			resp.Entries = make([]*dhtpb.IndexEntry, 0) //an empty array of entries is returned.
+			nearestPeersToKey := n.nearestKByID(target)
+			resp.Peers = make([]*dhtpb.NodeContact, 0, len(nearestPeersToKey))
+			for _, p := range nearestPeersToKey {
+				resp.Peers = append(resp.Peers, &dhtpb.NodeContact{
+					NodeId: p.ID[:],
+					Addr:   p.Addr,
+				})
+			}
 		}
 
-		ents, ok := n.FindIndexLocal(key)
-		switch r := respAny.(type) {
-		case *dhtpb.FindIndexResponse:
-			r.Ok = ok
-			if ok {
-				r.Entries = make([]*dhtpb.IndexEntry, 0, len(ents))
-				for _, e := range ents {
-					r.Entries = append(r.Entries, &dhtpb.IndexEntry{
-						Source:      e.Source,
-						Target:      e.Target,
-						Meta:        e.Meta,
-						UpdatedUnix: e.UpdatedUnix,
-						PublisherId: e.Publisher[:],
-						Ttl:         e.TTL,
-					})
-				}
-			}
-		case *struct {
-			Ok      bool         `json:"ok"`
-			Entries []IndexEntry `json:"entries"`
-			Err     string       `json:"err"`
-		}:
-			r.Ok = ok
-			if ok {
-				r.Entries = ents
-			}
-			r.Err = ""
-		}
 		b, _ := n.encode(respAny)
 		msg, _ := n.cd.Wrap(OP_FIND_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
 		//fmt.Println("Sending response to: ")
@@ -2135,6 +2315,19 @@ func (n *Node) peersToAddrs(peers []*routing.Peer) []string {
 		addrs = append(addrs, p.Addr)
 	}
 	return addrs
+}
+
+func (n *Node) nodeContactsToPeers(nodeContacts []*dhtpb.NodeContact) []*routing.Peer {
+	peers := make([]*routing.Peer, 0, len(nodeContacts))
+	for _, nc := range nodeContacts {
+		if nc == nil || nc.Addr == "" {
+			continue
+		}
+		var id types.NodeID
+		copy(id[:], nc.NodeId)
+		peers = append(peers, &routing.Peer{ID: id, Addr: nc.Addr})
+	}
+	return peers
 }
 
 func (n *Node) janitor() {

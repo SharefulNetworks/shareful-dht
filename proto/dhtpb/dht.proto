@@ -15,7 +15,7 @@ message IndexEntry { string source=1; string target=2; bytes meta=3; int64 updat
 message StoreIndexRequest { string key=1; IndexEntry entry=2; int64 ttl_ms=3; repeated string replicas=4; }
 message StoreIndexResponse { bool ok=1; string err=2; }
 message FindIndexRequest { string key=1; }
-message FindIndexResponse { bool ok=1; repeated IndexEntry entries=2; string err=3; }
+message FindIndexResponse { bool ok=1; repeated IndexEntry entries=2; string err=3;repeated NodeContact peers = 4;}
 message ConnectRequest {bytes node_id = 1;string addr   = 2;}
 message ConnectResponse {bool ok  = 1; bytes node_id = 2;string err = 3;}
 message DeleteIndexRequest {string key = 1; bytes publisher_id = 2; string source = 3; string target = 4;}

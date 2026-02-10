@@ -832,6 +832,7 @@ type FindIndexResponse struct {
 	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
 	Entries       []*IndexEntry          `protobuf:"bytes,2,rep,name=entries,proto3" json:"entries,omitempty"`
 	Err           string                 `protobuf:"bytes,3,opt,name=err,proto3" json:"err,omitempty"`
+	Peers         []*NodeContact         `protobuf:"bytes,4,rep,name=peers,proto3" json:"peers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -885,6 +886,13 @@ func (x *FindIndexResponse) GetErr() string {
 		return x.Err
 	}
 	return ""
+}
+
+func (x *FindIndexResponse) GetPeers() []*NodeContact {
+	if x != nil {
+		return x.Peers
+	}
+	return nil
 }
 
 type ConnectRequest struct {
@@ -1336,11 +1344,12 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
 	"\x03err\x18\x02 \x01(\tR\x03err\"$\n" +
 	"\x10FindIndexRequest\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\"b\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\"\x8c\x01\n" +
 	"\x11FindIndexResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12+\n" +
 	"\aentries\x18\x02 \x03(\v2\x11.dhtpb.IndexEntryR\aentries\x12\x10\n" +
-	"\x03err\x18\x03 \x01(\tR\x03err\"=\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err\x12(\n" +
+	"\x05peers\x18\x04 \x03(\v2\x12.dhtpb.NodeContactR\x05peers\"=\n" +
 	"\x0eConnectRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\fR\x06nodeId\x12\x12\n" +
 	"\x04addr\x18\x02 \x01(\tR\x04addr\"L\n" +
@@ -1429,13 +1438,14 @@ var file_proto_dhtpb_dht_proto_depIdxs = []int32{
 	18, // 2: dhtpb.FindValueResponse.peers:type_name -> dhtpb.NodeContact
 	9,  // 3: dhtpb.StoreIndexRequest.entry:type_name -> dhtpb.IndexEntry
 	9,  // 4: dhtpb.FindIndexResponse.entries:type_name -> dhtpb.IndexEntry
-	1,  // 5: dhtpb.NodeContact.node_type:type_name -> dhtpb.NodeType
-	18, // 6: dhtpb.FindNodeResponse.peers:type_name -> dhtpb.NodeContact
-	7,  // [7:7] is the sub-list for method output_type
-	7,  // [7:7] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	18, // 5: dhtpb.FindIndexResponse.peers:type_name -> dhtpb.NodeContact
+	1,  // 6: dhtpb.NodeContact.node_type:type_name -> dhtpb.NodeType
+	18, // 7: dhtpb.FindNodeResponse.peers:type_name -> dhtpb.NodeContact
+	8,  // [8:8] is the sub-list for method output_type
+	8,  // [8:8] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_proto_dhtpb_dht_proto_init() }
