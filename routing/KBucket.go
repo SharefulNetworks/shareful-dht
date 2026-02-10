@@ -11,6 +11,7 @@ func (kb *KBucket) size() int {
 	return len(kb.Peers)
 }
 
+//Remove - Removes peer from this bucket at the specified index.
 func (kb *KBucket) Remove(index int) bool {
 
 	if index < 0 || index > len(kb.Peers) || len(kb.Peers) < 1 {
@@ -20,3 +21,5 @@ func (kb *KBucket) Remove(index int) bool {
 	kb.Peers = slices.Delete(kb.Peers, index, index+1)
 	return true
 }
+
+

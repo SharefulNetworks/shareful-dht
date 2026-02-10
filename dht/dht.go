@@ -288,6 +288,17 @@ func (n *Node) AddPeer(addr string, id types.NodeID) {
 }
 
 func (n *Node) DropPeer(id types.NodeID) bool {
+
+	//well need the peer address to close any active connections
+	//currently being held to it. OK will be false where no active connection exist to the peer.
+	peerAddr, ok := n.routingTable.GetAddr(id)
+	if ok {
+		//where an active connection DOES exist to the peer close it.
+		closeErr := n.transport.CloseConnection(peerAddr)
+		if closeErr != nil {
+			fmt.Printf("An error occurred whilst attempting to close active connection to the peer @: %s the error was %v", peerAddr, closeErr)
+		}
+	}
 	return n.routingTable.Remove(id)
 }
 

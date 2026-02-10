@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -113,6 +114,22 @@ func (t *TCPTransport) Close() error {
 		t.wg.Wait()
 	})
 	return nil
+}
+
+// CloseConnection - Closes the connection with the specified address where such
+//
+//	a connection exists. Returns TRUE where the connection exists
+//	and was successfully closed or FALSE otherwise.
+func (t *TCPTransport) CloseConnection(addr string) error {
+
+	v, ok := t.conns.Load(addr)
+	if ok {
+		pooledConn := v.(*pooledConn)
+		t.conns.Delete(addr)
+		return pooledConn.c.Close()
+	}
+	return fmt.Errorf("No connection found to be associated with address: %s", addr)
+
 }
 
 func (t *TCPTransport) getConn(address string) (*pooledConn, error) {

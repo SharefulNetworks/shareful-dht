@@ -6,6 +6,7 @@ type Transport interface {
 	Listen(addr string, handler MessageHandler) error
 	Send(to string, data []byte) error
 	Close() error
+	CloseConnection(addr string) error
 }
 
 // MessageHandler is the type definition for the callback
