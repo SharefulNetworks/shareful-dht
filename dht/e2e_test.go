@@ -384,7 +384,7 @@ func Test_Standard_Entry_Auto_Expiration(t *testing.T) {
 	}
 
 	//next we crucially close node 1 and thereby prevent it from refeshing its entries.
-	n1.Close()
+	n1.Shutdown()
 
 	//next we wait for a period longer that the ttl (10 seconds) to allow time for the closed nodes
 	//entries to expire.
@@ -455,7 +455,7 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 	//next close down node 2 and thereby prevent it from refreshing its index keys, which should ultimately cause
 	//them to expire.
 	time.Sleep(3000 * time.Millisecond)
-	n2.Close()
+	n2.Shutdown()
 
 	//next allow sufficient time for the TTL duration (15 seconds in this case) to elapse
 	time.Sleep(18 * time.Second)
@@ -1448,7 +1448,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 
 	//clean up
 	t.Cleanup(func() {
-		entryNode.Close()
+		entryNode.Shutdown()
 	})
 
 }
@@ -1616,7 +1616,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_One
 
 	//clean up
 	t.Cleanup(func() {
-		entryNode.Close()
+		entryNode.Shutdown()
 	})
 
 }
@@ -1787,8 +1787,8 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 
 	//clean up
 	t.Cleanup(func() {
-		entryNode.Close()
-		externalNode.Close()
+		entryNode.Shutdown()
+		externalNode.Shutdown()
 	})
 }
 
@@ -1961,8 +1961,8 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Two
 
 	//clean up
 	t.Cleanup(func() {
-		entryNode.Close()
-		externalNode.Close()
+		entryNode.Shutdown()
+		externalNode.Shutdown()
 	})
 }
 
@@ -2482,8 +2482,8 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_O
 
 	//clean up
 	t.Cleanup(func() {
-		entryNode1.Close()
-		entryNode2.Close()
+		entryNode1.Shutdown()
+		entryNode2.Shutdown()
 	})
 }
 
@@ -2696,8 +2696,8 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_One_
 
 	//clean up
 	t.Cleanup(func() {
-		entryNode1.Close()
-		entryNode2.Close()
+		entryNode1.Shutdown()
+		entryNode2.Shutdown()
 	})
 }
 
@@ -2950,10 +2950,10 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 
 	//clean up
 	t.Cleanup(func() {
-		entryNode1.Close()
-		entryNode2.Close()
-		externalNode1.Close()
-		externalNode2.Close()
+		entryNode1.Shutdown()
+		entryNode2.Shutdown()
+		externalNode1.Shutdown()
+		externalNode2.Shutdown()
 	})
 }
 
@@ -3212,10 +3212,10 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_Two_
 
 	//clean up
 	t.Cleanup(func() {
-		entryNode1.Close()
-		entryNode2.Close()
-		externalNode1.Close()
-		externalNode2.Close()
+		entryNode1.Shutdown()
+		entryNode2.Shutdown()
+		externalNode1.Shutdown()
+		externalNode2.Shutdown()
 	})
 }
 
@@ -3255,7 +3255,7 @@ func NewDefaultTestContext(t *testing.T) *TestContext {
 	//finally defer context cleanup
 	t.Cleanup(func() {
 		for _, n := range Nodes {
-			n.Close()
+			n.Shutdown()
 		}
 
 	})
@@ -3317,7 +3317,7 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, conf *config.Config
 	//finally defer context cleanup
 	t.Cleanup(func() {
 		for _, n := range Nodes {
-			n.Close()
+			n.Shutdown()
 		}
 
 	})
@@ -3399,12 +3399,12 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 
 		//next clean up bootstrap nodes
 		for _, n := range bootstrapNodes {
-			n.Close()
+			n.Shutdown()
 		}
 
 		//then clean up standard nodes
 		for _, n := range standardNodes {
-			n.Close()
+			n.Shutdown()
 		}
 
 	})

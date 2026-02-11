@@ -254,7 +254,7 @@ func (n *Node) Bootstrap(bootstrapAddrs []string, connectDelayMillis int) error 
 	return nil
 }
 
-func (n *Node) Close() {
+func (n *Node) Shutdown() {
 	n.closeOnce.Do(func() {
 		close(n.stop)
 		n.wg.Wait() // wait for janitor and refresher to finish

@@ -22,8 +22,8 @@ func main() {
 	//create two nodes
 	n1, _ := dht.NewNode("node1", ":9301", netx.NewTCP(), cfg, dht.NT_CORE)
 	n2, _ := dht.NewNode("node2", ":9302", netx.NewTCP(), cfg, dht.NT_CORE)
-	defer n1.Close()
-	defer n2.Close()
+	defer n1.Shutdown()
+	defer n2.Shutdown()
 
 	//for the purposes of this demo, manually add each pear to oneother as peers
 	//n1.AddPeer(n2.Addr, n2.ID)

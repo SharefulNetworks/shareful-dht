@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -29,10 +30,11 @@ type Outbound struct {
 	data []byte
 }
 
-type pooledConn struct {
-	c  net.Conn
-	w  *bufio.Writer
-	mu sync.Mutex
+type PooledConn struct {
+	c        net.Conn
+	w        *bufio.Writer
+	mu       sync.Mutex
+	lastUsed time.Time
 }
 
 const MaxMsgSize = 1 << 20 // 1MB safety guard; tune if needed
@@ -43,6 +45,7 @@ func NewTCP() *TCPTransport {
 		outQueue: make(chan *Outbound, 4096), // larger buffer helps tests
 	}
 	t.startOutboundProcessing()
+	t.startIdleConnChecker()
 	return t
 }
 
@@ -108,7 +111,7 @@ func (t *TCPTransport) Close() error {
 
 		// Close pooled outbound conns
 		t.conns.Range(func(_, v any) bool {
-			pc := v.(*pooledConn)
+			pc := v.(*PooledConn)
 			_ = pc.c.Close()
 			return true
 		})
@@ -127,7 +130,7 @@ func (t *TCPTransport) CloseConnection(addr string) error {
 
 	v, ok := t.conns.Load(addr)
 	if ok {
-		pooledConn := v.(*pooledConn)
+		pooledConn := v.(*PooledConn)
 		t.conns.Delete(addr)
 		return pooledConn.c.Close()
 	}
@@ -135,10 +138,14 @@ func (t *TCPTransport) CloseConnection(addr string) error {
 
 }
 
-func (t *TCPTransport) getConn(address string) (*pooledConn, error) {
+func (t *TCPTransport) getConn(address string) (*PooledConn, error) {
 	v, ok := t.conns.Load(address)
 	if ok {
-		return v.(*pooledConn), nil
+		pooledConn := v.(*PooledConn)
+		pooledConn.mu.Lock()
+		pooledConn.lastUsed = time.Now() //set last used to now, this will help us detect idle connections.
+		pooledConn.mu.Unlock()
+		return pooledConn, nil
 	}
 
 	c, err := net.Dial("tcp", address)
@@ -146,15 +153,21 @@ func (t *TCPTransport) getConn(address string) (*pooledConn, error) {
 		return nil, err
 	}
 
-	pc := &pooledConn{
-		c: c,
-		w: bufio.NewWriter(c),
+	pc := &PooledConn{
+		c:        c,
+		w:        bufio.NewWriter(c),
+		lastUsed: time.Now(),
 	}
 
 	actual, loaded := t.conns.LoadOrStore(address, pc)
 	if loaded {
+		//NOTE: We should *never* arrive here owing to the Load check above, however we
+		//      keep the check to account for the slim possibility of a pooled connection
+		//      being created AFTER the initial check. We simply close the newly created
+		//      connection if we *already* hold a connection to the specified address
 		_ = c.Close()
-		return actual.(*pooledConn), nil
+		//TODO: We may need to set lastUsed to now here as well, however we can monitor this in testing and add if we find that it is required.
+		return actual.(*PooledConn), nil
 	}
 
 	return pc, nil
@@ -242,10 +255,15 @@ func (t *TCPTransport) outQueueDispatcher() {
 	}
 }
 
+func (t *TCPTransport) startIdleConnChecker() {
+	go t.idleConnChecker()
+}
+
 func (t *TCPTransport) idleConnChecker() {
+	fmt.Printf("\nINFO:Starting idle connection checker, pooled connections will be checked for idleness every: %s minute(s)", config.GetDefaultSingletonInstance().PooledConnectionIdleCheckInterval)
 	t.wg.Add(1)
 	defer t.wg.Done()
-	timer := time.NewTicker(config.GetDefaultSingletonInstance().PooledConnectionIdleTimeout)
+	timer := time.NewTicker(config.GetDefaultSingletonInstance().PooledConnectionIdleCheckInterval)
 	defer timer.Stop()
 
 	for {
@@ -256,12 +274,58 @@ func (t *TCPTransport) idleConnChecker() {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						fmt.Println("Recovered from panic in refresher tick:", r)
+						log.Printf("panic in idleConnChecker: %v\n%s", r, debug.Stack())
 					}
 				}()
-				//n.refresh()
+				t.idleConnCheck()
 			}()
 
 		}
+	}
+}
+
+func (t *TCPTransport) idleConnCheck() {
+
+	idleConnKeys := make([]string, 0)
+	idleTimeout := config.GetDefaultSingletonInstance().PooledConnectionIdleTimeout
+	now := time.Now()
+
+	//find all idle connections and collect their keys for subsequent closure and removal from the pool.
+	t.conns.Range(func(key, value any) bool {
+		pooledConn := value.(*PooledConn)
+		pooledConn.mu.Lock()
+		idleDuration := now.Sub(pooledConn.lastUsed)
+		if idleDuration > idleTimeout {
+			idleConnKeys = append(idleConnKeys, key.(string))
+		}
+		pooledConn.mu.Unlock()
+		return true
+	})
+
+	//close and remove all idle connections (we identified from the immediately preceeding operations) from the pool.
+	connRemovalCount := 0
+	for _, key := range idleConnKeys {
+		v, ok := t.conns.Load(key)
+
+		if !ok {
+			fmt.Printf("WARNING:Unable to remove pooled connection associated with key %s the connection was not found.", key)
+			continue
+		}
+
+		pooledConn := v.(*PooledConn)
+		pooledConn.mu.Lock()
+		if now.Sub(pooledConn.lastUsed) > config.GetDefaultSingletonInstance().PooledConnectionIdleTimeout {
+			_ = pooledConn.c.Close()
+			pooledConn.mu.Unlock()
+			t.conns.Delete(key)
+			connRemovalCount++
+		} else {
+			pooledConn.mu.Unlock()
+			fmt.Printf("WARNING:Unable to remove pooled connection associated with key %s its last used time is too recent.", key)
+		}
+	}
+
+	if connRemovalCount > 0 {
+		fmt.Printf("INFO:Successfully removed: %d idle pooled connections out of possible: %d", connRemovalCount, len(idleConnKeys))
 	}
 }
