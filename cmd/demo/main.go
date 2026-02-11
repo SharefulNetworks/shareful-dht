@@ -12,7 +12,7 @@ import (
 func main() {
 
 	//setup config.
-	cfg := config.DefaultConfig()
+	cfg := config.GetDefaultSingletonInstance()
 	cfg.UseProtobuf = true // set true after generating pb
 	cfg.RequestTimeout = 1000 * time.Millisecond
 	cfg.DefaultEntryTTL = 30 * time.Second

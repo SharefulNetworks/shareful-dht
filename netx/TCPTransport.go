@@ -9,7 +9,9 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 
+	"github.com/SharefulNetworks/shareful-dht/config"
 )
 
 type TCPTransport struct {
@@ -240,11 +242,10 @@ func (t *TCPTransport) outQueueDispatcher() {
 	}
 }
 
-/*
-func  (t *TCPTransport) idleConnChecker() {
+func (t *TCPTransport) idleConnChecker() {
 	t.wg.Add(1)
 	defer t.wg.Done()
-	timer := time.NewTicker(config.Config.PooledConnectionIdleTimeout)
+	timer := time.NewTicker(config.GetDefaultSingletonInstance().PooledConnectionIdleTimeout)
 	defer timer.Stop()
 
 	for {
@@ -258,10 +259,9 @@ func  (t *TCPTransport) idleConnChecker() {
 						fmt.Println("Recovered from panic in refresher tick:", r)
 					}
 				}()
-				n.refresh()
+				//n.refresh()
 			}()
 
 		}
 	}
 }
-	*/

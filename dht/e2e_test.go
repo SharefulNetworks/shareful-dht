@@ -412,7 +412,7 @@ func Test_Standard_Entry_Auto_Expiration(t *testing.T) {
 func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 
 	//explicitly set a short TTL duration to allow us to validate the auto expiration of index entries.
-	cfg := config.DefaultConfig()
+	cfg := config.GetDefaultSingletonInstance()
 	cfg.UseProtobuf = true
 	cfg.RequestTimeout = 2000 * time.Millisecond
 	cfg.DefaultEntryTTL = 30 * time.Second
@@ -421,7 +421,7 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 	cfg.JanitorInterval = 10 * time.Second
 
 	//create new default test context
-	ctx := NewConfigurableTestContext(t, 3, &cfg, false)
+	ctx := NewConfigurableTestContext(t, 3, cfg, false)
 
 	//obtain nodes from the test context
 	n1 := ctx.Nodes[0]
@@ -1347,7 +1347,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	entryNode, _ := NewNode("entryNode", ":1981", netx.NewTCP(), *ctx.Config, NT_ENTRY)
+	entryNode, _ := NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                   //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1511,7 +1511,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_One
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	entryNode, _ := NewNode("entryNode", ":1981", netx.NewTCP(), *ctx.Config, NT_ENTRY)
+	entryNode, _ := NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                   //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1679,7 +1679,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	entryNode, _ := NewNode("entryNode", ":1981", netx.NewTCP(), *ctx.Config, NT_ENTRY)
+	entryNode, _ := NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                   //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1687,7 +1687,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//ENTRY node created in the immediately preceeding instructions, thereby setting up a single thread of
 	//of interconnectivity from the External node to the Entry node and finally to  the foothold bootstrap node
 	//which should in turn provide the External node with full network reachability.
-	externalNode, _ := NewNode("externalNode", ":1982", netx.NewTCP(), *ctx.Config, NT_EXTERNAL)
+	externalNode, _ := NewNode("externalNode", ":1982", netx.NewTCP(), ctx.Config, NT_EXTERNAL)
 	externalNode.Bootstrap([]string{entryNode.Addr}, 7000) //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -1850,7 +1850,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Two
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	entryNode, _ := NewNode("entryNode", ":1981", netx.NewTCP(), *ctx.Config, NT_ENTRY)
+	entryNode, _ := NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                   //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1858,7 +1858,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Two
 	//ENTRY node created in the immediately preceeding instructions, thereby setting up a single thread of
 	//of interconnectivity from the External node to the Entry node and finally to  the foothold bootstrap node
 	//which should in turn provide the External node with full network reachability.
-	externalNode, _ := NewNode("externalNode", ":1982", netx.NewTCP(), *ctx.Config, NT_EXTERNAL)
+	externalNode, _ := NewNode("externalNode", ":1982", netx.NewTCP(), ctx.Config, NT_EXTERNAL)
 	externalNode.Bootstrap([]string{entryNode.Addr}, 7000) //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -2335,10 +2335,10 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_O
 
 	//OK next we add two brand new (ENTRY) nodes to the network, however we only connect them to a SINGLE
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
-	entryNode1, _ := NewNode("entryNode1", ":1981", netx.NewTCP(), *ctx.Config, NT_ENTRY)
+	entryNode1, _ := NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
-	entryNode2, _ := NewNode("entryNode2", ":1982", netx.NewTCP(), *ctx.Config, NT_ENTRY)
+	entryNode2, _ := NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -2543,10 +2543,10 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_One_
 
 	//OK next we add two brand new (ENTRY) nodes to the network, however we only connect them to a SINGLE
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
-	entryNode1, _ := NewNode("entryNode1", ":1981", netx.NewTCP(), *ctx.Config, NT_ENTRY)
+	entryNode1, _ := NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
-	entryNode2, _ := NewNode("entryNode2", ":1982", netx.NewTCP(), *ctx.Config, NT_ENTRY)
+	entryNode2, _ := NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -2757,17 +2757,17 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 
 	//OK next we add two brand new (ENTRY) nodes to the network, however we only connect them to a SINGLE
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
-	entryNode1, _ := NewNode("entryNode1", ":1981", netx.NewTCP(), *ctx.Config, NT_ENTRY)
+	entryNode1, _ := NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
-	entryNode2, _ := NewNode("entryNode2", ":1982", netx.NewTCP(), *ctx.Config, NT_ENTRY)
+	entryNode2, _ := NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//finally add our EXTERNAL nodes which will bootstrap via the ENTRY nodes created above.
-	externalNode1, _ := NewNode("externalNode1", ":1983", netx.NewTCP(), *ctx.Config, NT_EXTERNAL)
+	externalNode1, _ := NewNode("externalNode1", ":1983", netx.NewTCP(), ctx.Config, NT_EXTERNAL)
 	externalNode1.Bootstrap([]string{entryNode1.Addr}, 7000)
-	externalNode2, _ := NewNode("externalNode2", ":1984", netx.NewTCP(), *ctx.Config, NT_EXTERNAL)
+	externalNode2, _ := NewNode("externalNode2", ":1984", netx.NewTCP(), ctx.Config, NT_EXTERNAL)
 	externalNode2.Bootstrap([]string{entryNode2.Addr}, 7000)
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -3013,17 +3013,17 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_Two_
 
 	//OK next we add two brand new (ENTRY) nodes to the network, however we only connect them to a SINGLE
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
-	entryNode1, _ := NewNode("entryNode1", ":1981", netx.NewTCP(), *ctx.Config, NT_ENTRY)
+	entryNode1, _ := NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
-	entryNode2, _ := NewNode("entryNode2", ":1982", netx.NewTCP(), *ctx.Config, NT_ENTRY)
+	entryNode2, _ := NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//finally add our EXTERNAL nodes which will bootstrap via the ENTRY nodes created above.
-	externalNode1, _ := NewNode("externalNode1", ":1983", netx.NewTCP(), *ctx.Config, NT_EXTERNAL)
+	externalNode1, _ := NewNode("externalNode1", ":1983", netx.NewTCP(), ctx.Config, NT_EXTERNAL)
 	externalNode1.Bootstrap([]string{entryNode1.Addr}, 7000)
-	externalNode2, _ := NewNode("externalNode2", ":1984", netx.NewTCP(), *ctx.Config, NT_EXTERNAL)
+	externalNode2, _ := NewNode("externalNode2", ":1984", netx.NewTCP(), ctx.Config, NT_EXTERNAL)
 	externalNode2.Bootstrap([]string{entryNode2.Addr}, 7000)
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -3235,7 +3235,7 @@ func NewDefaultTestContext(t *testing.T) *TestContext {
 	t.Helper()
 
 	//prepare config.
-	cfg := config.DefaultConfig()
+	cfg := config.GetDefaultSingletonInstance()
 	cfg.UseProtobuf = true // set true after generating pb
 	cfg.RequestTimeout = 2000 * time.Millisecond
 	cfg.DefaultEntryTTL = 30 * time.Second
@@ -3262,7 +3262,7 @@ func NewDefaultTestContext(t *testing.T) *TestContext {
 
 	//return the context.
 	return &TestContext{
-		Config: &cfg,
+		Config: cfg,
 		Nodes:  Nodes,
 	}
 }
@@ -3273,8 +3273,7 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, conf *config.Config
 	var cfg *config.Config
 	if conf == nil {
 		//prepare default config if a config has not been provided
-		cf := config.DefaultConfig()	
-		cfg = &cf
+		cfg = config.GetDefaultSingletonInstance()
 		cfg.UseProtobuf = true
 		cfg.RequestTimeout = 2000 * time.Millisecond
 		cfg.DefaultEntryTTL = 30 * time.Second
@@ -3293,7 +3292,7 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, conf *config.Config
 		nodeIP := startingIP + 1
 		nodeNameStr := "node" + strconv.Itoa(i+1)
 		nodeIpStr := strconv.Itoa(nodeIP)
-		node, _ := NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), *cfg, NT_CORE)
+		node, _ := NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), cfg, NT_CORE)
 		Nodes = append(Nodes, node)
 	}
 
@@ -3344,8 +3343,7 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 	var cfg *config.Config
 	if conf == nil {
 		//prepare default config if a config has not been provided
-		cf := config.DefaultConfig()
-		cfg = &cf
+		cfg = config.GetDefaultSingletonInstance()
 		cfg.UseProtobuf = true
 		cfg.RequestTimeout = 2000 * time.Millisecond
 		cfg.DefaultEntryTTL = 30 * time.Second
@@ -3364,7 +3362,7 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 	//first create and bootstrap the core network (bootstrap) nodes.
 	bootstrapNodes := make([]*Node, 0)
 	for i, addr := range bootstrapAddresses {
-		bootstrapNode, instantiationErr := NewNode("bootstrapNode"+strconv.Itoa(i), addr, netx.NewTCP(), *cfg, NT_CORE)
+		bootstrapNode, instantiationErr := NewNode("bootstrapNode"+strconv.Itoa(i), addr, netx.NewTCP(), cfg, NT_CORE)
 		if instantiationErr != nil {
 			t.Fatalf("Failed to create bootstrap node %d at address %s: %v", i+1, addr, instantiationErr)
 		}
@@ -3381,7 +3379,7 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 		nodeIP := startingIP + 1
 		nodeNameStr := "node" + strconv.Itoa(i+1)
 		nodeIpStr := strconv.Itoa(nodeIP)
-		node, instantiationErr := NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), *cfg, NT_EXTERNAL)
+		node, instantiationErr := NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), cfg, NT_EXTERNAL)
 		if instantiationErr != nil {
 			t.Fatalf("Failed to create standard node %d at address %s: %v", i+1, ":"+nodeIpStr, instantiationErr)
 		}

@@ -24,6 +24,27 @@ type Config struct {
 	PooledConnectionIdleTimeout    time.Duration //the duration after which idle connections is removed from the transport internal connection pool and duly closed. This is useful to prevent resource exhaustion in scenarios where the network is large and/or highly dynamic resulting in a large number of potential peer connections over time.
 }
 
-func DefaultConfig() Config {
-	return Config{K: 20, Alpha: 3, DefaultEntryTTL: 10 * time.Minute, DefaultIndexEntryTTL: 10 * time.Minute, RefreshInterval: 2 * time.Minute, JanitorInterval: time.Minute, UseProtobuf: true, RequestTimeout: 1500 * time.Millisecond, BatchRequestTimeout: 4500 * time.Millisecond, OutboundQueueWorkerCount: 4, ReplicationFactor: 3, EnableAuthorativeStorage: false, MaxLocalEntryRefreshCount: 50, MaxLocalIndexEntryRefreshCount: 50, BootstrapConnectDelayMillis: 20000, PooledConnectionIdleTimeout: 5 * time.Minute}
+var singletonConfig *Config
+
+func GetDefaultSingletonInstance() *Config {
+	if singletonConfig == nil {
+		singletonConfig = &Config{
+			K:                              20,
+			Alpha:                          3,
+			DefaultEntryTTL:                10 * time.Minute,
+			DefaultIndexEntryTTL:           10 * time.Minute,
+			RefreshInterval:                2 * time.Minute,
+			JanitorInterval:                time.Minute,
+			UseProtobuf:                    true,
+			RequestTimeout:                 1500 * time.Millisecond,
+			BatchRequestTimeout:            4500 * time.Millisecond,
+			OutboundQueueWorkerCount:       4,
+			ReplicationFactor:              3,
+			EnableAuthorativeStorage:       false,
+			MaxLocalEntryRefreshCount:      50,
+			MaxLocalIndexEntryRefreshCount: 50,
+			BootstrapConnectDelayMillis:    20000,
+			PooledConnectionIdleTimeout:    5 * time.Minute}
+	}
+	return singletonConfig
 }

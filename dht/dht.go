@@ -163,7 +163,7 @@ type Node struct {
 	ID           types.NodeID
 	Addr         string
 	transport    netx.Transport
-	cfg          config.Config
+	cfg          *config.Config
 	nodeType     int
 	cd           wire.Codec
 	mu           sync.RWMutex
@@ -177,7 +177,7 @@ type Node struct {
 	closeOnce    sync.Once
 }
 
-func NewNode(id string, addr string, transport netx.Transport, cfg config.Config, nodeType int) (*Node, error) {
+func NewNode(id string, addr string, transport netx.Transport, cfg *config.Config, nodeType int) (*Node, error) {
 	var codec wire.Codec
 	codec = wire.JSONCodec{}
 	if cfg.UseProtobuf {
