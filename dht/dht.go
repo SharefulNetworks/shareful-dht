@@ -46,97 +46,6 @@ const (
 	NT_EXTERNAL = 3
 )
 
-func NewRandomID() types.NodeID {
-	var id types.NodeID
-	var randomData [32]byte
-	io.ReadFull(rand.Reader, randomData[:])
-	sum := sha1.Sum(randomData[:])
-	copy(id[:], sum[:])
-	return id
-}
-
-func HashKey(k string) types.NodeID {
-	s := sha1.Sum([]byte(k))
-	var id types.NodeID
-	copy(id[:], s[:])
-	return id
-}
-
-func ParseNodeID(s string) (types.NodeID, error) {
-	var id types.NodeID
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		return id, err
-	}
-	if len(b) != types.IDBytes {
-		return id, fmt.Errorf("invalid node id length: %d", len(b))
-	}
-	copy(id[:], b[:types.IDBytes])
-	return id, nil
-}
-
-func xor(a, b types.NodeID) (o types.NodeID) {
-	for i := 0; i < types.IDBytes; i++ {
-		o[i] = a[i] ^ b[i]
-	}
-	return
-}
-func CompareDistance(a, b, t types.NodeID) int {
-	da := xor(a, t)
-	db := xor(b, t)
-	for i := 0; i < types.IDBytes; i++ {
-		if da[i] < db[i] {
-			return -1
-		}
-		if da[i] > db[i] {
-			return 1
-		}
-	}
-	return 0
-}
-
-func CollectErrors(errs []error) error {
-	if len(errs) == 0 {
-		return nil
-	}
-	var sb strings.Builder
-	for i, err := range errs {
-		sb.WriteString(err.Error())
-		if i < len(errs)-1 {
-			sb.WriteString("\n") // Add a newline after each error except the last one
-		}
-	}
-	return errors.New(sb.String())
-}
-
-func pickEvenDistribution(all []int, k int) []int {
-	n := len(all)
-
-	//if either the collection or the the number of nodes to select is less than or equal to zero, return nil
-	if k <= 0 || n == 0 {
-		return nil
-	}
-
-	//if the number of nodes to select is greater than or equal to the total number of available nodes, return all nodes
-	if k >= n {
-		out := make([]int, n)
-		copy(out, all)
-		return out
-	}
-
-	//otherwise set output array capacity equal to the number of requested nodes, K
-	out := make([]int, 0, k)
-
-	for i := 0; i < k; i++ {
-		idx := int((float64(i) + 0.5) * float64(n) / float64(k))
-		if idx >= n {
-			idx = n - 1
-		}
-		out = append(out, all[idx])
-	}
-	return out
-}
-
 type IndexEntry struct {
 	Source            string       `json:"source"`
 	Target            string       `json:"target"`
@@ -159,6 +68,10 @@ type record struct {
 	mu                sync.RWMutex
 }
 
+// Node - represents a single DHT node instance. It maintains the node's unique ID and address,
+// a reference to a Transport implemention that, in turn, handles low-level comms between this
+// node and the wider network, a real-time routing table of known peers, and various collections,
+// channels and synchronization primitives for managing networking,background and lifecycle tasks.
 type Node struct {
 	ID           types.NodeID
 	Addr         string
@@ -177,6 +90,12 @@ type Node struct {
 	closeOnce    sync.Once
 }
 
+// NewNode - creates and initializes a new DHT node instance.
+// It takes as input a string ID, a string address, a transport implementation,
+// a config struct and an integer node type. It returns a pointer to the
+// newly created Node instance or non nil error object, where an error occurred
+// during the creation process. The new node will immediately begin listening for
+// incoming messages and will spin up various background network maintanence tasks.
 func NewNode(id string, addr string, transport netx.Transport, cfg *config.Config, nodeType int) (*Node, error) {
 	var codec wire.Codec
 	codec = wire.JSONCodec{}
@@ -215,6 +134,9 @@ func NewNode(id string, addr string, transport netx.Transport, cfg *config.Confi
 	return n, nil
 }
 
+// -----------------------------------------------------------------------------
+// Core DHT public interface methods.
+// -----------------------------------------------------------------------------
 func (n *Node) Bootstrap(bootstrapAddrs []string, connectDelayMillis int) error {
 
 	if len(bootstrapAddrs) == 0 {
@@ -280,164 +202,6 @@ func (n *Node) DropPeer(id types.NodeID) bool {
 	}
 	return n.routingTable.Remove(id)
 }
-
-func (n *Node) lookupAddrForId(id types.NodeID) (string, error) {
-	if id == n.ID {
-		return n.Addr, nil
-	}
-	if addr, ok := n.routingTable.GetAddr(id); ok {
-		return addr, nil
-	}
-	return "", fmt.Errorf("unknown peer ID: %s", id.String())
-}
-
-func (n *Node) nearestK(key string) []string {
-	t := HashKey(key)
-	closest := n.routingTable.Closest(t, n.cfg.K)
-
-	addrs := make([]string, 0, len(closest)+1)
-
-	// include self as candidate
-	addrs = append(addrs, n.Addr)
-
-	for _, c := range closest {
-		if c.ID == n.ID {
-			continue
-		}
-		addrs = append(addrs, c.Addr)
-	}
-
-	// clamp to K
-	if len(addrs) > n.cfg.K {
-		addrs = addrs[:n.cfg.K]
-	}
-	return addrs
-}
-
-func (n *Node) nearestKByID(target types.NodeID) []*routing.Peer {
-	closest := n.routingTable.Closest(target, n.cfg.K)
-
-	out := make([]*routing.Peer, 0, len(closest))
-	for _, p := range closest {
-		if p == nil || p.Addr == "" || p.ID == n.ID {
-			continue
-		}
-		out = append(out, p)
-		if len(out) == n.cfg.K {
-			break
-		}
-	}
-	return out
-}
-
-func (n *Node) nextReqID() uint64 {
-	return atomic.AddUint64(&n.reqSeq, 1)
-}
-
-// -----------------------------------------------------------------------------
-// Central encoding helpers
-// -----------------------------------------------------------------------------
-
-func (n *Node) encode(v any) ([]byte, error) {
-	if n.cfg.UseProtobuf {
-		msg, ok := v.(proto.Message)
-		if !ok {
-			return nil, fmt.Errorf("expected proto.Message when UseProtobuf enabled: %T", v)
-		}
-		return proto.Marshal(msg)
-	}
-	return json.Marshal(v)
-}
-
-func (n *Node) decode(b []byte, v any) error {
-	if n.cfg.UseProtobuf {
-		msg, ok := v.(proto.Message)
-		if !ok {
-			return fmt.Errorf("expected proto.Message when UseProtobuf enabled: %T", v)
-		}
-		return proto.Unmarshal(b, msg)
-	}
-	return json.Unmarshal(b, v)
-}
-
-// makeMessage returns an empty request/response pair appropriate for the op and codec.
-func (n *Node) makeMessage(op int) (req any, resp any) {
-	if n.cfg.UseProtobuf {
-		switch op {
-		case OP_STORE:
-			return &dhtpb.StoreRequest{}, &dhtpb.StoreResponse{}
-		case OP_FIND:
-			return &dhtpb.FindRequest{}, &dhtpb.FindResponse{}
-		case OP_STORE_INDEX:
-			return &dhtpb.StoreIndexRequest{}, &dhtpb.StoreIndexResponse{}
-		case OP_FIND_INDEX:
-			return &dhtpb.FindIndexRequest{}, &dhtpb.FindIndexResponse{}
-			//case OP_PING:
-			//		panic("Ping Messages are currently ")
-		case OP_CONNECT:
-			return &dhtpb.ConnectRequest{}, &dhtpb.ConnectResponse{}
-		case OP_DELETE_INDEX:
-			return &dhtpb.DeleteIndexRequest{}, &dhtpb.DeleteIndexResponse{}
-		case OP_FIND_NODE:
-			return &dhtpb.FindNodeRequest{}, &dhtpb.FindNodeResponse{}
-		case OP_FIND_VALUE:
-			return &dhtpb.FindValueRequest{}, &dhtpb.FindValueResponse{}
-
-		default:
-			return nil, nil
-		}
-	}
-
-	// JSON fallback shapes
-	switch op {
-	case OP_STORE:
-		return &struct {
-				Key      string   `json:"key"`
-				Value    []byte   `json:"value"`
-				TTLms    int64    `json:"ttl_ms"`
-				Replicas []string `json:"replicas"`
-			}{}, &struct {
-				Ok  bool   `json:"ok"`
-				Err string `json:"err"`
-			}{}
-	case OP_FIND:
-		return &struct {
-				Key string `json:"key"`
-			}{}, &struct {
-				Ok    bool   `json:"ok"`
-				Value []byte `json:"value"`
-				Err   string `json:"err"`
-			}{}
-	case OP_STORE_INDEX:
-		return &struct {
-				Key      string     `json:"key"`
-				Entry    IndexEntry `json:"entry"`
-				TTLms    int64      `json:"ttl_ms"`
-				Replicas []string   `json:"replicas"`
-			}{}, &struct {
-				Ok  bool   `json:"ok"`
-				Err string `json:"err"`
-			}{}
-	case OP_FIND_INDEX:
-		return &struct {
-				Key string `json:"key"`
-			}{}, &struct {
-				Ok      bool         `json:"ok"`
-				Entries []IndexEntry `json:"entries"`
-				Err     string       `json:"err"`
-			}{}
-	case OP_PING:
-		return &struct{}{}, &struct {
-			Ok bool `json:"ok"`
-		}{}
-	}
-
-	return nil, nil
-}
-
-// -----------------------------------------------------------------------------
-// Core DHT operations
-// -----------------------------------------------------------------------------
 
 // Connect sends an OP_CONNECT request to the given address, asking that
 // remote node to register this node (ID + Addr) in its peer table.
@@ -597,314 +361,6 @@ func (n *Node) DataStoreLength() int {
 	defer n.mu.RUnlock()
 	return len(n.dataStore)
 }
-
-func (n *Node) OldFind(key string) ([]byte, bool) {
-
-	//holds our collection of replica addresses
-	var reps []string
-
-	//look up k nearest nodes over network, only fall back to localised search
-	//in the event of an error.
-	peers, err := n.lookupK(HashKey(key))
-	if err != nil {
-		fmt.Printf("An error occurred whilst attemptiing to lookup nearest nodes over the network, falling back to local search. the error was: %v", err)
-		reps = n.nearestK(key)
-	} else {
-		reps = n.peersToAddrs(peers)
-	}
-
-	fmt.Println("[[[[[[[Returned NEAREST XOR DISTANCE FROM KEY]]]]]]]]]]]")
-	for i, peer := range peers {
-		fmt.Println()
-		fmt.Printf("nearest peer no: %d is XOR distance: %d from key.", i, n.routingTable.XORDistanceRank(peer.ID, HashKey(key)))
-		fmt.Println()
-		if i >= 3 {
-			break
-		}
-	}
-
-	fmt.Println()
-	fmt.Println("[[[[[[[ALL DISTANCE FROM KEY]]]]]]]]]]]")
-	for i, peer := range n.ListPeers() {
-		fmt.Println()
-		fmt.Printf("peer no: %d is XOR distance: %d from key.", i, n.routingTable.XORDistanceRank(peer.ID, HashKey(key)))
-		fmt.Println()
-
-	}
-
-	//clamp replicas to the replication factor defined in the prevailing config
-	reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
-	if v, ok := n.FindLocal(key); ok {
-		return v, true
-	}
-
-	//channel to collate responses from concurrent find requests
-	ch := make(chan struct {
-		v  []byte
-		ok bool
-	}, len(reps))
-	for _, a := range reps {
-		if a == n.Addr {
-			continue
-		}
-		go func(addr string) {
-			reqAny, _ := n.makeMessage(OP_FIND)
-			switch r := reqAny.(type) {
-			case *dhtpb.FindRequest:
-				r.Key = key
-			case *struct {
-				Key string `json:"key"`
-			}:
-				r.Key = key
-			}
-
-			b, err := n.sendRequest(addr, OP_FIND, reqAny)
-			fmt.Println(err)
-			if err != nil {
-				ch <- struct {
-					v  []byte
-					ok bool
-				}{nil, false}
-				return
-			}
-			_, respAny := n.makeMessage(OP_FIND)
-			if err := n.decode(b, respAny); err != nil {
-				ch <- struct {
-					v  []byte
-					ok bool
-				}{nil, false}
-				return
-			}
-
-			switch resp := respAny.(type) {
-			case *dhtpb.FindResponse:
-				if resp.Ok {
-					ch <- struct {
-						v  []byte
-						ok bool
-					}{resp.Value, true}
-					return
-				}
-			case *struct {
-				Ok    bool   `json:"ok"`
-				Value []byte `json:"value"`
-				Err   string `json:"err"`
-			}:
-				if resp.Ok {
-					ch <- struct {
-						v  []byte
-						ok bool
-					}{resp.Value, true}
-					return
-				}
-			}
-			ch <- struct {
-				v  []byte
-				ok bool
-			}{nil, false}
-		}(a)
-	}
-	deadline := time.After(n.cfg.RequestTimeout)
-	//for i := 0; i < len(reps)-1; i++ {
-	for i := 0; i < len(reps); i++ {
-		select {
-		case r := <-ch:
-			if r.ok {
-				return r.v, true
-			}
-		case <-deadline:
-			return nil, false
-		}
-	}
-	return nil, false
-}
-
-/*
-func (n *Node) Find(key string) ([]byte, bool) {
-	// 0) local fast-path
-	if v, ok := n.FindLocal(key); ok {
-		return v, true
-	}
-
-	target := HashKey(key)
-	K := n.cfg.K
-	alpha := n.cfg.Alpha
-	timeout := n.cfg.BatchRequestTimeout
-
-	shortlist := n.nearestKByID(target)
-	seen := make(map[types.NodeID]*routing.Peer, len(shortlist))
-	queried := make(map[types.NodeID]bool, len(shortlist))
-
-	for _, p := range shortlist {
-		if p == nil || p.Addr == "" || p.ID == n.ID {
-			continue
-		}
-		seen[p.ID] = p
-	}
-
-	rebuild := func() []*routing.Peer {
-		all := make([]*routing.Peer, 0, len(seen))
-		for _, p := range seen {
-			all = append(all, p)
-		}
-		sort.Slice(all, func(i, j int) bool {
-			return CompareDistance(all[i].ID, all[j].ID, target) < 0
-		})
-		if len(all) > K {
-			all = all[:K]
-		}
-		return all
-	}
-
-	//compares the two provided snapshots arrays to determine if they are identical
-	sameShortList := func(a, b []*routing.Peer) bool {
-		if len(a) != len(b) {
-			return false
-		}
-		for i := range a {
-			if a[i] == nil || b[i] == nil {
-				if a[i] != b[i] {
-					return false
-				}
-				continue
-			}
-			if a[i].ID != b[i].ID {
-				return false
-			}
-		}
-		return true
-	}
-
-	shortlist = rebuild()
-
-	for {
-		// pick α closest unqueried
-		batch := make([]*routing.Peer, 0, alpha)
-		for _, p := range shortlist {
-			if p == nil || p.ID == n.ID {
-				continue
-			}
-			if !queried[p.ID] {
-				queried[p.ID] = true
-				batch = append(batch, p)
-				if len(batch) == alpha {
-					break
-				}
-			}
-		}
-		if len(batch) == 0 {
-			break
-		}
-
-		type res struct {
-			value []byte
-			ok    bool
-			peers []*routing.Peer
-			err   error
-			from  *routing.Peer
-		}
-		ch := make(chan res, len(batch))
-
-		for _, p := range batch {
-			go func(peer *routing.Peer) {
-				req := &dhtpb.FindValueRequest{Key: key}
-
-				b, err := n.sendRequest(peer.Addr, OP_FIND_VALUE, req)
-				if err != nil {
-					ch <- res{err: err, from: peer}
-					return
-				}
-
-				resp := &dhtpb.FindValueResponse{}
-				if err := n.decode(b, resp); err != nil {
-					ch <- res{err: err, from: peer}
-					return
-				}
-
-				if resp.Ok {
-					ch <- res{ok: true, value: resp.Value, from: peer}
-					return
-				}
-
-				out := make([]*routing.Peer, 0, len(resp.Peers))
-				for _, rp := range resp.Peers {
-					if rp == nil || rp.Addr == "" || len(rp.NodeId) != len(target) {
-						continue
-					}
-					var id types.NodeID
-					copy(id[:], rp.NodeId)
-					if id == n.ID {
-						continue
-					}
-					out = append(out, &routing.Peer{ID: id, Addr: rp.Addr})
-				}
-				ch <- res{ok: false, peers: out, from: peer}
-			}(p)
-		}
-
-		timer := time.NewTimer(timeout)
-		responded := 0
-
-		for responded < len(batch) {
-			select {
-			case r := <-ch:
-				responded++
-
-				// always learn responders + their contacts
-				if r.from != nil {
-					n.routingTable.Update(r.from.ID, r.from.Addr)
-				}
-
-				if r.ok {
-					// OPTIONAL: cache value at closest node you queried that didn’t have it
-					// (classic Kademlia: store at the closest node seen that didn’t return it)
-					timer.Stop()
-					return r.value, true
-				}
-
-				for _, np := range r.peers {
-					if np == nil || np.Addr == "" || np.ID == n.ID {
-						continue
-					}
-					n.routingTable.Update(np.ID, np.Addr)
-					if _, ok := seen[np.ID]; !ok {
-						seen[np.ID] = np
-					}
-				}
-
-			case <-timer.C:
-				responded = len(batch)
-			}
-		}
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-
-		// rebuild shortlist
-		old := shortlist
-		shortlist = rebuild()
-
-		// termination: if shortlist didn’t change and nothing left to query, stop
-		if sameShortList(old, shortlist) {
-			done := true
-			for _, p := range shortlist {
-				if p != nil && !queried[p.ID] {
-					done = false
-					break
-				}
-			}
-			if done {
-				break
-			}
-		}
-	}
-
-	return nil, false
-}
-*/
 
 func (n *Node) Find(key string) ([]byte, bool) {
 	// 0) local fast-path
@@ -1258,100 +714,6 @@ func (n *Node) FindIndexLocal(key string) ([]IndexEntry, bool) {
 	return entries, true
 }
 
-/*
-func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
-	reps := n.nearestK(key)
-	if ents, ok := n.FindIndexLocal(key); ok {
-		return ents, true
-	}
-	type res struct {
-		ents []IndexEntry
-		ok   bool
-	}
-	ch := make(chan res, len(reps))
-	for _, a := range reps {
-		if a == n.Addr {
-			continue
-		}
-		go func(addr string) {
-			reqAny, _ := n.makeMessage(OP_FIND_INDEX)
-			switch r := reqAny.(type) {
-			case *dhtpb.FindIndexRequest:
-				r.Key = key
-			case *struct {
-				Key string `json:"key"`
-			}:
-				r.Key = key
-			}
-
-			b, err := n.sendRequest(addr, OP_FIND_INDEX, reqAny)
-			fmt.Println(err)
-			if err != nil {
-				ch <- res{nil, false}
-				return
-			}
-			_, respAny := n.makeMessage(OP_FIND_INDEX)
-			if err := n.decode(b, respAny); err != nil {
-				ch <- res{nil, false}
-				return
-			}
-
-			switch resp := respAny.(type) {
-			case *dhtpb.FindIndexResponse:
-				if resp.Ok {
-					out := make([]IndexEntry, 0, len(resp.Entries))
-					for _, ie := range resp.Entries {
-						e := IndexEntry{
-							Source:      ie.Source,
-							Target:      ie.Target,
-							Meta:        ie.Meta,
-							UpdatedUnix: ie.UpdatedUnix,
-							TTL:         ie.Ttl,
-						}
-						copy(e.Publisher[:], ie.PublisherId[:])
-						out = append(out, e)
-					}
-					ch <- res{out, true}
-					return
-				}
-			case *struct {
-				Ok      bool         `json:"ok"`
-				Entries []IndexEntry `json:"entries"`
-				Err     string       `json:"err"`
-			}:
-				if resp.Ok {
-					ch <- res{resp.Entries, true}
-					return
-				}
-			}
-			ch <- res{nil, false}
-		}(a)
-	}
-	merged := map[string]IndexEntry{}
-	deadline := time.After(n.cfg.RequestTimeout)
-	for i := 0; i < len(reps)-1; i++ {
-		select {
-		case r := <-ch:
-			if r.ok {
-				for _, e := range r.ents {
-					merged[e.Source+"\x1f"+e.Target] = e
-				}
-			}
-		case <-deadline:
-			break
-		}
-	}
-	if len(merged) == 0 {
-		return nil, false
-	}
-	out := make([]IndexEntry, 0, len(merged))
-	for _, e := range merged {
-		out = append(out, e)
-	}
-	return out, true
-}
-*/
-
 func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 	// 0) local fast-path
 	if ents, ok := n.FindIndexLocal(key); ok {
@@ -1630,7 +992,7 @@ func (n *Node) PeerCount() int {
 }
 
 // -----------------------------------------------------------------------------
-// Incoming Message Handler (uses makeMessage + encode/decode)
+// DHT Incoming Message Handler (uses makeMessage + encode/decode)
 // -----------------------------------------------------------------------------
 
 func (n *Node) onMessage(from string, data []byte) {
@@ -2034,6 +1396,9 @@ func (n *Node) onMessage(from string, data []byte) {
 
 }
 
+// -----------------------------------------------------------------------------
+// DHT private helper/utility methods.
+// -----------------------------------------------------------------------------
 func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
 
 	//set core lookup parameters from config.
@@ -2235,6 +1600,146 @@ func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
 	}
 
 	return shortlist, nil
+}
+
+func (n *Node) nearestK(key string) []string {
+	t := HashKey(key)
+	closest := n.routingTable.Closest(t, n.cfg.K)
+
+	addrs := make([]string, 0, len(closest)+1)
+
+	// include self as candidate
+	addrs = append(addrs, n.Addr)
+
+	for _, c := range closest {
+		if c.ID == n.ID {
+			continue
+		}
+		addrs = append(addrs, c.Addr)
+	}
+
+	// clamp to K
+	if len(addrs) > n.cfg.K {
+		addrs = addrs[:n.cfg.K]
+	}
+	return addrs
+}
+
+func (n *Node) nearestKByID(target types.NodeID) []*routing.Peer {
+	closest := n.routingTable.Closest(target, n.cfg.K)
+
+	out := make([]*routing.Peer, 0, len(closest))
+	for _, p := range closest {
+		if p == nil || p.Addr == "" || p.ID == n.ID {
+			continue
+		}
+		out = append(out, p)
+		if len(out) == n.cfg.K {
+			break
+		}
+	}
+	return out
+}
+
+func (n *Node) nextReqID() uint64 {
+	return atomic.AddUint64(&n.reqSeq, 1)
+}
+
+func (n *Node) encode(v any) ([]byte, error) {
+	if n.cfg.UseProtobuf {
+		msg, ok := v.(proto.Message)
+		if !ok {
+			return nil, fmt.Errorf("expected proto.Message when UseProtobuf enabled: %T", v)
+		}
+		return proto.Marshal(msg)
+	}
+	return json.Marshal(v)
+}
+
+func (n *Node) decode(b []byte, v any) error {
+	if n.cfg.UseProtobuf {
+		msg, ok := v.(proto.Message)
+		if !ok {
+			return fmt.Errorf("expected proto.Message when UseProtobuf enabled: %T", v)
+		}
+		return proto.Unmarshal(b, msg)
+	}
+	return json.Unmarshal(b, v)
+}
+
+// makeMessage returns an empty request/response pair appropriate for the op and codec.
+func (n *Node) makeMessage(op int) (req any, resp any) {
+	if n.cfg.UseProtobuf {
+		switch op {
+		case OP_STORE:
+			return &dhtpb.StoreRequest{}, &dhtpb.StoreResponse{}
+		case OP_FIND:
+			return &dhtpb.FindRequest{}, &dhtpb.FindResponse{}
+		case OP_STORE_INDEX:
+			return &dhtpb.StoreIndexRequest{}, &dhtpb.StoreIndexResponse{}
+		case OP_FIND_INDEX:
+			return &dhtpb.FindIndexRequest{}, &dhtpb.FindIndexResponse{}
+			//case OP_PING:
+			//		panic("Ping Messages are currently ")
+		case OP_CONNECT:
+			return &dhtpb.ConnectRequest{}, &dhtpb.ConnectResponse{}
+		case OP_DELETE_INDEX:
+			return &dhtpb.DeleteIndexRequest{}, &dhtpb.DeleteIndexResponse{}
+		case OP_FIND_NODE:
+			return &dhtpb.FindNodeRequest{}, &dhtpb.FindNodeResponse{}
+		case OP_FIND_VALUE:
+			return &dhtpb.FindValueRequest{}, &dhtpb.FindValueResponse{}
+
+		default:
+			return nil, nil
+		}
+	}
+
+	// JSON fallback shapes
+	switch op {
+	case OP_STORE:
+		return &struct {
+				Key      string   `json:"key"`
+				Value    []byte   `json:"value"`
+				TTLms    int64    `json:"ttl_ms"`
+				Replicas []string `json:"replicas"`
+			}{}, &struct {
+				Ok  bool   `json:"ok"`
+				Err string `json:"err"`
+			}{}
+	case OP_FIND:
+		return &struct {
+				Key string `json:"key"`
+			}{}, &struct {
+				Ok    bool   `json:"ok"`
+				Value []byte `json:"value"`
+				Err   string `json:"err"`
+			}{}
+	case OP_STORE_INDEX:
+		return &struct {
+				Key      string     `json:"key"`
+				Entry    IndexEntry `json:"entry"`
+				TTLms    int64      `json:"ttl_ms"`
+				Replicas []string   `json:"replicas"`
+			}{}, &struct {
+				Ok  bool   `json:"ok"`
+				Err string `json:"err"`
+			}{}
+	case OP_FIND_INDEX:
+		return &struct {
+				Key string `json:"key"`
+			}{}, &struct {
+				Ok      bool         `json:"ok"`
+				Entries []IndexEntry `json:"entries"`
+				Err     string       `json:"err"`
+			}{}
+	case OP_PING:
+		return &struct{}{}, &struct {
+			Ok bool `json:"ok"`
+		}{}
+	}
+
+	return nil, nil
 }
 
 func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
@@ -2580,4 +2085,70 @@ func (n *Node) refresh() {
 			//fmt.Println("SUCCESSFULLY REFRESHED ENTRY KEY: "+k+" Refresh Count: ", n.refreshCount)
 		}
 	}
+}
+
+// -----------------------------------------------------------------------------
+// Static (pure) helper/utility functions.
+// -----------------------------------------------------------------------------
+func NewRandomID() types.NodeID {
+	var id types.NodeID
+	var randomData [32]byte
+	io.ReadFull(rand.Reader, randomData[:])
+	sum := sha1.Sum(randomData[:])
+	copy(id[:], sum[:])
+	return id
+}
+
+func HashKey(k string) types.NodeID {
+	s := sha1.Sum([]byte(k))
+	var id types.NodeID
+	copy(id[:], s[:])
+	return id
+}
+
+func ParseNodeID(s string) (types.NodeID, error) {
+	var id types.NodeID
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return id, err
+	}
+	if len(b) != types.IDBytes {
+		return id, fmt.Errorf("invalid node id length: %d", len(b))
+	}
+	copy(id[:], b[:types.IDBytes])
+	return id, nil
+}
+
+func XOR(a, b types.NodeID) (o types.NodeID) {
+	for i := 0; i < types.IDBytes; i++ {
+		o[i] = a[i] ^ b[i]
+	}
+	return
+}
+func CompareDistance(a, b, t types.NodeID) int {
+	da := XOR(a, t)
+	db := XOR(b, t)
+	for i := 0; i < types.IDBytes; i++ {
+		if da[i] < db[i] {
+			return -1
+		}
+		if da[i] > db[i] {
+			return 1
+		}
+	}
+	return 0
+}
+
+func CollectErrors(errs []error) error {
+	if len(errs) == 0 {
+		return nil
+	}
+	var sb strings.Builder
+	for i, err := range errs {
+		sb.WriteString(err.Error())
+		if i < len(errs)-1 {
+			sb.WriteString("\n") // Add a newline after each error except the last one
+		}
+	}
+	return errors.New(sb.String())
 }
