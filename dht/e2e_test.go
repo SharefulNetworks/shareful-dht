@@ -504,6 +504,7 @@ func Test_Full_Network_Complete_Mesh_Interconnectivity(t *testing.T) {
 
 func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity(t *testing.T) {
 
+
 	//prepare our core network, bootstrap node addresses.
 	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
 
@@ -3219,6 +3220,73 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_Two_
 	})
 }
 
+func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes_Connectivity_And_Neighboorhood_Discovery(t *testing.T) {
+
+	
+	//prepare our core network, bootstrap node addresses.
+	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//desired standard node count (we pick a number that is evenly divisiable by the number of core nodes
+	// to simply the connection distibutation validation logic) we pick 20 here (4 standard nodes per core node)
+	standardNodeMultiplier := 4
+	standardNodeCount := standardNodeMultiplier * len(coreNetworkBootstrapNodeAddrs)
+
+	//next call into our helper function to create a new configurable test context complete
+	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
+	//distribute connections to the core nodes from these standard nodes.
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, 0, 0)
+
+
+	//next we wait some time for the bootstrap process to complete on each node, by default
+	//each node will wait 20 seconds before attempting to actually connect to the provided
+	//bootstrap addresses
+	time.Sleep(20000 * time.Millisecond)
+
+	//grab reference to our (now hopefully bootstrapped nodes)
+	n1 := ctx.BootstrapNodes[0]
+	n2 := ctx.BootstrapNodes[1]
+	n3 := ctx.BootstrapNodes[2]
+	n4 := ctx.BootstrapNodes[3]
+	n5 := ctx.BootstrapNodes[4]
+
+
+	//next we validate that each node has a full view of the core network and their respective
+	//directly connected standard nodes by checking that each node has a peer list length
+	//equal the the number of core nodes minus 1 (itself) pluss the number of standard nodes
+	//connected to it (which should be equal to the standardNodeMultiplier)
+	expectedPeerListLength := (len(coreNetworkBootstrapNodeAddrs) - 1) + standardNodeMultiplier
+
+	if len(n1.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 1 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n1.ListPeersAsString()))
+	}
+
+	if len(n2.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 2 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n2.ListPeersAsString()))
+	}
+
+	if len(n3.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 3 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n3.ListPeersAsString()))
+	}
+
+	if len(n4.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 4 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n4.ListPeersAsString()))
+	}
+
+	if len(n5.ListPeersAsString()) != expectedPeerListLength {
+		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeersAsString()))
+	}
+
+	//wait a period of time that exceeds the PostBootstrapNeighboorhoodResolutionDelay duration in the 
+	//config then validate that any one of the nodes now has an expanded view of the network as indicated
+	//by it having a peer list length that exceeds the expected peer list length calculated above.
+	fmt.Printf("\nNode peer list length prior to neighbourhood discovery: %d\n", len(n1.ListPeersAsString()))
+	time.Sleep(ctx.Config.PostBootstrapNeighboorhoodResolutionDelay+ (5 * time.Second))
+    fmt.Printf("\nNode peer list length after neighbourhood discovery: %d\n", len(n1.ListPeersAsString()))
+	if len(n1.ListPeersAsString()) <= expectedPeerListLength {
+		t.Fatalf("Expected Node 1 to have peer list length greater than: %d after neighbourhood discovery but actually had length of: %d", expectedPeerListLength, len(n1.ListPeersAsString())) 
+	}
+}
+
 /*****************************************************************************************************************
  *                                     HELPER/UTILITY TYPES AND FUNCTIONS FOR E2E TESTS
  ******************************************************************************************************************/
@@ -3343,7 +3411,9 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 	var cfg *config.Config
 	if conf == nil {
 		//prepare default config if a config has not been provided
+		
 		cfg = config.GetDefaultSingletonInstance()
+		/*
 		cfg.UseProtobuf = true
 		cfg.RequestTimeout = 2000 * time.Millisecond
 		cfg.DefaultEntryTTL = 30 * time.Second
@@ -3354,6 +3424,7 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 			cfg.RefreshInterval = time.Duration(refreshTime) * time.Second
 			cfg.JanitorInterval = time.Duration(refreshTime*2) * time.Second
 		}
+		*/
 
 	} else {
 		cfg = conf

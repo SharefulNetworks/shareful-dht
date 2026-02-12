@@ -152,7 +152,10 @@ func (n *Node) Bootstrap(bootstrapAddrs []string, connectDelayMillis int) error 
 	var bootstapConnErrors []error
 
 	//once the connect delay period has elapsed, attempt to connect to each bootstrap node.,
-	time.AfterFunc(time.Duration(connectDelayMillis)*time.Millisecond, func() {
+	//using time.AfterFunc
+	bootstrapWaitPeriod := time.Duration(connectDelayMillis) * time.Millisecond
+	time.AfterFunc(bootstrapWaitPeriod, func() {
+
 		for i := 0; i < len(bootstrapAddrs); i++ {
 			if bootstrapAddrs[i] == n.Addr {
 				continue //skip connecting to self
@@ -161,17 +164,25 @@ func (n *Node) Bootstrap(bootstrapAddrs []string, connectDelayMillis int) error 
 				bootstapConnErrors = append(bootstapConnErrors, fmt.Errorf("error occurred whilst trying to connect to bootstrap address %s: %v", bootstrapAddrs[i], err))
 			}
 		}
+
+		//we capture any and all errors, that occur during the process and return them as a single error object.
+		if len(bootstapConnErrors) > 0 {
+			collectiveErr := CollectErrors(bootstapConnErrors)
+			fmt.Printf("An error occurred whilst attempting to bootstrap to one or mode nodes: %v", collectiveErr)
+		}
+
+		fmt.Println()
+		fmt.Printf("Node: %s Successfully boottrapped to all %d nodes provided. ", n.Addr, len(bootstrapAddrs))
+		fmt.Println()
+
 	})
 
-	//we capture any and all errors, that occur during the process and return them as a single error object.
-	if len(bootstapConnErrors) > 0 {
-		collectiveErr := CollectErrors(bootstapConnErrors)
-		return collectiveErr
-	}
-
-	fmt.Println()
-	fmt.Printf("Node: %s Successfully boottrapped to all %d nodes provided. ", n.Addr, len(bootstrapAddrs))
-	fmt.Println()
+	// discover neighbouring peers after a delay post bootstrap, to allow time for the bootstrap connections
+	// to be established and for the routing tables to be accordingly updated before attempting to discover
+	// neighbouring peers.
+	time.AfterFunc(bootstrapWaitPeriod+n.cfg.PostBootstrapNeighboorhoodResolutionDelay, func() {
+		n.resolveNeighbouringNodes()
+	})
 
 	return nil
 }
@@ -1602,6 +1613,23 @@ func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
 	return shortlist, nil
 }
 
+// resolveNeighbouringNodes - executed once, on start-up of the node, the method
+// implicitly executes a standard "find" operation, passing IT'S ID in as the target.
+// The find operation will obviously fail as no actual resource will be associated
+// with the node's ID however, the mere process of attempting the operation will allow
+// the node to progressively discover the nodes that are closest to it, each of which
+// is then implicitly be used to seed its routing table. A delay period
+// (as defined in the prevailing config) is introduced to enable bootstrap operations
+// to complete before the resolution process commences.
+// NB: This activity, at start up, is explicitly called for in the Kademlia paper
+//
+//	to increase the liklihood of any subsequent (real) "find" operations converging on the
+//	correct target, irrespective of how narrow a nodes initial view of the
+//	network is, on connection.
+func (n *Node) resolveNeighbouringNodes() {
+	fmt.Println("INFO: Attempting to resolve neighbouring nodes..")
+	n.Find(n.ID.String()) //we don't really care about the result.
+}
 func (n *Node) nearestK(key string) []string {
 	t := HashKey(key)
 	closest := n.routingTable.Closest(t, n.cfg.K)
