@@ -341,8 +341,17 @@ func Test_Create_And_Delete_Index_Entry_Value_With_PublisherId_Mismatch(t *testi
 
 func Test_Standard_Entry_Auto_Expiration(t *testing.T) {
 
+	//explicitly set a short TTL duration to allow us to validate the auto expiration of index entries.
+	cfg := config.GetDefaultSingletonInstance()
+	cfg.UseProtobuf = true
+	cfg.RequestTimeout = 2000 * time.Millisecond
+	cfg.DefaultEntryTTL = 15 * time.Second
+	cfg.DefaultIndexEntryTTL = 15 * time.Second
+	cfg.RefreshInterval = 5 * time.Second
+	cfg.JanitorInterval = 10 * time.Second
+
 	//create new configurable test context, so we can create three nodes.
-	ctx := NewConfigurableTestContext(t, 3, nil, false)
+	ctx := NewConfigurableTestContext(t, 3, cfg, false)
 
 	//obtain nodes from the test context
 	n1 := ctx.Nodes[0]
@@ -388,7 +397,7 @@ func Test_Standard_Entry_Auto_Expiration(t *testing.T) {
 
 	//next we wait for a period longer that the ttl (10 seconds) to allow time for the closed nodes
 	//entries to expire.
-	time.Sleep(12 * time.Second)
+	time.Sleep(18 * time.Second)
 
 	//finally attempt to retreive node 1's entry via node 2 and 3 which should fail, in both cases.
 	time.Sleep(3000 * time.Millisecond)

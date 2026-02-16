@@ -88,6 +88,13 @@ func (t *TCPTransport) Listen(addr string, handler MessageHandler) error {
 						return
 					}
 
+					//ensure the the closed signal has not been sent before deferring to the handler.
+					select {
+					case <-t.closed:
+						return
+					default:
+					}
+
 					handler(conn.RemoteAddr().String(), buf)
 				}
 			}(c)

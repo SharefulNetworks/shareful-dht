@@ -7,7 +7,7 @@ enum NodeType {NT_UNKNOWN=0; NT_CORE=1; NT_ENTRY=2; NT_EXTERNAL=3;}
 message Envelope { Op op=1; uint64 req_id=2; bool is_response=3; bytes payload=4; bytes from_id = 5; string from_addr = 6; NodeType node_type = 7;}
 message StoreRequest { string key=1; bytes value=2; int64 ttl_ms=3; repeated string replicas=4; bytes publisher_id=5; }
 message StoreResponse { bool ok=1; string err=2; }
-message FindValueRequest {string key = 1;}
+message FindValueRequest {string key = 1; bytes encrypted_key =2;}
 message FindValueResponse {bool ok = 1;bytes value = 2; repeated NodeContact peers = 3; string err = 4;}
 message FindRequest { string key=1; }
 message FindResponse { bool ok=1; bytes value=2; string err=3; }

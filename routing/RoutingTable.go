@@ -1,11 +1,15 @@
 package routing
 
 import (
+	"fmt"
 	"math/bits"
+	"math/rand"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/SharefulNetworks/shareful-dht/commons"
+	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/types"
 )
 
@@ -16,10 +20,13 @@ type RoutingTable struct {
 	self       types.NodeID
 	buckets    []KBucket
 	bucketSize int
+	nodeLike   commons.NodeLike
 	mu         sync.RWMutex
+	wg         sync.WaitGroup
+	stop       chan struct{}
 }
 
-func NewRoutingTable(self types.NodeID, bucketSize int) *RoutingTable {
+func NewRoutingTable(self types.NodeID, bucketSize int, nodeLike commons.NodeLike) *RoutingTable {
 	if bucketSize <= 0 {
 		bucketSize = 20 // a good default
 	}
@@ -27,7 +34,10 @@ func NewRoutingTable(self types.NodeID, bucketSize int) *RoutingTable {
 		self:       self,
 		buckets:    make([]KBucket, types.IDBits), // 160 buckets
 		bucketSize: bucketSize,
+		stop:       make(chan struct{}),
+		nodeLike:   nodeLike,
 	}
+	rt.startBucketRefresher()
 	return rt
 }
 
@@ -186,6 +196,21 @@ func (rt *RoutingTable) XORDistanceRank(self, other types.NodeID) int {
 	return idx + 1
 }
 
+// Destroy - Gracefully shuts down the routing table, ensuring that
+// any background goroutines are properly terminated and resources are released.
+func (rt *RoutingTable) Destroy() {
+
+	//first stop any async tasks from executing
+	close(rt.stop)
+	rt.wg.Wait()
+
+	//clear all buckets.
+	for _, bucket := range rt.buckets {
+		bucket.Clear()
+	}
+	rt.buckets = nil
+}
+
 func (rt *RoutingTable) bucketIndex(self, other types.NodeID) int {
 	d := rt.xor(self, other)
 
@@ -235,4 +260,128 @@ func (rt *RoutingTable) compareDistance(a, b, t types.NodeID) int {
 		}
 	}
 	return 0
+}
+
+func (rt *RoutingTable) startBucketRefresher() {
+	fmt.Printf("\nINFO: Starting up periodic RoutingTable, bucket refresh process. The process will run every: %f Minutes\n", config.GetDefaultSingletonInstance().BucketRefreshInterval.Minutes())
+	go rt.bucketRefresher()
+}
+
+// bucketRefresher - Periodically refreshes buckets in the routing table at intervals specified
+// by the BucketRefreshInterval configuration parameter. This is useful to ensure that the
+// routing table is kept up to date with the current state of the network and to prevent
+// stale entries from accumulating in the routing table over time. To facilitate this refresh
+// activity a find operation for a randomly generated id that falls within each buckets
+// respective key space is undertaken, whilst the requests WILL fail they will force the node
+// to discover any new peers that have joined the network, in the process, since the the last time the refresh
+// op was ran. The refresh will result in exactly 160 distinct requests (one for each bucket)
+// and thus care is taken to ensure that they are staggered, so as to not overwhelm the network
+// or indeed the node itself.
+func (rt *RoutingTable) bucketRefresher() {
+	rt.wg.Add(1)
+	defer rt.wg.Done()
+	t := time.NewTicker(config.GetDefaultSingletonInstance().BucketRefreshInterval)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-rt.stop:
+			return
+		case <-t.C:
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Println("Recovered from panic in refresher tick:", r)
+					}
+				}()
+				rt.refreshBuckets()
+			}()
+
+		}
+	}
+}
+
+func (rt *RoutingTable) refreshBuckets() {
+
+	//first find all buckets that have not been updated since the now and
+	//the last refresh interval.
+	var refreshBatchSize int = 10
+
+	//local helper function, returns an array of bucket refresh jobsthat corresonds to the buckets
+	//that are required to be refreshed.
+	computeBucketRefreshJobs := func() []BucketRefreshJob {
+		var bucketsToRefresh []BucketRefreshJob
+		now := time.Now()
+		for i, bucket := range rt.buckets {
+			lastRefreshTime := bucket.ComputeLastRefreshTime()
+			if now.Sub(lastRefreshTime) >= config.GetDefaultSingletonInstance().BucketRefreshInterval {
+				bucketsToRefresh = append(bucketsToRefresh, BucketRefreshJob{
+					Bucket:   bucket,
+					RandomID: rt.randomIDInBucketRange(rt.self, i),
+				})
+			}
+		}
+		return bucketsToRefresh
+	}
+
+	//then for each bucket that is due for a refresh, we generate a random id that falls within the respective
+	//key space of the bucket and then we undertake a find operation for that id. This will result in the node
+	//discovering any new peers that have joined the network since the last refresh operation was ran.
+	bucketRefreshJobs := computeBucketRefreshJobs()
+
+	for len(bucketRefreshJobs) > 0 {
+		fmt.Printf("\nProcessing: %d bucket refresh jobs\n", len(bucketRefreshJobs))
+		// Process refresh jobs in batches
+		batchSize := refreshBatchSize
+		if len(bucketRefreshJobs) < batchSize {
+			batchSize = len(bucketRefreshJobs)
+		}
+
+		for i := 0; i < batchSize; i++ {
+			job := bucketRefreshJobs[i]
+			rt.nodeLike.FindRaw(job.RandomID) //will be a random id within the keyspace range of the bucket.
+		}
+
+		// Remove processed jobs from the list
+		//bucketRefreshJobs = bucketRefreshJobs[batchSize:]
+
+		//recompute the bucket refresh jobs as some pending buckets may have been updated
+		//by this interations find operations.
+		bucketRefreshJobs = computeBucketRefreshJobs()
+
+		// Sleep briefly between batches to avoid overwhelming the network or the node itself.
+		if len(bucketRefreshJobs) > 0 {
+			time.Sleep(5000 * time.Millisecond)
+		}
+	}
+
+}
+
+func (rt *RoutingTable) randomIDInBucketRange(self types.NodeID, bucketIndex int) types.NodeID {
+	var id types.NodeID
+	copy(id[:], self[:])
+
+	byteIndex := bucketIndex / 8
+	bitIndex := bucketIndex % 8
+	mask := byte(1 << (7 - bitIndex))
+
+	// 1. Flip the bucket bit (this guarantees XOR distance ∈ [2^i, 2^(i+1)))
+	id[byteIndex] ^= mask
+
+	// 2. Randomise bits *after* the bucket bit in the same byte
+	id[byteIndex] &= ^(mask - 1)
+	id[byteIndex] |= byte(rand.Intn(1 << (7 - bitIndex)))
+
+	// 3. Randomise all following bytes
+	for i := byteIndex + 1; i < types.IDBytes; i++ {
+		id[i] = byte(rand.Intn(256))
+	}
+
+	return id
+}
+
+// BucketRefreshJob - Models a single bucket refresh job.
+type BucketRefreshJob struct {
+	Bucket   KBucket
+	RandomID types.NodeID
 }

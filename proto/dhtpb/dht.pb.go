@@ -366,6 +366,7 @@ func (x *StoreResponse) GetErr() string {
 type FindValueRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	EncryptedKey  []byte                 `protobuf:"bytes,2,opt,name=encrypted_key,json=encryptedKey,proto3" json:"encrypted_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -405,6 +406,13 @@ func (x *FindValueRequest) GetKey() string {
 		return x.Key
 	}
 	return ""
+}
+
+func (x *FindValueRequest) GetEncryptedKey() []byte {
+	if x != nil {
+		return x.EncryptedKey
+	}
+	return nil
 }
 
 type FindValueResponse struct {
@@ -1313,9 +1321,10 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\fpublisher_id\x18\x05 \x01(\fR\vpublisherId\"1\n" +
 	"\rStoreResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
-	"\x03err\x18\x02 \x01(\tR\x03err\"$\n" +
+	"\x03err\x18\x02 \x01(\tR\x03err\"I\n" +
 	"\x10FindValueRequest\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\"u\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12#\n" +
+	"\rencrypted_key\x18\x02 \x01(\fR\fencryptedKey\"u\n" +
 	"\x11FindValueResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\x12(\n" +

@@ -24,6 +24,7 @@ type Config struct {
 	PooledConnectionIdleTimeout               time.Duration //the duration after which idle connections is removed from the transport internal connection pool and duly closed. This is useful to prevent resource exhaustion in scenarios where the network is large and/or highly dynamic resulting in a large number of potential peer connections over time.
 	PooledConnectionIdleCheckInterval         time.Duration //the interval at which the transport should check for idle connections in the internal connection pool. This is useful to prevent resource exhaustion in scenarios where the network is large and/or highly dynamic resulting in a large number of potential peer connections over time.
 	PostBootstrapNeighboorhoodResolutionDelay time.Duration //the duration of time to wait, post the call to the nodes bootstrap method, before attempting to auto discover neighbouring peers.
+	BucketRefreshInterval                     time.Duration //the duration of time to wait before refreshing buckets in the routing table. This is useful to ensure that the routing table is kept up to date with the current state of the network and to prevent stale entries from accumulating in the routing table over time.
 }
 
 var singletonConfig *Config
@@ -49,6 +50,7 @@ func GetDefaultSingletonInstance() *Config {
 			PooledConnectionIdleTimeout:       3 * time.Minute,
 			PooledConnectionIdleCheckInterval: 1 * time.Minute,
 			PostBootstrapNeighboorhoodResolutionDelay: 30 * time.Second,
+			BucketRefreshInterval:                     15 * time.Minute,
 		}
 	}
 	return singletonConfig

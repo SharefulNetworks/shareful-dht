@@ -118,10 +118,13 @@ func NewNode(id string, addr string, transport netx.Transport, cfg *config.Confi
 		cd:           codec,
 		mu:           sync.RWMutex{},
 		dataStore:    map[string]*record{},
-		routingTable: routing.NewRoutingTable(HashKey(id), cfg.K),
 		stop:         make(chan struct{}),
 		refreshCount: 0,
 	}
+
+	//instantiate the nodes routing table, we have to do this outside of the
+	//constructor as the routing table requires reference to the node being constructed.
+	n.routingTable = routing.NewRoutingTable(n.ID, cfg.K, n)
 
 	//start listening for incoming messages
 	_ = n.transport.Listen(addr, n.onMessage)
@@ -192,6 +195,7 @@ func (n *Node) Shutdown() {
 		close(n.stop)
 		n.wg.Wait() // wait for janitor and refresher to finish
 		n.transport.Close()
+		n.routingTable.Destroy()
 	})
 }
 
@@ -373,6 +377,9 @@ func (n *Node) DataStoreLength() int {
 	return len(n.dataStore)
 }
 
+// Find - Attempts to lookup value with the provided key in the DHT. The found value and a boolean value
+// of TRUE is returned where the lookup is successful otherwise, a nil value is returned with a
+// boolean value of FALSE to indicate that the lookup was unsuccessful.
 func (n *Node) Find(key string) ([]byte, bool) {
 	// 0) local fast-path
 	if v, ok := n.FindLocal(key); ok {
@@ -1002,6 +1009,258 @@ func (n *Node) PeerCount() int {
 	return len(n.ListPeers())
 }
 
+// FindRaw - Attempts to look value associated with the provided raw NodeID Key in the DHT,
+// this varirant of the Find opertion is used by the internal RoutingTable to periodically
+// refresh is various buckets, as necessary. The accepteance of a raw key allows the
+// routing table to specially craft the id's such that they fall within the scope of the
+// specific bucket(s) that are required to be refreshed.
+func (n *Node) FindRaw(key types.NodeID) ([]byte, bool) {
+
+	K := n.cfg.K
+	alpha := n.cfg.Alpha
+	batchTimeout := n.cfg.BatchRequestTimeout
+
+	shortlist := n.nearestKByID(key)
+
+	seen := make(map[types.NodeID]*routing.Peer, len(shortlist))
+	queried := make(map[types.NodeID]bool, len(shortlist))
+
+	// NEW: track requests in-flight so we don't schedule duplicates
+	inflight := make(map[types.NodeID]bool, len(shortlist))
+
+	// NEW: optional retry budget per peer for transient failures
+	const maxRetries = 1 // set to 0 to disable retries, 1 is usually enough for tests
+	failCount := make(map[types.NodeID]int, len(shortlist))
+
+	for _, p := range shortlist {
+		if p == nil || p.Addr == "" || p.ID == n.ID {
+			continue
+		}
+		seen[p.ID] = p
+	}
+
+	rebuild := func() []*routing.Peer {
+		all := make([]*routing.Peer, 0, len(seen))
+		for _, p := range seen {
+			all = append(all, p)
+		}
+		sort.Slice(all, func(i, j int) bool {
+			return CompareDistance(all[i].ID, all[j].ID, key) < 0
+		})
+		if len(all) > K {
+			all = all[:K]
+		}
+		return all
+	}
+
+	sameShortList := func(a, b []*routing.Peer) bool {
+		if len(a) != len(b) {
+			return false
+		}
+		for i := range a {
+			if a[i] == nil || b[i] == nil {
+				if a[i] != b[i] {
+					return false
+				}
+				continue
+			}
+			if a[i].ID != b[i].ID {
+				return false
+			}
+		}
+		return true
+	}
+
+	shortlist = rebuild()
+
+	type res struct {
+		value []byte
+		ok    bool
+		peers []*routing.Peer
+		err   error
+		from  *routing.Peer
+	}
+
+	for {
+		// pick α closest not yet queried and not already in-flight
+		batch := make([]*routing.Peer, 0, alpha)
+		for _, p := range shortlist {
+			if p == nil || p.ID == n.ID || p.Addr == "" {
+				continue
+			}
+			if queried[p.ID] || inflight[p.ID] {
+				continue
+			}
+
+			// if we exceeded retry budget, treat as queried (dead for this lookup)
+			if maxRetries >= 0 && failCount[p.ID] > maxRetries {
+				queried[p.ID] = true
+				continue
+			}
+
+			inflight[p.ID] = true
+			batch = append(batch, p)
+			if len(batch) == alpha {
+				break
+			}
+		}
+
+		if len(batch) == 0 {
+			break
+		}
+
+		ch := make(chan res, len(batch))
+
+		// send requests concurrently
+		for _, p := range batch {
+			go func(peer *routing.Peer) {
+				req := &dhtpb.FindValueRequest{Key: "", EncryptedKey: key[:]} // Ensure encrypted key is properly copied
+
+				b, err := n.sendRequest(peer.Addr, OP_FIND_VALUE, req)
+				if err != nil {
+					ch <- res{err: err, from: peer}
+					return
+				}
+
+				resp := &dhtpb.FindValueResponse{}
+				if err := n.decode(b, resp); err != nil {
+					ch <- res{err: err, from: peer}
+					return
+				}
+
+				if resp.Ok {
+					ch <- res{ok: true, value: resp.Value, from: peer}
+					return
+				}
+
+				out := make([]*routing.Peer, 0, len(resp.Peers))
+				for _, rp := range resp.Peers {
+					if rp == nil || rp.Addr == "" || len(rp.NodeId) != len(key) {
+						continue
+					}
+					var id types.NodeID
+					copy(id[:], rp.NodeId)
+					if id == n.ID {
+						continue
+					}
+					out = append(out, &routing.Peer{ID: id, Addr: rp.Addr})
+				}
+				ch <- res{ok: false, peers: out, from: peer}
+			}(p)
+		}
+
+		timer := time.NewTimer(batchTimeout)
+		responded := 0
+
+		for responded < len(batch) {
+			select {
+			case r := <-ch:
+				responded++
+
+				// request is no longer in-flight
+				if r.from != nil {
+					delete(inflight, r.from.ID)
+				}
+
+				// Mark as queried only once we have a result (success OR error)
+				if r.from != nil {
+					// If error, maybe allow retry (don't mark queried yet if retrying)
+					if r.err != nil {
+						failCount[r.from.ID]++
+						// keep it unqueried so it may be retried, unless we've exceeded retry budget
+						if failCount[r.from.ID] > maxRetries {
+							queried[r.from.ID] = true
+						}
+						continue
+					}
+
+					// success response: mark queried
+					queried[r.from.ID] = true
+
+					// learn responder (alive)
+					n.routingTable.Update(r.from.ID, r.from.Addr)
+				}
+
+				// value found -> return immediately
+				if r.ok {
+					timer.Stop()
+
+					/* learn everything that already got scheduled in this batch
+					go func(expected int, ch <-chan res) {
+						for i := responded; i < expected; i++ {
+							rr := <-ch
+							if rr.from != nil && rr.err == nil {
+								n.routingTable.Update(rr.from.ID, rr.from.Addr)
+							}
+							for _, np := range rr.peers {
+								if np != nil && np.Addr != "" && np.ID != n.ID {
+									n.routingTable.Update(np.ID, np.Addr)
+								}
+							}
+						}
+					}(len(batch), ch)
+					*/
+
+					return r.value, true
+				}
+
+				// incorporate returned peers
+				for _, np := range r.peers {
+					if np == nil || np.Addr == "" || np.ID == n.ID {
+						continue
+					}
+					n.routingTable.Update(np.ID, np.Addr)
+					if _, ok := seen[np.ID]; !ok {
+						seen[np.ID] = np
+					}
+				}
+
+			case <-timer.C:
+				// batch timed out: mark inflight peers as no longer inflight and apply retry logic
+				for _, p := range batch {
+					delete(inflight, p.ID)
+					failCount[p.ID]++
+					if failCount[p.ID] > maxRetries {
+						queried[p.ID] = true
+					}
+				}
+				responded = len(batch)
+			}
+		}
+
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+
+		// rebuild shortlist
+		old := shortlist
+		shortlist = rebuild()
+
+		// termination: shortlist stable AND nothing left worth querying
+		if sameShortList(old, shortlist) {
+			done := true
+			for _, p := range shortlist {
+				if p == nil || p.ID == n.ID {
+					continue
+				}
+				// not done if there's an unqueried peer we can still try
+				if !queried[p.ID] && !inflight[p.ID] && failCount[p.ID] <= maxRetries {
+					done = false
+					break
+				}
+			}
+			if done {
+				break
+			}
+		}
+	}
+
+	return nil, false
+}
+
 // -----------------------------------------------------------------------------
 // DHT Incoming Message Handler (uses makeMessage + encode/decode)
 // -----------------------------------------------------------------------------
@@ -1378,8 +1637,19 @@ func (n *Node) onMessage(from string, data []byte) {
 			return
 		}
 
-		key := req.Key
-		target := HashKey(key)
+		//The FindRaw method is a special case as it provides the HASHED key directly
+		//this is mainly used for periodic refresh of routing table buckets where keys
+		//are specially crafted to fall within the scope of the bucket(s) being refreshed.
+		var target types.NodeID
+		var key string
+		if len(req.EncryptedKey) > 0 {
+			copy(target[:], req.EncryptedKey)
+		} else {
+			//otherwise ALL standard find value requests are expected to provide the key in string format
+			//which we must then hash to derive the target id.
+			key = req.Key
+			target = HashKey(key)
+		}
 
 		// If node has value, return it
 		if v, ok := n.FindLocal(key); ok {
