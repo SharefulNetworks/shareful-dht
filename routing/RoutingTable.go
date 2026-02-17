@@ -211,6 +211,13 @@ func (rt *RoutingTable) Destroy() {
 	rt.buckets = nil
 }
 
+// ListBuckets - Returns a list of the routing table's current buckets.
+func (rt *RoutingTable) ListBuckets() []KBucket {
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+	return rt.buckets
+}
+
 func (rt *RoutingTable) bucketIndex(self, other types.NodeID) int {
 	d := rt.xor(self, other)
 
@@ -305,14 +312,15 @@ func (rt *RoutingTable) refreshBuckets() {
 
 	//first find all buckets that have not been updated since the now and
 	//the last refresh interval.
-	var refreshBatchSize int = 10
+	var refreshBatchSize = config.GetDefaultSingletonInstance().BucketRefreshBatchSize
 
 	//local helper function, returns an array of bucket refresh jobsthat corresonds to the buckets
 	//that are required to be refreshed.
 	computeBucketRefreshJobs := func() []BucketRefreshJob {
 		var bucketsToRefresh []BucketRefreshJob
 		now := time.Now()
-		for i, bucket := range rt.buckets {
+		for i, _ := range rt.buckets {
+			bucket := &rt.buckets[i]
 			lastRefreshTime := bucket.ComputeLastRefreshTime()
 			if now.Sub(lastRefreshTime) >= config.GetDefaultSingletonInstance().BucketRefreshInterval {
 				bucketsToRefresh = append(bucketsToRefresh, BucketRefreshJob{
@@ -339,7 +347,16 @@ func (rt *RoutingTable) refreshBuckets() {
 
 		for i := 0; i < batchSize; i++ {
 			job := bucketRefreshJobs[i]
-			rt.nodeLike.FindRaw(job.RandomID) //will be a random id within the keyspace range of the bucket.
+			jobBucketLastRefreshBeforeFind := job.Bucket.GetLastRefreshTime()
+			rt.nodeLike.FindRaw(job.RandomID)   //will be a random id within the keyspace range of the bucket.
+			job.Bucket.ComputeLastRefreshTime() //recompute the buckets last refresh post the find operation.
+			jobBucketLastRefreshAfterFind := job.Bucket.GetLastRefreshTime()
+			//if not new nodes were added as a result of the find operation, we still update
+			//the buckets last refresh time to now.
+			if jobBucketLastRefreshBeforeFind.Equal(jobBucketLastRefreshAfterFind) {
+				job.Bucket.UpdateLastRefreshTime()
+			}
+
 		}
 
 		// Remove processed jobs from the list
@@ -351,7 +368,7 @@ func (rt *RoutingTable) refreshBuckets() {
 
 		// Sleep briefly between batches to avoid overwhelming the network or the node itself.
 		if len(bucketRefreshJobs) > 0 {
-			time.Sleep(5000 * time.Millisecond)
+			time.Sleep(config.GetDefaultSingletonInstance().BucketRefreshBatchDelayInterval)
 		}
 	}
 
@@ -382,6 +399,6 @@ func (rt *RoutingTable) randomIDInBucketRange(self types.NodeID, bucketIndex int
 
 // BucketRefreshJob - Models a single bucket refresh job.
 type BucketRefreshJob struct {
-	Bucket   KBucket
+	Bucket   *KBucket
 	RandomID types.NodeID
 }

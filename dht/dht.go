@@ -1261,6 +1261,13 @@ func (n *Node) FindRaw(key types.NodeID) ([]byte, bool) {
 	return nil, false
 }
 
+//GetRoutingTable - Returns reference to the nodes underlying routing table.
+//                  NB: Direct access to the routing table will generally not be required
+//                      for typical use cases of the DHT, it may however be useful within the
+//                      context of a test environment.          
+func (n *Node) GetRoutingTable() *routing.RoutingTable{
+	return n.routingTable;
+}
 // -----------------------------------------------------------------------------
 // DHT Incoming Message Handler (uses makeMessage + encode/decode)
 // -----------------------------------------------------------------------------

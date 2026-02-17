@@ -513,7 +513,6 @@ func Test_Full_Network_Complete_Mesh_Interconnectivity(t *testing.T) {
 
 func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity(t *testing.T) {
 
-
 	//prepare our core network, bootstrap node addresses.
 	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
 
@@ -3231,7 +3230,6 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_Two_
 
 func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes_Connectivity_And_Neighboorhood_Discovery(t *testing.T) {
 
-	
 	//prepare our core network, bootstrap node addresses.
 	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
 
@@ -3245,7 +3243,6 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes
 	//distribute connections to the core nodes from these standard nodes.
 	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, standardNodeCount, nil, coreNetworkBootstrapNodeAddrs, 0, 0)
 
-
 	//next we wait some time for the bootstrap process to complete on each node, by default
 	//each node will wait 20 seconds before attempting to actually connect to the provided
 	//bootstrap addresses
@@ -3257,7 +3254,6 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes
 	n3 := ctx.BootstrapNodes[2]
 	n4 := ctx.BootstrapNodes[3]
 	n5 := ctx.BootstrapNodes[4]
-
 
 	//next we validate that each node has a full view of the core network and their respective
 	//directly connected standard nodes by checking that each node has a peer list length
@@ -3285,15 +3281,59 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes
 		t.Fatalf("Expected Node 5 to have peer list length of: %d but actually had length of: %d", expectedPeerListLength, len(n5.ListPeersAsString()))
 	}
 
-	//wait a period of time that exceeds the PostBootstrapNeighboorhoodResolutionDelay duration in the 
+	//wait a period of time that exceeds the PostBootstrapNeighboorhoodResolutionDelay duration in the
 	//config then validate that any one of the nodes now has an expanded view of the network as indicated
 	//by it having a peer list length that exceeds the expected peer list length calculated above.
 	fmt.Printf("\nNode peer list length prior to neighbourhood discovery: %d\n", len(n1.ListPeersAsString()))
-	time.Sleep(ctx.Config.PostBootstrapNeighboorhoodResolutionDelay+ (5 * time.Second))
-    fmt.Printf("\nNode peer list length after neighbourhood discovery: %d\n", len(n1.ListPeersAsString()))
+	time.Sleep(ctx.Config.PostBootstrapNeighboorhoodResolutionDelay + (5 * time.Second))
+	fmt.Printf("\nNode peer list length after neighbourhood discovery: %d\n", len(n1.ListPeersAsString()))
 	if len(n1.ListPeersAsString()) <= expectedPeerListLength {
-		t.Fatalf("Expected Node 1 to have peer list length greater than: %d after neighbourhood discovery but actually had length of: %d", expectedPeerListLength, len(n1.ListPeersAsString())) 
+		t.Fatalf("Expected Node 1 to have peer list length greater than: %d after neighbourhood discovery but actually had length of: %d", expectedPeerListLength, len(n1.ListPeersAsString()))
 	}
+}
+
+func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes_Connectivity_And_Automatic_RoutingTable_Bucket_Refresh(t *testing.T) {
+
+	//define custom config with a short routing table bucket refresh interval other than
+	//this much of the default config values will remain unchanged.
+	bucketRefreshInterval := 240 * time.Second
+	cfg := config.GetDefaultSingletonInstance()
+	cfg.UseProtobuf = true
+	cfg.BucketRefreshInterval = bucketRefreshInterval
+	cfg.BucketRefreshBatchDelayInterval = 5 * time.Second //wait 5 seconds between batches
+	cfg.BucketRefreshBatchSize = 10
+
+	//prepare our core network, bootstrap node addresses.
+	coreNetworkBootstrapNodeAddrs := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//next call into our helper function to create a new configurable test context complete
+	//with core bootstrap nodes AND 20 standard nodes. The function will attempt to evenly
+	//distribute connections to the core nodes from these standard nodes.
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, coreNetworkBootstrapNodeAddrs, 0, 0)
+
+	//next we wait some time for the bootstrap process to complete on each node, by default
+	//each node will wait 20 seconds before attempting to actually connect to the provided
+	//bootstrap addresses
+	time.Sleep(20000 * time.Millisecond)
+
+	//grab reference to our (now hopefully bootstrapped nodes)
+	n1 := ctx.BootstrapNodes[0]
+
+	
+
+	//wait sufficient time for at least one bucket refresh cycle to complete:
+	//1)initial delay is: 30 seconds,
+	//2)Delay between batches is 5 Seconds and there a 10 buckets in each batch.
+	//3)160 buckets at 10 buckets per batch equates to 16 batches.
+	//4)16 batches at 5 seconds per batch equates to 80 seconds, plus the initial 240 second delay.
+	//5) we wait a little longer than this to be sure that the refresh has fully completed.
+	time.Sleep(130*time.Second + bucketRefreshInterval)
+
+	//after refresh is completed print the size of each bucket
+	for i, currentBucket := range n1.GetRoutingTable().ListBuckets() {
+		fmt.Printf("\nBucket %d size after refresh: %d\n", i, currentBucket.Size())
+	}
+
 }
 
 /*****************************************************************************************************************
@@ -3420,19 +3460,19 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 	var cfg *config.Config
 	if conf == nil {
 		//prepare default config if a config has not been provided
-		
+
 		cfg = config.GetDefaultSingletonInstance()
 		/*
-		cfg.UseProtobuf = true
-		cfg.RequestTimeout = 2000 * time.Millisecond
-		cfg.DefaultEntryTTL = 30 * time.Second
-		cfg.RefreshInterval = 5 * time.Second
-		cfg.JanitorInterval = 10 * time.Second
-		cfg.ReplicationFactor = 1
-		if refreshTime > 0 {
-			cfg.RefreshInterval = time.Duration(refreshTime) * time.Second
-			cfg.JanitorInterval = time.Duration(refreshTime*2) * time.Second
-		}
+			cfg.UseProtobuf = true
+			cfg.RequestTimeout = 2000 * time.Millisecond
+			cfg.DefaultEntryTTL = 30 * time.Second
+			cfg.RefreshInterval = 5 * time.Second
+			cfg.JanitorInterval = 10 * time.Second
+			cfg.ReplicationFactor = 1
+			if refreshTime > 0 {
+				cfg.RefreshInterval = time.Duration(refreshTime) * time.Second
+				cfg.JanitorInterval = time.Duration(refreshTime*2) * time.Second
+			}
 		*/
 
 	} else {

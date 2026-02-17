@@ -8,9 +8,11 @@ import (
 // KBucket - Models a single Kademlia K-Bucket.
 type KBucket struct {
 	Peers []*Peer
+	lastRefresh time.Time
 }
 
-func (kb *KBucket) size() int {
+//Size - Returns the number of peers in this bucket.
+func (kb *KBucket) Size() int {
 	return len(kb.Peers)
 }
 
@@ -25,6 +27,7 @@ func (kb *KBucket) Remove(index int) bool {
 	return true
 }
 
+//Clear - Clears all peers from this bucket.
 func (kb *KBucket) Clear() {
 	kb.Peers = nil
 }
@@ -36,11 +39,28 @@ func (kb *KBucket) Clear() {
 // This is useful to determine when a bucket is due for a refresh,
 // as per Kademlia spec.
 func (kb *KBucket) ComputeLastRefreshTime() time.Time {
+	if len(kb.Peers) < 1{
+		return kb.lastRefresh
+	}
+
 	var lastRefreshTime time.Time
 	for _, peer := range kb.Peers {
 		if peer.LastSeen.After(lastRefreshTime) {
 			lastRefreshTime = peer.LastSeen
 		}
 	}
-	return lastRefreshTime
+	if lastRefreshTime.After(kb.lastRefresh){
+         kb.lastRefresh = lastRefreshTime
+	}
+	return  kb.lastRefresh
+}
+
+
+//UpdateLastRefreshTime - Updates the buckets last refresh time to the current time.
+func (kb *KBucket) UpdateLastRefreshTime(){
+	kb.lastRefresh = time.Now()
+}
+
+func (kb *KBucket) GetLastRefreshTime()time.Time{
+	return kb.lastRefresh;
 }
