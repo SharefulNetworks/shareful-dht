@@ -319,7 +319,7 @@ func (rt *RoutingTable) refreshBuckets() {
 	computeBucketRefreshJobs := func() []BucketRefreshJob {
 		var bucketsToRefresh []BucketRefreshJob
 		now := time.Now()
-		for i, _ := range rt.buckets {
+		for i := range rt.buckets {
 			bucket := &rt.buckets[i]
 			lastRefreshTime := bucket.ComputeLastRefreshTime()
 			if now.Sub(lastRefreshTime) >= config.GetDefaultSingletonInstance().BucketRefreshInterval {

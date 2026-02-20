@@ -68,7 +68,7 @@ func Test_Create_And_Find_Index_Entry_Value(t *testing.T) {
 	//after a short delay attempt to retrieve the merged index FROM the DHT, via node 1 and node 2
 	time.Sleep(3000 * time.Millisecond)
 	if ents, ok := n1.FindIndex(key); !ok || len(ents) < 2 {
-		t.Fatalf("expected merged index >=2")
+		t.Fatalf("expected merged index >=2, length was: %d", len(ents))
 	}
 	time.Sleep(4000 * time.Millisecond)
 	if ents, ok := n2.FindIndex(key); !ok || len(ents) < 2 {
@@ -228,6 +228,7 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 	}
 
 	//next explicitly delete one of the index entries via node 1 (here the index source(i.e key) and top-level key happen to be the same.
+	fmt.Printf("Calling delete on node: %x", n1.ID)
 	if err := n1.DeleteIndex(key, key); err != nil {
 		t.Fatalf("Error occurred whilst deleting index entry '%s': %v", key, err)
 	}
@@ -235,8 +236,21 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 	//after a short delay to allow the deletion to propergate attempt to retreive the index from the DHT via node 2.
 	//which should now only contain a single entry
 	time.Sleep(6000 * time.Millisecond)
-	if ents, ok := n2.FindIndex(key); !ok || len(ents) != 1 {
-		t.Fatalf("expected merged index = 1")
+	var ok bool
+	var entsPostDelete []IndexEntry
+	entsPostDelete, ok = n2.FindIndex(key)
+
+	fmt.Println("#####Found entries AFTER deletion are: ")
+	for _, curE := range entsPostDelete {
+		fmt.Printf("\n Publisher: %s Key: %s Value: %s \n", curE.Publisher.String(), curE.Source, curE.Target)
+	}
+
+	if !ok {
+		t.Fatalf("Was unable to find specified IndexEntry, post deletion.")
+	}
+
+	if len(entsPostDelete) != 1 {
+		t.Fatalf("Expected remaining entry count to be 1, the actual entry count was: %d", len(entsPostDelete))
 	}
 
 }
@@ -3318,8 +3332,6 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes
 
 	//grab reference to our (now hopefully bootstrapped nodes)
 	n1 := ctx.BootstrapNodes[0]
-
-	
 
 	//wait sufficient time for at least one bucket refresh cycle to complete:
 	//1)initial delay is: 30 seconds,

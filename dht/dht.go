@@ -36,6 +36,7 @@ const (
 	OP_DELETE_INDEX = 7
 	OP_FIND_NODE    = 8
 	OP_FIND_VALUE   = 9 // NEW
+	OP_SYNC_INDEX   = 10
 )
 
 // node type enum-like
@@ -52,20 +53,22 @@ type IndexEntry struct {
 	Meta              []byte       `json:"meta"`
 	UpdatedUnix       int64        `json:"updated_unix"`
 	Publisher         types.NodeID `json:"publisher"`
+	PublisherAddr     string       `json:"publisher_addr"`
 	TTL               int64        `json:"ttl"`
 	LocalRefreshCount uint64       `json:"local_refresh_count"` //record level refresh count doesn't make sense for IndexEntry as each entry in the record will be maintained by different nodes, each of which will have their own respective refresh intervals.
 }
 
-type record struct {
-	Key               string
-	Value             []byte
-	Expiry            time.Time
-	IsIndex           bool
-	Replicas          []string
-	TTL               time.Duration
-	Publisher         types.NodeID
-	LocalRefreshCount uint64
-	mu                sync.RWMutex
+type Record struct {
+	Key                   string
+	Value                 []byte
+	Expiry                time.Time
+	IsIndex               bool
+	Replicas              []string
+	TTL                   time.Duration
+	Publisher             types.NodeID
+	LocalRefreshCount     uint64
+	mu                    sync.RWMutex
+	EnableIndexUpdateSync bool //when enabled (it isn't by default) updates to a shared index (i.e. one asssociated with multiple publishers, as denoted by its key) will automatically result in the notification of all publisher concerned; each of which will then attempt to pull in the most up-to-date data.
 }
 
 // Node - represents a single DHT node instance. It maintains the node's unique ID and address,
@@ -80,7 +83,7 @@ type Node struct {
 	nodeType     int
 	cd           wire.Codec
 	mu           sync.RWMutex
-	dataStore    map[string]*record
+	dataStore    map[string]*Record
 	routingTable *routing.RoutingTable
 	stop         chan struct{}
 	reqSeq       uint64
@@ -117,7 +120,7 @@ func NewNode(id string, addr string, transport netx.Transport, cfg *config.Confi
 		nodeType:     nodeType,
 		cd:           codec,
 		mu:           sync.RWMutex{},
-		dataStore:    map[string]*record{},
+		dataStore:    map[string]*Record{},
 		stop:         make(chan struct{}),
 		refreshCount: 0,
 	}
@@ -227,7 +230,7 @@ func (n *Node) Connect(remoteAddr string) error {
 		Addr:   n.Addr,
 	}
 
-	// sendRequest(address, op, payload) already exists in your code
+	// sendRequest(address, op, payload)
 	respBytes, err := n.sendRequest(remoteAddr, OP_CONNECT, req)
 	if err != nil {
 		return err
@@ -310,7 +313,7 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisher
 	n.mu.RUnlock()
 
 	n.mu.Lock()
-	n.dataStore[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: ttl, Publisher: publisherId, LocalRefreshCount: prevLocalRefresh}
+	n.dataStore[key] = &Record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: ttl, Publisher: publisherId, LocalRefreshCount: prevLocalRefresh}
 	n.mu.Unlock()
 
 	reqAny, _ := n.makeMessage(OP_STORE)
@@ -632,12 +635,12 @@ func (n *Node) Find(key string) ([]byte, bool) {
 	return nil, false
 }
 
-func (n *Node) StoreIndex(indexKey string, e IndexEntry) error {
+func (n *Node) StoreIndex(indexKey string, entries ...IndexEntry) error {
 	ttl := n.cfg.DefaultIndexEntryTTL
-	return n.StoreIndexWithTTL(indexKey, e, ttl, n.ID, true)
+	return n.StoreIndexWithTTL(indexKey, entries, ttl, n.ID, true)
 }
 
-func (n *Node) StoreIndexWithTTL(indexKey string, e IndexEntry, ttl time.Duration, publisherId types.NodeID, recomputeReplicas bool) error {
+func (n *Node) StoreIndexWithTTL(indexKey string, entries []IndexEntry, ttl time.Duration, publisherId types.NodeID, recomputeReplicas bool) error {
 
 	//holds our collection of replica addresses
 	var reps []string
@@ -665,19 +668,35 @@ func (n *Node) StoreIndexWithTTL(indexKey string, e IndexEntry, ttl time.Duratio
 
 	//NB: where the call to the merge function is being made as a direct result
 	//of a call to StoreIndex we can safely pass in the id of THIS node as the publisher.
-	e.Publisher = publisherId
-	e.TTL = ttl.Milliseconds()
-	e.UpdatedUnix = time.Now().UnixMilli()
-	mergeIndexError := n.mergeIndexLocal(indexKey, e, reps, publisherId)
+	//IMPORTANT: WE NOW ACCEPT MULTIPLE IndexEntry OBJECTS!! Some of which may well have been
+	//           published by other peers/nodes. Typically a node will only store a single
+	//           IndexEntry in respect of a single key, thus where a record has multiple
+	//           IndexEntries they WILL belong to other peer/nodes and thus we ONLY append
+	//           this nodes publisher details, new TTL,etc to the IndexEntries IT has created
+	//           as denoted by the IndexEntry not having an assigned PublisherId
+
+	for i := range entries {
+		e := &entries[i]
+		if e.Publisher == (types.NodeID{}) {
+			e.Publisher = publisherId
+			e.TTL = ttl.Milliseconds()
+			e.UpdatedUnix = time.Now().UnixMilli()
+		}
+	}
+
+	//mergeIndexError := n.mergeIndexLocal(indexKey, e, reps, publisherId)
+	mergeIndexError := n.appendIndexEntriesLocal(indexKey, entries, reps, publisherId)
 	if mergeIndexError != nil {
 		return fmt.Errorf("an error occurred whilst attempting to store index value %s", mergeIndexError.Error())
 	}
 
 	reqAny, _ := n.makeMessage(OP_STORE_INDEX)
-	switch r := reqAny.(type) {
-	case *dhtpb.StoreIndexRequest:
-		r.Key = indexKey
-		r.Entry = &dhtpb.IndexEntry{
+	r := reqAny.(*dhtpb.StoreIndexRequest)
+
+	var protoBuffEntries []*dhtpb.IndexEntry
+	for i := range entries {
+		e := &entries[i]
+		protoBuffEntry := &dhtpb.IndexEntry{
 			Source:      e.Source,
 			Target:      e.Target,
 			Meta:        e.Meta,
@@ -685,19 +704,12 @@ func (n *Node) StoreIndexWithTTL(indexKey string, e IndexEntry, ttl time.Duratio
 			PublisherId: e.Publisher[:],
 			Ttl:         e.TTL,
 		}
-		r.TtlMs = int64(ttl / time.Millisecond)
-		r.Replicas = reps
-	case *struct {
-		Key      string     `json:"key"`
-		Entry    IndexEntry `json:"entry"`
-		TTLms    int64      `json:"ttl_ms"`
-		Replicas []string   `json:"replicas"`
-	}:
-		r.Key = indexKey
-		r.Entry = e
-		r.TTLms = int64(ttl / time.Millisecond)
-		r.Replicas = reps
+		protoBuffEntries = append(protoBuffEntries, protoBuffEntry)
 	}
+	r.Key = indexKey
+	r.Entries = protoBuffEntries
+	r.TtlMs = int64(ttl / time.Millisecond)
+	r.Replicas = reps
 
 	var errorsList []error
 	for _, a := range reps {
@@ -734,9 +746,8 @@ func (n *Node) FindIndexLocal(key string) ([]IndexEntry, bool) {
 
 func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 	// 0) local fast-path
-	if ents, ok := n.FindIndexLocal(key); ok {
-		return ents, true
-	}
+	localFindIndexEntries, localFindIndexOk := n.FindIndexLocal(key)
+	fmt.Printf("***LOCAL ENTRIES COUNT : %d on Node: %x\n", len(localFindIndexEntries), n.ID)
 
 	target := HashKey(key)
 	K := n.cfg.K
@@ -883,7 +894,7 @@ func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 			select {
 			case r := <-ch:
 				for _, e := range r.ents {
-					merged[e.Source+"\x1f"+e.Target] = e
+					merged[e.Source+"\x1f"+e.Target+"\x1f"+e.Publisher.String()] = e
 				}
 				for _, np := range r.peers {
 					if np != nil && np.ID != n.ID {
@@ -898,6 +909,13 @@ func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 		shortlist = rebuild()
 		if sameShortList(prev, shortlist) {
 			break
+		}
+	}
+
+	//if local find suceeded append entries to our merged collection
+	if localFindIndexOk {
+		for _, e := range localFindIndexEntries {
+			merged[e.Source+"\x1f"+e.Target+"\x1f"+e.Publisher.String()] = e
 		}
 	}
 
@@ -1261,13 +1279,15 @@ func (n *Node) FindRaw(key types.NodeID) ([]byte, bool) {
 	return nil, false
 }
 
-//GetRoutingTable - Returns reference to the nodes underlying routing table.
-//                  NB: Direct access to the routing table will generally not be required
-//                      for typical use cases of the DHT, it may however be useful within the
-//                      context of a test environment.          
-func (n *Node) GetRoutingTable() *routing.RoutingTable{
-	return n.routingTable;
+// GetRoutingTable - Returns reference to the nodes underlying routing table.
+//
+//	NB: Direct access to the routing table will generally not be required
+//	    for typical use cases of the DHT, it may however be useful within the
+//	    context of a test environment.
+func (n *Node) GetRoutingTable() *routing.RoutingTable {
+	return n.routingTable
 }
+
 // -----------------------------------------------------------------------------
 // DHT Incoming Message Handler (uses makeMessage + encode/decode)
 // -----------------------------------------------------------------------------
@@ -1363,7 +1383,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		n.mu.Lock()
 		var publisherId types.NodeID
 		copy(publisherId[:], pubId)
-		n.dataStore[key] = &record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: time.Duration(ttlms) * time.Millisecond, Publisher: publisherId}
+		n.dataStore[key] = &Record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: time.Duration(ttlms) * time.Millisecond, Publisher: publisherId}
 		n.mu.Unlock()
 
 		fmt.Println("Node: " + n.Addr + "Succesfully handled request to store/update standard entry for key:" + key)
@@ -1440,55 +1460,42 @@ func (n *Node) onMessage(from string, data []byte) {
 		}
 
 		var key string
-		var entry IndexEntry
+		var entries []IndexEntry
 		var reps []string
 
-		switch r := reqAny.(type) {
-		case *dhtpb.StoreIndexRequest:
-			key = r.Key
-			if r.Entry != nil {
-				entry = IndexEntry{
-					Source:      r.Entry.Source,
-					Target:      r.Entry.Target,
-					Meta:        r.Entry.Meta,
-					UpdatedUnix: r.Entry.UpdatedUnix,
-					TTL:         r.Entry.Ttl,
+		r := reqAny.(*dhtpb.StoreIndexRequest)
+		key = r.Key
+		if len(r.Entries) > 0 {
+			for _, pbEntry := range r.Entries {
+				entry := IndexEntry{
+					Source:      pbEntry.Source,
+					Target:      pbEntry.Target,
+					Meta:        pbEntry.Meta,
+					UpdatedUnix: pbEntry.UpdatedUnix,
+					TTL:         pbEntry.Ttl,
 				}
-				copy(entry.Publisher[:], r.Entry.PublisherId[:])
+				copy(entry.Publisher[:], pbEntry.PublisherId[:])
+
+				entries = append(entries, entry)
 			}
-			reps = r.Replicas
-		case *struct {
-			Key      string     `json:"key"`
-			Entry    IndexEntry `json:"entry"`
-			TTLms    int64      `json:"ttl_ms"`
-			Replicas []string   `json:"replicas"`
-		}:
-			key = r.Key
-			entry = r.Entry
-			reps = r.Replicas
 		}
+		reps = r.Replicas
 
 		//fmt.Printf("Node @ %s received request from publisher: %s to merge entry with key: %s at: %s", n.Addr, sendertypes.NodeID, key, time.Now())
 		//fmt.Println()
 
 		//pass in the id of the SENDER as the publisher of this index entry, the mergeIndexLocal
 		//will take care of ensuring only the original publisher can store/update their own entries.
-		mergeIndexErr := n.mergeIndexLocal(key, entry, reps, senderNodeID)
+		//mergeIndexErr := n.mergeIndexLocal(key, entry, reps, senderNodeID)
+		mergeIndexErr := n.appendIndexEntriesLocal(key, entries, reps, types.NodeID{})
 		if mergeIndexErr != nil {
 			fmt.Println("an error occured whilst attempting to handle request to store index entry:", mergeIndexErr)
 		}
 		//fmt.Println("Node: " + n.Addr + "Succesfully handled request to store/update index entry for key:" + key)
 
-		switch r := respAny.(type) {
-		case *dhtpb.StoreIndexResponse:
-			r.Ok = true
-		case *struct {
-			Ok  bool   `json:"ok"`
-			Err string `json:"err"`
-		}:
-			r.Ok = true
-			r.Err = ""
-		}
+		res := respAny.(*dhtpb.StoreIndexResponse)
+		res.Ok = true
+
 		b, _ := n.encode(respAny)
 		msg, _ := n.cd.Wrap(OP_STORE_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
 		//fmt.Println("Sending response to: ")
@@ -1591,11 +1598,14 @@ func (n *Node) onMessage(from string, data []byte) {
 			return
 		}
 
-		_, deletionErr := n.deleteIndexLocal(indexKey, publisherId, source)
+		deleted, deletionErr := n.deleteIndexLocal(indexKey, publisherId, source)
+		fmt.Printf("Received request to delete IndexEntry with key: %s The result was: %v", indexKey, deleted)
 		if deletionErr != nil {
 			fmt.Println("An error occurred whilst a processing received request to delete index entry for key: " + indexKey + " on this node: " + n.ID.String())
 			fmt.Println(deletionErr.Error())
 		}
+
+		
 
 		switch r := resp.(type) {
 		case *dhtpb.DeleteIndexResponse:
@@ -1907,6 +1917,11 @@ func (n *Node) resolveNeighbouringNodes() {
 	fmt.Println("INFO: Attempting to resolve neighbouring nodes..")
 	n.Find(n.ID.String()) //we don't really care about the result.
 }
+
+func (n *Node) dispatchSyncIndexRecordRequest(publishedId types.NodeID, indexRecord *Record, key string, updatedAt time.Time) {
+
+}
+
 func (n *Node) nearestK(key string) []string {
 	t := HashKey(key)
 	closest := n.routingTable.Closest(t, n.cfg.K)
@@ -2087,7 +2102,7 @@ func (n *Node) mergeIndexLocal(key string, e IndexEntry, reps []string, publishe
 	if !ok {
 		//PublisherId is not used for index records, it will be stored per enry instead
 		//TTL is also stored per entry.
-		rec = &record{Key: key, IsIndex: true, Replicas: reps, Publisher: types.NodeID{}}
+		rec = &Record{Key: key, IsIndex: true, Replicas: reps, Publisher: types.NodeID{}}
 	}
 	var entries []IndexEntry
 	_ = json.Unmarshal(rec.Value, &entries)
@@ -2102,6 +2117,41 @@ func (n *Node) mergeIndexLocal(key string, e IndexEntry, reps []string, publishe
 	if !found {
 		entries = append(entries, e)
 	}
+	b, _ := json.Marshal(entries)
+	rec.Value = b
+	rec.Replicas = reps
+	n.dataStore[key] = rec
+	return nil
+}
+
+func (n *Node) appendIndexEntriesLocal(key string, newEntries []IndexEntry, reps []string, publisherId types.NodeID) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	rec, ok := n.dataStore[key]
+	if !ok {
+		//PublisherId is not used for index records, it will be stored per enry instead
+		//TTL is also stored per entry.
+		rec = &Record{Key: key, IsIndex: true, Replicas: reps, Publisher: types.NodeID{}}
+	}
+	var entries []IndexEntry
+	_ = json.Unmarshal(rec.Value, &entries)
+	for _, e := range newEntries {
+		found := false
+		for i := range entries {
+			if entries[i].Publisher == e.Publisher &&
+				entries[i].Source == e.Source {
+				//entries[i].Target == e.Target{
+				entries[i] = e
+				found = true
+				break
+			}
+		}
+		if !found {
+			entries = append(entries, e)
+		}
+	}
+
 	b, _ := json.Marshal(entries)
 	rec.Value = b
 	rec.Replicas = reps
@@ -2216,7 +2266,8 @@ func (n *Node) deleteIndexLocal(key string, publisher types.NodeID, source strin
 		return false, fmt.Errorf("failed to unmarshal index entries for key: %s", key)
 	}
 
-	filtered := entries[:0]
+	//filtered := entries[:0]
+	var filtered []IndexEntry
 
 	for _, e := range entries {
 
@@ -2242,8 +2293,20 @@ func (n *Node) deleteIndexLocal(key string, publisher types.NodeID, source strin
 		return deleted, nil
 	}
 
-	rec.Value, _ = json.Marshal(filtered)
-	n.dataStore[key] = rec
+	newRec := &Record{
+		Key:                   rec.Key,
+		Expiry:                rec.Expiry,
+		IsIndex:               rec.IsIndex,
+		Replicas:              rec.Replicas,
+		TTL:                   rec.TTL,
+		Publisher:             rec.Publisher,
+		LocalRefreshCount:     rec.LocalRefreshCount,
+		EnableIndexUpdateSync: rec.EnableIndexUpdateSync,
+	}
+
+	newRec.Value, _ = json.Marshal(filtered)
+	fmt.Printf("filtered set length: %d", len(filtered))
+	n.dataStore[key] = newRec
 
 	return deleted, nil
 }
@@ -2283,7 +2346,7 @@ func (n *Node) refresh() {
 
 	n.mu.RLock()
 	keys := make([]string, 0, len(n.dataStore))
-	recs := make([]*record, 0, len(n.dataStore))
+	recs := make([]*Record, 0, len(n.dataStore))
 	for k, r := range n.dataStore {
 		keys = append(keys, k)
 		recs = append(recs, r)
@@ -2335,7 +2398,7 @@ func (n *Node) refresh() {
 
 						ttlDuration := time.Duration(e.TTL) * time.Millisecond
 						e.UpdatedUnix = time.Now().UnixMilli()
-						indexRefreshErr := n.StoreIndexWithTTL(k, e, ttlDuration, e.Publisher, recomputeReplicas)
+						indexRefreshErr := n.StoreIndexWithTTL(k, []IndexEntry{e}, ttlDuration, e.Publisher, recomputeReplicas)
 						if indexRefreshErr != nil {
 							fmt.Println("An error occurred whilst attempting to refresh index entry with key: " + k + " the error was: " + indexRefreshErr.Error())
 						}

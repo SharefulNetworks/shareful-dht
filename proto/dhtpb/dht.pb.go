@@ -34,21 +34,23 @@ const (
 	Op_OP_DELETE_INDEX Op = 7
 	Op_OP_FIND_NODE    Op = 8
 	Op_OP_FIND_VALUE   Op = 9
+	Op_OP_SYNC_INDEX   Op = 10
 )
 
 // Enum value maps for Op.
 var (
 	Op_name = map[int32]string{
-		0: "OP_UNKNOWN",
-		1: "OP_STORE",
-		2: "OP_FIND",
-		3: "OP_STORE_INDEX",
-		4: "OP_FIND_INDEX",
-		5: "OP_PING",
-		6: "OP_CONNECT",
-		7: "OP_DELETE_INDEX",
-		8: "OP_FIND_NODE",
-		9: "OP_FIND_VALUE",
+		0:  "OP_UNKNOWN",
+		1:  "OP_STORE",
+		2:  "OP_FIND",
+		3:  "OP_STORE_INDEX",
+		4:  "OP_FIND_INDEX",
+		5:  "OP_PING",
+		6:  "OP_CONNECT",
+		7:  "OP_DELETE_INDEX",
+		8:  "OP_FIND_NODE",
+		9:  "OP_FIND_VALUE",
+		10: "OP_SYNC_INDEX",
 	}
 	Op_value = map[string]int32{
 		"OP_UNKNOWN":      0,
@@ -61,6 +63,7 @@ var (
 		"OP_DELETE_INDEX": 7,
 		"OP_FIND_NODE":    8,
 		"OP_FIND_VALUE":   9,
+		"OP_SYNC_INDEX":   10,
 	}
 )
 
@@ -594,7 +597,8 @@ type IndexEntry struct {
 	Meta          []byte                 `protobuf:"bytes,3,opt,name=meta,proto3" json:"meta,omitempty"`
 	UpdatedUnix   int64                  `protobuf:"varint,4,opt,name=updated_unix,json=updatedUnix,proto3" json:"updated_unix,omitempty"`
 	PublisherId   []byte                 `protobuf:"bytes,5,opt,name=publisher_id,json=publisherId,proto3" json:"publisher_id,omitempty"`
-	Ttl           int64                  `protobuf:"varint,6,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	PublisherAddr string                 `protobuf:"bytes,6,opt,name=publisher_addr,json=publisherAddr,proto3" json:"publisher_addr,omitempty"`
+	Ttl           int64                  `protobuf:"varint,7,opt,name=ttl,proto3" json:"ttl,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -664,6 +668,13 @@ func (x *IndexEntry) GetPublisherId() []byte {
 	return nil
 }
 
+func (x *IndexEntry) GetPublisherAddr() string {
+	if x != nil {
+		return x.PublisherAddr
+	}
+	return ""
+}
+
 func (x *IndexEntry) GetTtl() int64 {
 	if x != nil {
 		return x.Ttl
@@ -674,7 +685,7 @@ func (x *IndexEntry) GetTtl() int64 {
 type StoreIndexRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
-	Entry         *IndexEntry            `protobuf:"bytes,2,opt,name=entry,proto3" json:"entry,omitempty"`
+	Entries       []*IndexEntry          `protobuf:"bytes,2,rep,name=entries,proto3" json:"entries,omitempty"`
 	TtlMs         int64                  `protobuf:"varint,3,opt,name=ttl_ms,json=ttlMs,proto3" json:"ttl_ms,omitempty"`
 	Replicas      []string               `protobuf:"bytes,4,rep,name=replicas,proto3" json:"replicas,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -718,9 +729,9 @@ func (x *StoreIndexRequest) GetKey() string {
 	return ""
 }
 
-func (x *StoreIndexRequest) GetEntry() *IndexEntry {
+func (x *StoreIndexRequest) GetEntries() []*IndexEntry {
 	if x != nil {
-		return x.Entry
+		return x.Entries
 	}
 	return nil
 }
@@ -1299,6 +1310,118 @@ func (x *FindNodeResponse) GetErr() string {
 	return ""
 }
 
+type SyncIndexRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PublisherId   []byte                 `protobuf:"bytes,1,opt,name=publisher_id,json=publisherId,proto3" json:"publisher_id,omitempty"`
+	Key           string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	UpdatedAt     int64                  `protobuf:"varint,3,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SyncIndexRequest) Reset() {
+	*x = SyncIndexRequest{}
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncIndexRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncIndexRequest) ProtoMessage() {}
+
+func (x *SyncIndexRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncIndexRequest.ProtoReflect.Descriptor instead.
+func (*SyncIndexRequest) Descriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *SyncIndexRequest) GetPublisherId() []byte {
+	if x != nil {
+		return x.PublisherId
+	}
+	return nil
+}
+
+func (x *SyncIndexRequest) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *SyncIndexRequest) GetUpdatedAt() int64 {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return 0
+}
+
+type SyncIndexResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Err           string                 `protobuf:"bytes,2,opt,name=err,proto3" json:"err,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SyncIndexResponse) Reset() {
+	*x = SyncIndexResponse{}
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncIndexResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncIndexResponse) ProtoMessage() {}
+
+func (x *SyncIndexResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncIndexResponse.ProtoReflect.Descriptor instead.
+func (*SyncIndexResponse) Descriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *SyncIndexResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *SyncIndexResponse) GetErr() string {
+	if x != nil {
+		return x.Err
+	}
+	return ""
+}
+
 var File_proto_dhtpb_dht_proto protoreflect.FileDescriptor
 
 const file_proto_dhtpb_dht_proto_rawDesc = "" +
@@ -1335,18 +1458,19 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\fFindResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\x12\x10\n" +
-	"\x03err\x18\x03 \x01(\tR\x03err\"\xa8\x01\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err\"\xcf\x01\n" +
 	"\n" +
 	"IndexEntry\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x12\n" +
 	"\x04meta\x18\x03 \x01(\fR\x04meta\x12!\n" +
 	"\fupdated_unix\x18\x04 \x01(\x03R\vupdatedUnix\x12!\n" +
-	"\fpublisher_id\x18\x05 \x01(\fR\vpublisherId\x12\x10\n" +
-	"\x03ttl\x18\x06 \x01(\x03R\x03ttl\"\x81\x01\n" +
+	"\fpublisher_id\x18\x05 \x01(\fR\vpublisherId\x12%\n" +
+	"\x0epublisher_addr\x18\x06 \x01(\tR\rpublisherAddr\x12\x10\n" +
+	"\x03ttl\x18\a \x01(\x03R\x03ttl\"\x85\x01\n" +
 	"\x11StoreIndexRequest\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12'\n" +
-	"\x05entry\x18\x02 \x01(\v2\x11.dhtpb.IndexEntryR\x05entry\x12\x15\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12+\n" +
+	"\aentries\x18\x02 \x03(\v2\x11.dhtpb.IndexEntryR\aentries\x12\x15\n" +
 	"\x06ttl_ms\x18\x03 \x01(\x03R\x05ttlMs\x12\x1a\n" +
 	"\breplicas\x18\x04 \x03(\tR\breplicas\"6\n" +
 	"\x12StoreIndexResponse\x12\x0e\n" +
@@ -1383,7 +1507,15 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\x10FindNodeResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12(\n" +
 	"\x05peers\x18\x02 \x03(\v2\x12.dhtpb.NodeContactR\x05peers\x12\x10\n" +
-	"\x03err\x18\x03 \x01(\tR\x03err*\xad\x01\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err\"f\n" +
+	"\x10SyncIndexRequest\x12!\n" +
+	"\fpublisher_id\x18\x01 \x01(\fR\vpublisherId\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\x03 \x01(\x03R\tupdatedAt\"5\n" +
+	"\x11SyncIndexResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
+	"\x03err\x18\x02 \x01(\tR\x03err*\xc0\x01\n" +
 	"\x02Op\x12\x0e\n" +
 	"\n" +
 	"OP_UNKNOWN\x10\x00\x12\f\n" +
@@ -1396,7 +1528,9 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"OP_CONNECT\x10\x06\x12\x13\n" +
 	"\x0fOP_DELETE_INDEX\x10\a\x12\x10\n" +
 	"\fOP_FIND_NODE\x10\b\x12\x11\n" +
-	"\rOP_FIND_VALUE\x10\t*F\n" +
+	"\rOP_FIND_VALUE\x10\t\x12\x11\n" +
+	"\rOP_SYNC_INDEX\x10\n" +
+	"*F\n" +
 	"\bNodeType\x12\x0e\n" +
 	"\n" +
 	"NT_UNKNOWN\x10\x00\x12\v\n" +
@@ -1417,7 +1551,7 @@ func file_proto_dhtpb_dht_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_dhtpb_dht_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_proto_dhtpb_dht_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_proto_dhtpb_dht_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_proto_dhtpb_dht_proto_goTypes = []any{
 	(Op)(0),                     // 0: dhtpb.Op
 	(NodeType)(0),               // 1: dhtpb.NodeType
@@ -1440,12 +1574,14 @@ var file_proto_dhtpb_dht_proto_goTypes = []any{
 	(*NodeContact)(nil),         // 18: dhtpb.NodeContact
 	(*FindNodeRequest)(nil),     // 19: dhtpb.FindNodeRequest
 	(*FindNodeResponse)(nil),    // 20: dhtpb.FindNodeResponse
+	(*SyncIndexRequest)(nil),    // 21: dhtpb.SyncIndexRequest
+	(*SyncIndexResponse)(nil),   // 22: dhtpb.SyncIndexResponse
 }
 var file_proto_dhtpb_dht_proto_depIdxs = []int32{
 	0,  // 0: dhtpb.Envelope.op:type_name -> dhtpb.Op
 	1,  // 1: dhtpb.Envelope.node_type:type_name -> dhtpb.NodeType
 	18, // 2: dhtpb.FindValueResponse.peers:type_name -> dhtpb.NodeContact
-	9,  // 3: dhtpb.StoreIndexRequest.entry:type_name -> dhtpb.IndexEntry
+	9,  // 3: dhtpb.StoreIndexRequest.entries:type_name -> dhtpb.IndexEntry
 	9,  // 4: dhtpb.FindIndexResponse.entries:type_name -> dhtpb.IndexEntry
 	18, // 5: dhtpb.FindIndexResponse.peers:type_name -> dhtpb.NodeContact
 	1,  // 6: dhtpb.NodeContact.node_type:type_name -> dhtpb.NodeType
@@ -1468,7 +1604,7 @@ func file_proto_dhtpb_dht_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_dhtpb_dht_proto_rawDesc), len(file_proto_dhtpb_dht_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   19,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
