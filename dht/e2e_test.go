@@ -229,7 +229,7 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 
 	//next explicitly delete one of the index entries via node 1 (here the index source(i.e key) and top-level key happen to be the same.
 	fmt.Printf("Calling delete on node: %x", n1.ID)
-	if err := n1.DeleteIndex(key, key); err != nil {
+	if err := n1.DeleteIndex(key, key, false); err != nil {
 		t.Fatalf("Error occurred whilst deleting index entry '%s': %v", key, err)
 	}
 
@@ -289,7 +289,7 @@ func Test_Create_And_Delete_Index_Entry_Value_With_Non_Existent_Key(t *testing.T
 
 	//next explicitly delete one of the index entries via node 1
 	//NB: We ensure we pass in an erroneous key
-	if err := n1.DeleteIndex("wrong key", key); err == nil {
+	if err := n1.DeleteIndex("wrong key", key, false); err == nil {
 		t.Fatalf("expected error to occur whilst deleting non existence index entry: %s", key)
 	}
 
@@ -338,7 +338,7 @@ func Test_Create_And_Delete_Index_Entry_Value_With_PublisherId_Mismatch(t *testi
 	//next attempt to explicitly delete either of the index entries by node 3, this should fail
 	//as node 3 is not the original publisher of either entry and thus its publisher id will not match
 	//either of the stored entries.
-	if err := n3.DeleteIndex(key, key); err == nil {
+	if err := n3.DeleteIndex(key, key, false); err == nil {
 		t.Fatalf("expected error to occur whilst deleting index entry with missmatching publisher id: %s", key)
 	} else {
 		t.Log("Error occurred as expected", err)
