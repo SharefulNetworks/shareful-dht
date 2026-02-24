@@ -23,7 +23,7 @@ message DeleteIndexResponse {bool ok = 1;string err = 2;}
 message NodeContact {bytes node_id = 1;string addr   = 2; NodeType node_type = 3;}
 message FindNodeRequest {bytes node_id = 1;}
 message FindNodeResponse {bool ok = 1; repeated NodeContact peers = 2; string err = 3;}
-message SyncIndexRequest {bytes publisher_id = 1;string key = 2; int64 updated_at = 3;}
+message SyncIndexRequest {bytes publisher_id = 1;string key = 2; string index_source = 3; int64 updated_at = 4; bool index_deleted = 5;}
 message SyncIndexResponse {bool ok = 1;string err = 2;}
 
 

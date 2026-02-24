@@ -1314,7 +1314,9 @@ type SyncIndexRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PublisherId   []byte                 `protobuf:"bytes,1,opt,name=publisher_id,json=publisherId,proto3" json:"publisher_id,omitempty"`
 	Key           string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
-	UpdatedAt     int64                  `protobuf:"varint,3,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	IndexSource   string                 `protobuf:"bytes,3,opt,name=index_source,json=indexSource,proto3" json:"index_source,omitempty"`
+	UpdatedAt     int64                  `protobuf:"varint,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	IndexDeleted  bool                   `protobuf:"varint,5,opt,name=index_deleted,json=indexDeleted,proto3" json:"index_deleted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1363,11 +1365,25 @@ func (x *SyncIndexRequest) GetKey() string {
 	return ""
 }
 
+func (x *SyncIndexRequest) GetIndexSource() string {
+	if x != nil {
+		return x.IndexSource
+	}
+	return ""
+}
+
 func (x *SyncIndexRequest) GetUpdatedAt() int64 {
 	if x != nil {
 		return x.UpdatedAt
 	}
 	return 0
+}
+
+func (x *SyncIndexRequest) GetIndexDeleted() bool {
+	if x != nil {
+		return x.IndexDeleted
+	}
+	return false
 }
 
 type SyncIndexResponse struct {
@@ -1507,12 +1523,14 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\x10FindNodeResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12(\n" +
 	"\x05peers\x18\x02 \x03(\v2\x12.dhtpb.NodeContactR\x05peers\x12\x10\n" +
-	"\x03err\x18\x03 \x01(\tR\x03err\"f\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err\"\xae\x01\n" +
 	"\x10SyncIndexRequest\x12!\n" +
 	"\fpublisher_id\x18\x01 \x01(\fR\vpublisherId\x12\x10\n" +
-	"\x03key\x18\x02 \x01(\tR\x03key\x12\x1d\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12!\n" +
+	"\findex_source\x18\x03 \x01(\tR\vindexSource\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x03 \x01(\x03R\tupdatedAt\"5\n" +
+	"updated_at\x18\x04 \x01(\x03R\tupdatedAt\x12#\n" +
+	"\rindex_deleted\x18\x05 \x01(\bR\findexDeleted\"5\n" +
 	"\x11SyncIndexResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
 	"\x03err\x18\x02 \x01(\tR\x03err*\xc0\x01\n" +
