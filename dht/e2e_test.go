@@ -3348,6 +3348,73 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes
 
 }
 
+func Test_Full_Network_Index_Entry_And_Validate_Sync(t *testing.T) {
+
+	
+	/*
+		For the purposes we will create a set of nodes and select
+		two nodes which will not be permitted to reference one another
+		as part of their replica set when storing entries. To do this
+		we blacklist each of the selected nodes from one another. We then
+		store a new Index Record to each node, with the SAME key.
+
+		We then  validate synchronization by confirming that each node
+		has a copy of the others IndexEntry, in the Record associated
+		with the key, in their respective local data store. The fact that
+		the two nodes cannot be in eaches respective replica set
+		ensures that they could have only have learnt of each others
+		IndexEntrys via the Index Synchronization mechanism.
+	*/
+
+	//define node addresses for each set
+	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(25000 * time.Millisecond)
+
+	//chose any two nodes and blacklist them from each other to ensure they
+	//cannot be in eaches respective replica set when storing entries.
+	node1 := ctx.BootstrapNodes[0]
+	node2 := ctx.BootstrapNodes[3]
+	node1.AddToBlacklist(node2.Addr)
+	node2.AddToBlacklist(node1.Addr)
+
+	//define shared key
+	key := "leaf/x"
+	node1StoreErr := node1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + node1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	if node1StoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", node1StoreErr)
+	}
+
+	//pause to allow some time for storage op 1 to propergate.
+	//time.Sleep(5000 * time.Millisecond)
+
+	node2StoreErr := node2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + node2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	if node2StoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", node2StoreErr)
+	}
+
+	//pause to allow some time for storage opp 2 to propergate.
+	time.Sleep(20000 * time.Millisecond)
+
+	indexFromNode1,found :=node1.FindIndexLocal(key)
+	if !found || len(indexFromNode1) != 2 {
+		t.Fatalf("Expected node1 data store to equal 2 actual length was: %d", len(indexFromNode1))
+	}
+
+	indexFromNode2,found :=node2.FindIndexLocal(key)
+	if !found || len(indexFromNode2) != 2 {
+		t.Fatalf("Expected node2 data store to equal 2 actual length was: %d", len(indexFromNode2))
+	}
+
+	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
+	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
+
+}
+
 /*****************************************************************************************************************
  *                                     HELPER/UTILITY TYPES AND FUNCTIONS FOR E2E TESTS
  ******************************************************************************************************************/

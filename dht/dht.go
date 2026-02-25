@@ -92,6 +92,7 @@ type Node struct {
 	refreshCount uint64
 	wg           sync.WaitGroup
 	closeOnce    sync.Once
+	blacklist    sync.Map
 }
 
 // NewNode - creates and initializes a new DHT node instance.
@@ -664,6 +665,10 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []IndexEntry, ttl time
 
 	}
 
+	//exclude any blacklisted addresses before clampinng, to ensure we don't
+	//clamp out valid replicas in place of blacklisted ones.
+	reps = n.excludeBlackListedAddr(reps)
+
 	//clamp replicas to the replication factor defined in the prevailing config
 	reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
 
@@ -679,6 +684,7 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []IndexEntry, ttl time
 		e := &entries[i]
 		if e.Publisher == (types.NodeID{}) {
 			e.Publisher = publisherId
+			e.PublisherAddr = n.Addr
 			e.TTL = ttl.Milliseconds()
 			e.UpdatedUnix = time.Now().UnixMilli()
 		}
@@ -697,12 +703,13 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []IndexEntry, ttl time
 	for i := range entries {
 		e := &entries[i]
 		protoBuffEntry := &dhtpb.IndexEntry{
-			Source:      e.Source,
-			Target:      e.Target,
-			Meta:        e.Meta,
-			UpdatedUnix: e.UpdatedUnix,
-			PublisherId: e.Publisher[:],
-			Ttl:         e.TTL,
+			Source:        e.Source,
+			Target:        e.Target,
+			Meta:          e.Meta,
+			UpdatedUnix:   e.UpdatedUnix,
+			PublisherId:   e.Publisher[:],
+			Ttl:           e.TTL,
+			PublisherAddr: e.PublisherAddr,
 		}
 		protoBuffEntries = append(protoBuffEntries, protoBuffEntry)
 	}
@@ -736,12 +743,12 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []IndexEntry, ttl time
 	if !isIndexSyncRelated {
 
 		//wait for a short delay to allow the storage operation to propergate..
-		time.AfterFunc(time.Second*2, func() {
+		//time.AfterFunc(time.Second*2, func() {
 
-			//dispatch sync index request to applicable peers.(i.e. not ourself or those that are part of ths nodes replica set for this record.)
-			n.dispatchSyncIndexRequest(publisherId, indexKey, reps, time.Now(), false, "")
+		//dispatch sync index request to applicable peers.(i.e. not ourself or those that are part of ths nodes replica set for this record.)
+		n.dispatchSyncIndexRequest(publisherId, indexKey, reps, time.Now(), false, "")
 
-		})
+		//})
 
 	} else {
 		fmt.Println("INFO: SYNC RELATED StoreIndexWithTTL CALL, SKIPPING DISPATCH OF SYNC REQUEST.")
@@ -879,11 +886,12 @@ func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 					out := make([]IndexEntry, 0, len(resp.Entries))
 					for _, ie := range resp.Entries {
 						e := IndexEntry{
-							Source:      ie.Source,
-							Target:      ie.Target,
-							Meta:        ie.Meta,
-							UpdatedUnix: ie.UpdatedUnix,
-							TTL:         ie.Ttl,
+							Source:        ie.Source,
+							Target:        ie.Target,
+							Meta:          ie.Meta,
+							UpdatedUnix:   ie.UpdatedUnix,
+							TTL:           ie.Ttl,
+							PublisherAddr: ie.PublisherAddr,
 						}
 						copy(e.Publisher[:], ie.PublisherId[:])
 						out = append(out, e)
@@ -910,11 +918,13 @@ func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 		prev := shortlist
 
 		deadline := time.After(timeout)
+	readLoop:
 		for i := 0; i < len(batch); i++ {
 			select {
 			case r := <-ch:
 				for _, e := range r.ents {
 					merged[e.Source+"\x1f"+e.Target+"\x1f"+e.Publisher.String()] = e
+					//fmt.Printf("\n^^^^^^^^^^^Found node: %s\n", e.PublisherAddr)
 				}
 				for _, np := range r.peers {
 					if np != nil && np.ID != n.ID {
@@ -922,7 +932,7 @@ func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 					}
 				}
 			case <-deadline:
-				break
+				break readLoop
 			}
 		}
 
@@ -946,6 +956,21 @@ func (n *Node) FindIndex(key string) ([]IndexEntry, bool) {
 	out := make([]IndexEntry, 0, len(merged))
 	for _, e := range merged {
 		out = append(out, e)
+	}
+
+	//if out is larger than localFindIndexEntries then this indicates that
+	//we found additional entries over the network and thus we attempt to merge
+	// these new entries to our local record.
+	if len(out) > len(localFindIndexEntries) {
+
+		//we call into our local merge function to attempt to merge the new entries
+		// with our local record, where applicable.
+		mergeErr := n.appendIndexEntriesLocal(key, out, []string{}, n.ID)
+		if mergeErr != nil {
+			fmt.Printf("\nError merging index entries locally: %v\n", mergeErr)
+		} else {
+			fmt.Printf("\nSuccessfully merged %d new entries to local record for key: %s\n", len(out)-len(localFindIndexEntries), key)
+		}
 	}
 
 	return out, true
@@ -1339,6 +1364,19 @@ func (n *Node) GetRoutingTable() *routing.RoutingTable {
 	return n.routingTable
 }
 
+func (n *Node) AddToBlacklist(addr string) {
+	n.blacklist.Store(addr, struct{}{})
+}
+
+func (n *Node) IsBlacklisted(addr string) bool {
+	_, ok := n.blacklist.Load(addr)
+	return ok
+}
+
+func (n *Node) RemoveFromBlacklist(addr string) {
+	n.blacklist.Delete(addr)
+}
+
 // -----------------------------------------------------------------------------
 // DHT Incoming Message Handler (uses makeMessage + encode/decode)
 // -----------------------------------------------------------------------------
@@ -1519,11 +1557,12 @@ func (n *Node) onMessage(from string, data []byte) {
 		if len(r.Entries) > 0 {
 			for _, pbEntry := range r.Entries {
 				entry := IndexEntry{
-					Source:      pbEntry.Source,
-					Target:      pbEntry.Target,
-					Meta:        pbEntry.Meta,
-					UpdatedUnix: pbEntry.UpdatedUnix,
-					TTL:         pbEntry.Ttl,
+					Source:        pbEntry.Source,
+					Target:        pbEntry.Target,
+					Meta:          pbEntry.Meta,
+					UpdatedUnix:   pbEntry.UpdatedUnix,
+					TTL:           pbEntry.Ttl,
+					PublisherAddr: pbEntry.PublisherAddr,
 				}
 				copy(entry.Publisher[:], pbEntry.PublisherId[:])
 
@@ -1570,12 +1609,13 @@ func (n *Node) onMessage(from string, data []byte) {
 			resp.Entries = make([]*dhtpb.IndexEntry, 0, len(ents))
 			for _, e := range ents {
 				resp.Entries = append(resp.Entries, &dhtpb.IndexEntry{
-					Source:      e.Source,
-					Target:      e.Target,
-					Meta:        e.Meta,
-					UpdatedUnix: e.UpdatedUnix,
-					PublisherId: e.Publisher[:],
-					Ttl:         e.TTL,
+					Source:        e.Source,
+					Target:        e.Target,
+					Meta:          e.Meta,
+					UpdatedUnix:   e.UpdatedUnix,
+					PublisherId:   e.Publisher[:],
+					PublisherAddr: e.PublisherAddr,
+					Ttl:           e.TTL,
 				})
 			}
 		} else {
@@ -1738,80 +1778,117 @@ func (n *Node) onMessage(from string, data []byte) {
 		_ = n.transport.Send(fromAddr, msg)
 
 	case OP_SYNC_INDEX:
+		fmt.Printf("\n &&&&&&& RECEIVED SYNC INDEX REQUEST TO NODE: %s FROM NODE @ %s\n", n.Addr, fromAddr)
 		req := &dhtpb.SyncIndexRequest{}
+		var malformedRequestErr error = nil
 		if err := n.decode(payload, req); err != nil {
-			return
+			fmt.Println("An error occurred whilst attempting to decode SyncIndexRequest received from node: " + senderNodeID.String() + " at: " + time.Now().String())
+			malformedRequestErr = fmt.Errorf("malformed request. an error occurred whilst attempting to decode SyncIndexRequest: %w", err)
 		}
 
 		if req.Key == "" {
 			fmt.Println("Received SyncIndexRequest with empty key from node: " + senderNodeID.String() + " at: " + time.Now().String() + " This request will be dropped.")
-			return
+			malformedRequestErr = fmt.Errorf("malformed request. received SyncIndexRequest with empty key from node: %s", senderNodeID.String())
 		}
 
 		if len(req.PublisherId) == 0 {
 			fmt.Println("Received SyncIndexRequest with empty publisher id from node: " + senderNodeID.String() + " at: " + time.Now().String() + " This request will be dropped.")
-			return
+			malformedRequestErr = fmt.Errorf("malformed request. received SyncIndexRequest with empty publisher id from node: %s", senderNodeID.String())
+
 		}
 
-		//if this SyncIndexRequest was received in respect of a delete operation
-		if req.IndexDeleted {
-
-			deletionErr := n.DeleteIndex(req.Key, req.IndexSource, true, req.PublisherId...)
-
+		//if the request was malformed in some way we abort processing and return an error.
+		if malformedRequestErr != nil {
 			var resp *dhtpb.SyncIndexResponse
-			if deletionErr != nil {
-				fmt.Printf("Failed to process SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), deletionErr)
-				resp = &dhtpb.SyncIndexResponse{Ok: false, Err: deletionErr.Error()}
-			} else {
-				fmt.Printf("Successfully processed SyncIndexRequest for index with key: %s from node: %s at: %s", req.Key, senderNodeID.String(), time.Now().String())
-				resp = &dhtpb.SyncIndexResponse{Ok: true, Err: ""}
-			}
-
+			fmt.Printf("Failed to process SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), malformedRequestErr)
+			resp = &dhtpb.SyncIndexResponse{Ok: false, Err: malformedRequestErr.Error()}
 			b, _ := n.encode(resp)
 			msg, _ := n.cd.Wrap(OP_SYNC_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
 			_ = n.transport.Send(fromAddr, msg)
 			return
 
+		}
+
+		/*
+				IMPORTANT: HERE WE MERELY **SCHEDULE** EXECUTION OF THE SYNCHRONIZATION ROUTINE
+			    AND RETURN IMMEDIATELY, THIS IS VITAL AS SYNCHRONIZATION WILL NESSISTATE AS SERIES
+				OF ADDITIONAL NETWORK LOOKUPS. THUS ANY RETURNED SUCCESS RESPONSE MERELY INDICATES THAT
+			    THE SYNC REQUEST WAS RECEIVED! IT WILL NOT PROVIDE ANY GURANTEES THAT THE SYNC
+				ROUTINE ITSLEF WAS SUCCESFULLY EXECUTED; IT IS ASSUMED THAT INDEXS RECORDS WILL BE
+				EVENTUALLY CONSISTENT.
+		*/
+
+		//if this SyncIndexRequest was received in respect of a delete operation
+		if req.IndexDeleted {
+
+			time.AfterFunc(250*time.Millisecond, func() {
+
+				deletionErr := n.DeleteIndex(req.Key, req.IndexSource, true, req.PublisherId...)
+
+				var resp *dhtpb.SyncIndexResponse
+				if deletionErr != nil {
+					fmt.Printf("Failed to process SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), deletionErr)
+					resp = &dhtpb.SyncIndexResponse{Ok: false, Err: deletionErr.Error()}
+				} else {
+					fmt.Printf("Successfully processed SyncIndexRequest for index with key: %s from node: %s at: %s", req.Key, senderNodeID.String(), time.Now().String())
+					resp = &dhtpb.SyncIndexResponse{Ok: true, Err: ""}
+				}
+
+				b, _ := n.encode(resp)
+				msg, _ := n.cd.Wrap(OP_SYNC_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
+				_ = n.transport.Send(fromAddr, msg)
+
+			})
+
 		} else {
 
-			//receipt of this request indicates that an index to which we are subscribed,as a publisher,
-			//has been mutated (i.e an entry has been added, updated or deleted) on another node.
-			//thus we will want to:
-			// 1) Pull the updated index record (value) from the network
-			updatedIndexRecEntries, found := n.FindIndex(req.Key)
-			if !found {
-				fmt.Printf("Received SyncIndexRequest for index with key: %s but failed to find the index record on the network. This may indicate that the record has been deleted or that there was an error during the lookup process.", req.Key)
-				return
-			}
+			//Receipt of this request indicates that an index to which we are subscribed,as a publisher,
+			//has been mutated (i.e an entry has been added or updated).
+			time.AfterFunc(time.Millisecond*250, func() {
 
-			// 2) Write its updated value to our local store AND also propogate the update to the replica set
-			// for this index (nearest K nodes to the index key), our public interface StoreIndexWithTTL will
-			// implicitly handle this.
-			nodeID, err := types.NodeIDFromBytes(req.PublisherId)
-			if err != nil {
-				fmt.Printf("Failed to parse publisher NodeID from SyncIndexRequest: %v", err)
-				return
-			}
-			ttl := n.cfg.DefaultIndexEntryTTL
-			//NOTE: We set isIndexSyncRelated to true to inidicate that this store operation is being performed as part of
-			//the processing of a SyncIndexRequest, this will ensure that we do not trigger another round of syncs
-			//calls to other nodes/publisher associated with this index which would result in an infinite loop of sync calls across
-			//the network.
-			storeErr := n.StoreIndexWithTTL(req.Key, updatedIndexRecEntries, ttl, nodeID, false, true)
+				// 1) Pull the updated index record (value) from the network
+				var processingErr error = nil
+				updatedIndexRecEntries, found := n.FindIndex(req.Key)
+				if !found {
+					fmt.Printf("Received SyncIndexRequest for index with key: %s but failed to find the index record on the network. This may indicate that the record has been deleted or that there was an error during the lookup process.", req.Key)
+					processingErr = fmt.Errorf("failed to find index record on the network for key: %s", req.Key)
+				}
 
-			//build and send response to requester to acknowledge receipt of the SyncIndexRequest and
-			// the result of processing it (success or failure)
+				// 2) Write its updated value to our local store AND also propogate the update to the replica set
+				// for this index (nearest K nodes to the index key), our public interface StoreIndexWithTTL will
+				// implicitly handle this.
+				nodeID, err := types.NodeIDFromBytes(req.PublisherId)
+				if err != nil {
+					fmt.Printf("Failed to parse publisher NodeID from SyncIndexRequest: %v", err)
+					processingErr = fmt.Errorf("failed to parse publisher NodeID from SyncIndexRequest: %w", err)
+				}
+				ttl := n.cfg.DefaultIndexEntryTTL
+				//NOTE: We set isIndexSyncRelated to true to inidicate that this store operation is being performed as part of
+				//the processing of a SyncIndexRequest, this will ensure that we do not trigger another round of syncs
+				//calls to other nodes/publisher associated with this index which would result in an infinite loop of sync calls across
+				//the network.
+				processingErr = n.StoreIndexWithTTL(req.Key, updatedIndexRecEntries, ttl, nodeID, false, true)
+
+				//just log any processing errors.
+				if processingErr != nil {
+					fmt.Printf("Failed to process SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
+
+				} else {
+					fmt.Printf("Successfully processed SyncIndexRequest for index with key: %s from node: %s at: %s", req.Key, senderNodeID.String(), time.Now().String())
+
+				}
+
+			})
+
+			//we ALWAYS return a success response to indicate that the SyncIndexRequest was received
+			// and that the synchronization process has been scheduled, we do not wait for the
+			// synchronization process to complete, which may take some time.
 			var resp *dhtpb.SyncIndexResponse
-			if storeErr != nil {
-				fmt.Printf("Failed to process SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), storeErr)
-				resp = &dhtpb.SyncIndexResponse{Ok: false, Err: storeErr.Error()}
-			} else {
-				fmt.Printf("Successfully processed SyncIndexRequest for index with key: %s from node: %s at: %s", req.Key, senderNodeID.String(), time.Now().String())
-				resp = &dhtpb.SyncIndexResponse{Ok: true, Err: ""}
-			}
+			resp = &dhtpb.SyncIndexResponse{Ok: true, Err: ""}
 
 			b, _ := n.encode(resp)
 			msg, _ := n.cd.Wrap(OP_SYNC_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
+			fmt.Printf("\n &&&&&&& SENDING SYNC INDEX RESPONSE TO NODE @ %s\n", fromAddr)
 			_ = n.transport.Send(fromAddr, msg)
 			return
 		}
@@ -2050,13 +2127,18 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 
 	fmt.Printf("\n Dispatching Sync Index request for index record with key: %s published by: %s at: %s is deleted: %t\n", key, publisherId.String(), updatedAt.String(), indexDeleted)
 
-	//first re-pull the IndexRecord (or more specifically its value) from the
+	//first grab all entries related to this key from our local store
+	localFindIndexEntries, localFindIndexOk := n.FindIndexLocal(key)
+
+	//next re-pull the IndexRecord (or more specifically its value) from the
 	//network to ensure we obtain the most up=to-date copy complete with all associated publishers.
 	refetchedEntries, found := n.FindIndex(key)
 	if !found {
 		fmt.Printf("An error occurred during the post update notification process, the updated index record could not be refetched from the network with key: %s", key)
 		return
 	}
+
+	fmt.Printf("Refetched Index Entries for key: %s on node:%s %v\n", key, n.Addr, refetchedEntries)
 
 	//iterate over the returned entries to parse publishers who are candidates for the sync notifications
 	//the peers must not be ourselve or be in the replica set we just propergated the storage to, as they will
@@ -2074,18 +2156,37 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 		syncIndexCandidateAddresses = append(syncIndexCandidateAddresses, curEntryPublisherAddr)
 	}
 
+	//build request
+	reqAny, _ := n.makeMessage(OP_SYNC_INDEX)
+	r := reqAny.(*dhtpb.SyncIndexRequest)
+	r.PublisherId = publisherId[:]
+	r.Key = key
+	r.IndexDeleted = indexDeleted
+	r.IndexSource = deletedIndexSource
+
+	fmt.Printf("\nCandidate Addresses: %v\n", syncIndexCandidateAddresses)
+
 	//dispatch SyncIndexRequest to each of the candidates to prompt them to pull in the latest version of the record.
 	for _, candidateAddr := range syncIndexCandidateAddresses {
-		reqAny, _ := n.makeMessage(OP_SYNC_INDEX)
-		r := reqAny.(*dhtpb.SyncIndexRequest)
-		r.PublisherId = publisherId[:]
-		r.Key = key
-		r.IndexDeleted = indexDeleted
-		r.IndexSource = deletedIndexSource
 
+		fmt.Println("****SENDING REQUEST**")
+		fmt.Printf("All candidates length: %d\n", len(syncIndexCandidateAddresses))
 		if _, err := n.sendRequest(candidateAddr, OP_SYNC_INDEX, reqAny); err != nil {
-			fmt.Printf("An error occurred during the post index record storage, sync process, the candidate peer: %s could not be notified of the update.", candidateAddr)
+			fmt.Printf("An error occurred during the post index record storage, sync process, the candidate peer: %s could not be notified of the update on node: %s the error was: %v\n", candidateAddr, n.Addr, err)
 		}
+	}
+
+	//finally where this sync DOES NOT relate to a deletion, we also want to propergate
+	//any newly discovered entries (returned in the call to FindIndex) to THIS nodes replica set.
+	//The FindIndex call would have implicitly taken care of merging these entries into our
+	//local store.
+	if !indexDeleted {
+		if localFindIndexOk &&
+			len(localFindIndexEntries) < len(refetchedEntries) {
+			fmt.Printf("New entries discovered for index with key: %s on node: %s during sync process, propergating to replica set by executing StoreIndexWithTTL \n", key, n.Addr)
+			n.StoreIndexWithTTL(key, refetchedEntries, n.cfg.DefaultIndexEntryTTL, n.ID, false, true) //We pass in TRUE to indicste the storage is "index Related" to prevent triggering another round of syncs which would result in an infinite loop.
+		}
+
 	}
 }
 
@@ -2364,6 +2465,17 @@ func (n *Node) nodeContactsToPeers(nodeContacts []*dhtpb.NodeContact) []*routing
 		peers = append(peers, &routing.Peer{ID: id, Addr: nc.Addr})
 	}
 	return peers
+}
+
+func (n *Node) excludeBlackListedAddr(addrs []string) []string {
+	filtered := addrs[:0]
+	for _, addr := range addrs {
+		if n.IsBlacklisted(addr) {
+			continue
+		}
+		filtered = append(filtered, addr)
+	}
+	return filtered
 }
 
 func (n *Node) janitor() {
