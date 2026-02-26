@@ -3348,7 +3348,7 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes
 
 }
 
-func Test_Full_Network_Index_Entry_And_Validate_Sync(t *testing.T) {
+func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 
 	
 	/*
@@ -3372,11 +3372,15 @@ func Test_Full_Network_Index_Entry_And_Validate_Sync(t *testing.T) {
 	//init nodes
 	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
 
-	//allow sufficient time for the bootstrap process to complete.
-	time.Sleep(25000 * time.Millisecond)
+	//slightly alter the default config to extend the sync delay, this will allow us
+	//to verify that the pair of nodes that we select are NOT in each others replica set
+	//prior to the synchronization process.
+	ctx.Config.IndexRecordSyncDelay = 40 * time.Second
 
-	//chose any two nodes and blacklist them from each other to ensure they
-	//cannot be in eaches respective replica set when storing entries.
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//chose any two nodes.
 	node1 := ctx.BootstrapNodes[0]
 	node2 := ctx.BootstrapNodes[3]
 	node1.AddToBlacklist(node2.Addr)
@@ -3384,28 +3388,43 @@ func Test_Full_Network_Index_Entry_And_Validate_Sync(t *testing.T) {
 
 	//define shared key
 	key := "leaf/x"
+
 	node1StoreErr := node1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + node1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if node1StoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", node1StoreErr)
 	}
 
-	//pause to allow some time for storage op 1 to propergate.
-	//time.Sleep(5000 * time.Millisecond)
+	fmt.Printf("\nNode 1 peer list: %v\n", node1.ListPeerAddresses())
 
 	node2StoreErr := node2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + node2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if node2StoreErr != nil {
+
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", node2StoreErr)
 	}
 
-	//pause to allow some time for storage opp 2 to propergate.
-	time.Sleep(20000 * time.Millisecond)
+	fmt.Printf("\nNode 2 peer list: %v\n", node2.ListPeerAddresses())
 
-	indexFromNode1,found :=node1.FindIndexLocal(key)
+	//wait for approx half of the sync delay before validating that the nodes are not in
+	//each other replica set, post the storage operation.
+	if slices.Contains(node1.ListPeerAddresses(), node2.Addr) {
+		fmt.Printf("\nNode 1 peer list INSIDE: %v\n", node1.ListPeerAddresses())
+		t.Fatalf("Node 1 peer list should NOT contain Node 2 but it does, peer list: %v", node1.ListPeerAddresses())
+	}
+
+	if slices.Contains(node2.ListPeerAddresses(), node1.Addr) {
+		fmt.Printf("\nNode 2 peer list INSIDE: %v\n", node2.ListPeerAddresses())
+		t.Fatalf("Node 2 peer list should NOT contain Node 1 but it does, peer list: %v", node2.ListPeers())
+	}
+
+	//pause to allow some time for storage opp 2 to propergate.
+	time.Sleep(20000*time.Millisecond + ctx.Config.IndexRecordSyncDelay)
+
+	indexFromNode1, found := node1.FindIndexLocal(key)
 	if !found || len(indexFromNode1) != 2 {
 		t.Fatalf("Expected node1 data store to equal 2 actual length was: %d", len(indexFromNode1))
 	}
 
-	indexFromNode2,found :=node2.FindIndexLocal(key)
+	indexFromNode2, found := node2.FindIndexLocal(key)
 	if !found || len(indexFromNode2) != 2 {
 		t.Fatalf("Expected node2 data store to equal 2 actual length was: %d", len(indexFromNode2))
 	}

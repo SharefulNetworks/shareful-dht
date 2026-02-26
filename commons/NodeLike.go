@@ -15,4 +15,9 @@ type NodeLike interface {
 	//FindRaw - Attempts to look value associated with the provided raw NodeID Key in the DHT
 	FindRaw(key types.NodeID) ([]byte, bool)
 
+	//GetAddress - Returns the network address of this node.
+	GetAddress() string
+
+	//GetID - Returns the ID of this node.
+	GetID() types.NodeID
 }

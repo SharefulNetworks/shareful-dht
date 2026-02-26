@@ -55,6 +55,7 @@ func (rt *RoutingTable) BucketFor(id types.NodeID) (int, *KBucket) {
 // (by shifting all entries to the left by one) then the new value is
 // appended to the now vacant last index in the bucket.
 func (rt *RoutingTable) Update(id types.NodeID, addr string) {
+	//fmt.Printf("\nNode: %s adding peer with ID: %s and address: %s to routing table. The call graph that lead to this call was: %s \n", rt.nodeLike.GetAddress(), id.String(), addr, debug.Stack())
 	i := rt.bucketIndex(rt.self, id)
 	if i < 0 {
 		return
@@ -130,7 +131,7 @@ func (rt *RoutingTable) Remove(id types.NodeID) bool {
 	}
 
 	if targetRemovalIndex >= 0 {
-		b.Remove(targetRemovalIndex)
+		removed = b.Remove(targetRemovalIndex)
 	}
 
 	return removed

@@ -205,6 +205,10 @@ func (n *Node) Shutdown() {
 }
 
 func (n *Node) AddPeer(addr string, id types.NodeID) {
+	if n.IsBlacklisted(addr) {
+		fmt.Printf("\nUnable to add peer, its address: %s is currently black listed\n ", addr)
+		return
+	}
 	n.routingTable.Update(id, addr)
 }
 
@@ -409,7 +413,7 @@ func (n *Node) Find(key string) ([]byte, bool) {
 	failCount := make(map[types.NodeID]int, len(shortlist))
 
 	for _, p := range shortlist {
-		if p == nil || p.Addr == "" || p.ID == n.ID {
+		if p == nil || p.Addr == "" || p.ID == n.ID || n.IsBlacklisted(p.Addr) {
 			continue
 		}
 		seen[p.ID] = p
@@ -582,7 +586,10 @@ func (n *Node) Find(key string) ([]byte, bool) {
 
 				// incorporate returned peers
 				for _, np := range r.peers {
-					if np == nil || np.Addr == "" || np.ID == n.ID {
+					if np == nil || np.Addr == "" || np.ID == n.ID || np.Addr == n.Addr { //|| n.IsBlacklisted(np.Addr) {
+						continue
+					}
+					if n.IsBlacklisted(np.Addr) {
 						continue
 					}
 					n.routingTable.Update(np.ID, np.Addr)
@@ -646,6 +653,7 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []IndexEntry, ttl time
 
 	//holds our collection of replica addresses
 	var reps []string
+	var blErr error
 
 	if !recomputeReplicas {
 		fmt.Println("Note: local only flag provided: index storage will only be propagated to known nodes in the local routing table.")
@@ -658,19 +666,24 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []IndexEntry, ttl time
 		peers, err := n.lookupK(HashKey(indexKey))
 		if err != nil {
 			fmt.Printf("An error occurred whilst attemptiing to lookup nearest nodes over the network, falling back to local search. the error was: %v", err)
-			reps = n.nearestK(indexKey)
+			reps = n.nearestK(indexKey) //note: we don't blacklist nodes we are ALREADY connected to.
 		} else {
-			reps = n.peersToAddrs(peers)
+			//exclude any blacklisted addresses before clampinng, to ensure we don't
+			//clamp out valid replicas in place of blacklisted ones.
+			reps, blErr = n.excludeBlackListedAddr(peers)
+			if blErr != nil {
+				fmt.Printf("An error occurred whilst attempting to exclude blacklisted addresses from the replica set obtained from the network lookup, the error was: %v. Proceeding with the unfiltered replica set.", blErr)
+				reps = n.peersToAddrs(peers)
+			}
+
 		}
 
 	}
 
-	//exclude any blacklisted addresses before clampinng, to ensure we don't
-	//clamp out valid replicas in place of blacklisted ones.
-	reps = n.excludeBlackListedAddr(reps)
-
 	//clamp replicas to the replication factor defined in the prevailing config
 	reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
+
+	fmt.Printf("\n ££££££££ Node: %s filtered Replica set is: %v\n", n.Addr, reps)
 
 	//NB: where the call to the merge function is being made as a direct result
 	//of a call to StoreIndex we can safely pass in the id of THIS node as the publisher.
@@ -728,6 +741,8 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []IndexEntry, ttl time
 		}
 	}
 
+	fmt.Printf("\n ********Node: %s replicated entry to following nodes %s\n", n.Addr, reps)
+
 	//where at least one error occurred call into our utility to compile
 	//the errors into a single error object and return it.
 	if len(errorsList) > 0 {
@@ -742,13 +757,17 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []IndexEntry, ttl time
 	//we ONLY dispatch this notification where the update is NOT related to an index sync operation.
 	if !isIndexSyncRelated {
 
+		fmt.Printf("\nINFO: Index Record Sync delay set to: %s time scheduled: %s\n", n.cfg.IndexRecordSyncDelay, time.Now().Format("hh:mm"))
+
 		//wait for a short delay to allow the storage operation to propergate..
-		//time.AfterFunc(time.Second*2, func() {
+		time.AfterFunc(n.cfg.IndexRecordSyncDelay, func() {
 
-		//dispatch sync index request to applicable peers.(i.e. not ourself or those that are part of ths nodes replica set for this record.)
-		n.dispatchSyncIndexRequest(publisherId, indexKey, reps, time.Now(), false, "")
+			fmt.Printf("\nINFO: Index Record Sync time executed: %s\n", time.Now().Format("hh:mm"))
 
-		//})
+			//dispatch sync index request to applicable peers.(i.e. not ourself or those that are part of ths nodes replica set for this record.)
+			n.dispatchSyncIndexRequest(publisherId, indexKey, reps, time.Now(), false, "")
+
+		})
 
 	} else {
 		fmt.Println("INFO: SYNC RELATED StoreIndexWithTTL CALL, SKIPPING DISPATCH OF SYNC REQUEST.")
@@ -1090,6 +1109,15 @@ func (n *Node) ListPeerIds() []types.NodeID {
 	return allPeerIds
 }
 
+func (n *Node) ListPeerAddresses() []string {
+	allPeers := n.ListPeers()
+	allPeerAddrs := make([]string, 0)
+	for _, curPeer := range allPeers {
+		allPeerAddrs = append(allPeerAddrs, curPeer.Addr)
+	}
+	return allPeerAddrs
+}
+
 func (n *Node) ListPeerIdsAsStrings() []string {
 	allPeerIds := n.ListPeerIds()
 	allPeerIdStrings := make([]string, 0)
@@ -1300,7 +1328,7 @@ func (n *Node) FindRaw(key types.NodeID) ([]byte, bool) {
 
 				// incorporate returned peers
 				for _, np := range r.peers {
-					if np == nil || np.Addr == "" || np.ID == n.ID {
+					if np == nil || np.Addr == "" || np.ID == n.ID { //|| n.IsBlacklisted(np.Addr) {
 						continue
 					}
 					n.routingTable.Update(np.ID, np.Addr)
@@ -1364,6 +1392,14 @@ func (n *Node) GetRoutingTable() *routing.RoutingTable {
 	return n.routingTable
 }
 
+func (n *Node) GetAddress() string {
+	return n.Addr
+}
+
+func (n *Node) GetID() types.NodeID {
+	return n.ID
+}
+
 func (n *Node) AddToBlacklist(addr string) {
 	n.blacklist.Store(addr, struct{}{})
 }
@@ -1406,7 +1442,13 @@ func (n *Node) onMessage(from string, data []byte) {
 		return
 	}
 
-	//crucially, update our routing table with the sender's details
+	//crucially, update our routing table with the sender's details, providing of course
+	//the node is not on our blacklist.
+	if n.IsBlacklisted(fromAddr) {
+		fmt.Printf("\nNote: Received message from blacklisted node: %s the message will be dropped\n", fromAddr)
+		return
+	}
+
 	n.routingTable.Update(senderNodeID, fromAddr)
 
 	//if this is a response message, look up the pending request channel and queue the payload for processing
@@ -2067,7 +2109,10 @@ func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
 					continue
 				}
 				for _, np := range r.peers {
-					if np == nil || np.Addr == "" || np.ID == n.ID {
+					if np == nil || np.Addr == "" || np.Addr == n.Addr || np.ID == n.ID { //|| n.IsBlacklisted(np.Addr) {
+						continue
+					}
+					if n.IsBlacklisted(np.Addr) {
 						continue
 					}
 					// learn them
@@ -2197,7 +2242,7 @@ func (n *Node) nearestK(key string) []string {
 	addrs := make([]string, 0, len(closest)+1)
 
 	// include self as candidate
-	addrs = append(addrs, n.Addr)
+	//addrs = append(addrs, n.Addr)
 
 	for _, c := range closest {
 		if c.ID == n.ID {
@@ -2449,6 +2494,9 @@ func (n *Node) appendIndexEntriesLocal(key string, newEntries []IndexEntry, reps
 func (n *Node) peersToAddrs(peers []*routing.Peer) []string {
 	addrs := make([]string, 0, len(peers))
 	for _, p := range peers {
+		if p == nil || p.Addr == "" || p.ID == n.ID {
+			continue
+		}
 		addrs = append(addrs, p.Addr)
 	}
 	return addrs
@@ -2467,15 +2515,23 @@ func (n *Node) nodeContactsToPeers(nodeContacts []*dhtpb.NodeContact) []*routing
 	return peers
 }
 
-func (n *Node) excludeBlackListedAddr(addrs []string) []string {
-	filtered := addrs[:0]
-	for _, addr := range addrs {
-		if n.IsBlacklisted(addr) {
+func (n *Node) excludeBlackListedAddr(peers []*routing.Peer) ([]string, error) {
+
+	filtered := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		if peer == nil || peer.Addr == "" || peer.Addr == n.Addr {
 			continue
 		}
-		filtered = append(filtered, addr)
+		if n.IsBlacklisted(peer.Addr) {
+			removed := n.DropPeer(peer.ID) //ensure we also remove any blacklisted peers from our routing table
+			if !removed {
+				return nil, fmt.Errorf("peer with addr: %s was blacklisted but could not be removed from routing table", peer.Addr)
+			}
+			continue
+		}
+		filtered = append(filtered, peer.Addr)
 	}
-	return filtered
+	return filtered, nil
 }
 
 func (n *Node) janitor() {
