@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -651,6 +652,8 @@ func (n *Node) StoreIndex(indexKey string, entries ...IndexEntry) error {
 
 func (n *Node) StoreIndexWithTTL(indexKey string, entries []IndexEntry, ttl time.Duration, publisherId types.NodeID, recomputeReplicas bool, isIndexSyncRelated bool) error {
 
+	fmt.Printf("Call to StoreIndexWithTTL call graph is as follows: %s", debug.Stack())
+
 	//holds our collection of replica addresses
 	var reps []string
 	var blErr error
@@ -683,7 +686,7 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []IndexEntry, ttl time
 	//clamp replicas to the replication factor defined in the prevailing config
 	reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
 
-	fmt.Printf("\n ££££££££ Node: %s filtered Replica set is: %v\n", n.Addr, reps)
+
 
 	//NB: where the call to the merge function is being made as a direct result
 	//of a call to StoreIndex we can safely pass in the id of THIS node as the publisher.
@@ -741,7 +744,7 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []IndexEntry, ttl time
 		}
 	}
 
-	fmt.Printf("\n ********Node: %s replicated entry to following nodes %s\n", n.Addr, reps)
+	fmt.Printf("\nNode: %s replicated entry to following nodes %s\n", n.Addr, reps)
 
 	//where at least one error occurred call into our utility to compile
 	//the errors into a single error object and return it.
@@ -2379,6 +2382,10 @@ func (n *Node) makeMessage(op int) (req any, resp any) {
 
 func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
 	//fmt.Println("Send Request Executed...")
+
+	if n.IsBlacklisted(to) {
+		return nil, fmt.Errorf("Unable to send request,node is blacklisted: %s", to)
+	}
 	b, err := n.encode(payload)
 	if err != nil {
 		return nil, err

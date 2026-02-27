@@ -1,4 +1,4 @@
-package dht
+package dhttests
 
 import (
 	"errors"
@@ -13,6 +13,8 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/netx"
 	"github.com/SharefulNetworks/shareful-dht/types"
+	"github.com/SharefulNetworks/shareful-dht/dht"
+	
 )
 
 /*****************************************************************************************************************
@@ -55,12 +57,12 @@ func Test_Create_And_Find_Index_Entry_Value(t *testing.T) {
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -206,12 +208,12 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -237,7 +239,7 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 	//which should now only contain a single entry
 	time.Sleep(6000 * time.Millisecond)
 	var ok bool
-	var entsPostDelete []IndexEntry
+	var entsPostDelete []dht.IndexEntry
 	entsPostDelete, ok = n2.FindIndex(key)
 
 	fmt.Println("#####Found entries AFTER deletion are: ")
@@ -266,12 +268,12 @@ func Test_Create_And_Delete_Index_Entry_Value_With_Non_Existent_Key(t *testing.T
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -319,12 +321,12 @@ func Test_Create_And_Delete_Index_Entry_Value_With_PublisherId_Mismatch(t *testi
 
 	//store index entries from the first two nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -455,12 +457,12 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 
 	//store index entries from the first two nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -715,7 +717,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry(t *te
 	fmt.Printf("Selected random indexes were: %v", randomlySelectedIndexes)
 
 	//select nodes at the random indexes
-	var randomlySelectedStandardNodes []*Node
+	var randomlySelectedStandardNodes []*dht.Node
 	for _, currentSelIdx := range randomlySelectedIndexes {
 		randomlySelectedStandardNodes = append(randomlySelectedStandardNodes, allStandardNodes[currentSelIdx])
 	}
@@ -845,7 +847,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry(t *testi
 	fmt.Printf("Selected random indexes were: %v", randomlySelectedIndexes)
 
 	//select nodes at the random indexes
-	var randomlySelectedStandardNodes []*Node
+	var randomlySelectedStandardNodes []*dht.Node
 	for _, currentSelIdx := range randomlySelectedIndexes {
 		randomlySelectedStandardNodes = append(randomlySelectedStandardNodes, allStandardNodes[currentSelIdx])
 	}
@@ -859,7 +861,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry(t *testi
 	//randomly selected node as the current index.
 	curIdx := 0
 	for k, v := range *sampleData {
-		randomlySelectedStandardNodes[curIdx].StoreIndex(k, IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
+		randomlySelectedStandardNodes[curIdx].StoreIndex(k, dht.IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
 		curIdx++
 	}
 
@@ -957,13 +959,13 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//such that no selected standard node will have a direct link to the super node
 	//its been paired with. To do this we carefully define the "Compare" and "KeySelector" functions
 	//in the options object.
-	disjointSetOpts := DisjointSetOpts[*Node, string]{
-		Compare: func(a, b *Node) bool { return slices.Contains(b.ListPeerIdsAsStrings(), a.ID.String()) },
-		//KeySelector: func(item *Node) string { return item.ID.String() },
+	disjointSetOpts := DisjointSetOpts[*dht.Node, string]{
+		Compare: func(a, b *dht.Node) bool { return slices.Contains(b.ListPeerIdsAsStrings(), a.ID.String()) },
+		//KeySelector: func(item *dht.Node) string { return item.ID.String() },
 	}
 
 	nodePairingCount := len(ctx.BootstrapNodes)
-	var disjointNodePairings []Pairing[*Node]
+	var disjointNodePairings []Pairing[*dht.Node]
 	var createPairingErr error
 	disjointNodePairings, createPairingErr = CreateDisjointPairings(
 		ctx.BootstrapNodes,
@@ -1043,10 +1045,10 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 		//declare our resolver function which will take a union pairing and make it disjoint
 		//this implementation  will ensure that a standard node does not
 		//contain a bootstrap node in its peer list and vice-versa
-		disjointSetOpts2 := DisjointSetOpts[*Node, string]{
+		disjointSetOpts2 := DisjointSetOpts[*dht.Node, string]{
 
-			Compare: func(a, b *Node) bool { return slices.Contains(b.ListPeerIdsAsStrings(), a.ID.String()) },
-			Resolver: func(unionPairing Pairing[*Node]) Pairing[*Node] {
+			Compare: func(a, b *dht.Node) bool { return slices.Contains(b.ListPeerIdsAsStrings(), a.ID.String()) },
+			Resolver: func(unionPairing Pairing[*dht.Node]) Pairing[*dht.Node] {
 
 				//remove reference to bootstrap node in standard node peer list and vice-versa
 				unionPairing.Node2.DropPeer(unionPairing.Node1.ID)
@@ -1159,13 +1161,13 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Dis
 	//such that no selected standard node will have a direct link to the super node
 	//its been paired with. To do this we carefully define the "Compare" and "KeySelector" functions
 	//in the options object.
-	disjointSetOpts := DisjointSetOpts[*Node, string]{
-		Compare: func(a, b *Node) bool { return slices.Contains(b.ListPeerIdsAsStrings(), a.ID.String()) },
-		//KeySelector: func(item *Node) string { return item.ID.String() },
+	disjointSetOpts := DisjointSetOpts[*dht.Node, string]{
+		Compare: func(a, b *dht.Node) bool { return slices.Contains(b.ListPeerIdsAsStrings(), a.ID.String()) },
+		//KeySelector: func(item *dht.Node) string { return item.ID.String() },
 	}
 
 	nodePairingCount := len(ctx.BootstrapNodes)
-	var disjointNodePairings []Pairing[*Node]
+	var disjointNodePairings []Pairing[*dht.Node]
 	var createPairingErr error
 	disjointNodePairings, createPairingErr = CreateDisjointPairings(
 		ctx.BootstrapNodes,
@@ -1215,7 +1217,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Dis
 			curSampleDataValue := (*sampleData)[curSampleDataKey]
 			curPairing := disjointNodePairings[i] //.Store(k, v)
 			curPairingStandardNode := curPairing.Node2
-			storeErr = curPairingStandardNode.StoreIndex(curSampleDataKey, IndexEntry{Source: curSampleDataKey, Target: string(curSampleDataValue), UpdatedUnix: time.Now().UnixNano()})
+			storeErr = curPairingStandardNode.StoreIndex(curSampleDataKey, dht.IndexEntry{Source: curSampleDataKey, Target: string(curSampleDataValue), UpdatedUnix: time.Now().UnixNano()})
 
 			if storeErr != nil {
 				t.Fatalf("store failed (i=%d, key=%q, node=%s): %v",
@@ -1245,10 +1247,10 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Dis
 		//declare our resolver function which will take a union pairing and make it disjoint
 		//this implementation  will ensure that a standard node does not
 		//contain a bootstrap node in its peer list and vice-versa
-		disjointSetOpts2 := DisjointSetOpts[*Node, string]{
+		disjointSetOpts2 := DisjointSetOpts[*dht.Node, string]{
 
-			Compare: func(a, b *Node) bool { return slices.Contains(b.ListPeerIdsAsStrings(), a.ID.String()) },
-			Resolver: func(unionPairing Pairing[*Node]) Pairing[*Node] {
+			Compare: func(a, b *dht.Node) bool { return slices.Contains(b.ListPeerIdsAsStrings(), a.ID.String()) },
+			Resolver: func(unionPairing Pairing[*dht.Node]) Pairing[*dht.Node] {
 
 				//remove reference to bootstrap node in standard node peer list and vice-versa
 				unionPairing.Node2.DropPeer(unionPairing.Node1.ID)
@@ -1281,7 +1283,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Dis
 		dataKey := sampleDataKeySet[i]
 		dataValue := (*sampleData)[dataKey]
 		pairingBootstrapNode := pairing.Node1
-		var indexEntries []IndexEntry
+		var indexEntries []dht.IndexEntry
 		var ok bool
 
 		queryStart := time.Now()
@@ -1370,7 +1372,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	entryNode, _ := NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
+	entryNode, _ := dht.NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                   //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1413,7 +1415,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	}
 
 	//obtain reference to STANDARD nodes at our randomly selected indexes.
-	randomlySelectedNodes := make([]*Node, 0)
+	randomlySelectedNodes := make([]*dht.Node, 0)
 	for _, currentIdx := range randomlySelectedNodeIndexes {
 		randomlySelectedNodes = append(randomlySelectedNodes, ctx.Nodes[currentIdx])
 	}
@@ -1534,7 +1536,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_One
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	entryNode, _ := NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
+	entryNode, _ := dht.NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                   //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1577,7 +1579,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_One
 	}
 
 	//obtain reference to STANDARD nodes at our randomly selected indexes.
-	randomlySelectedNodes := make([]*Node, 0)
+	randomlySelectedNodes := make([]*dht.Node, 0)
 	for _, currentIdx := range randomlySelectedNodeIndexes {
 		randomlySelectedNodes = append(randomlySelectedNodes, ctx.Nodes[currentIdx])
 	}
@@ -1590,7 +1592,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_One
 	currentCount := 0
 	for k, v := range *sampleData {
 		curNode := randomlySelectedNodes[currentCount]
-		storeErr := curNode.StoreIndex(k, IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
+		storeErr := curNode.StoreIndex(k, dht.IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
 		if storeErr != nil {
 			t.Fatalf("An error occurred whilst attempting to store entry to node at index: %d", currentCount)
 		}
@@ -1702,7 +1704,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	entryNode, _ := NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
+	entryNode, _ := dht.NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                   //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1710,7 +1712,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//ENTRY node created in the immediately preceeding instructions, thereby setting up a single thread of
 	//of interconnectivity from the External node to the Entry node and finally to  the foothold bootstrap node
 	//which should in turn provide the External node with full network reachability.
-	externalNode, _ := NewNode("externalNode", ":1982", netx.NewTCP(), ctx.Config, NT_EXTERNAL)
+	externalNode, _ := dht.NewNode("externalNode", ":1982", netx.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
 	externalNode.Bootstrap([]string{entryNode.Addr}, 7000) //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -1752,7 +1754,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	}
 
 	//obtain reference to STANDARD nodes at our randomly selected indexes.
-	randomlySelectedNodes := make([]*Node, 0)
+	randomlySelectedNodes := make([]*dht.Node, 0)
 	for _, currentIdx := range randomlySelectedNodeIndexes {
 		randomlySelectedNodes = append(randomlySelectedNodes, ctx.Nodes[currentIdx])
 	}
@@ -1873,7 +1875,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Two
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	entryNode, _ := NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
+	entryNode, _ := dht.NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                   //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1881,7 +1883,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Two
 	//ENTRY node created in the immediately preceeding instructions, thereby setting up a single thread of
 	//of interconnectivity from the External node to the Entry node and finally to  the foothold bootstrap node
 	//which should in turn provide the External node with full network reachability.
-	externalNode, _ := NewNode("externalNode", ":1982", netx.NewTCP(), ctx.Config, NT_EXTERNAL)
+	externalNode, _ := dht.NewNode("externalNode", ":1982", netx.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
 	externalNode.Bootstrap([]string{entryNode.Addr}, 7000) //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -1923,7 +1925,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Two
 	}
 
 	//obtain reference to STANDARD nodes at our randomly selected indexes.
-	randomlySelectedNodes := make([]*Node, 0)
+	randomlySelectedNodes := make([]*dht.Node, 0)
 	for _, currentIdx := range randomlySelectedNodeIndexes {
 		randomlySelectedNodes = append(randomlySelectedNodes, ctx.Nodes[currentIdx])
 	}
@@ -1936,7 +1938,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Two
 	currentCount := 0
 	for k, v := range *sampleData {
 		curNode := randomlySelectedNodes[currentCount]
-		storeErr := curNode.StoreIndex(k, IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
+		storeErr := curNode.StoreIndex(k, dht.IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
 		if storeErr != nil {
 			t.Fatalf("An error occurred whilst attempting to store entry to node at index: %d", currentCount)
 		}
@@ -2084,7 +2086,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry(t *tes
 	fmt.Printf("Selected random indexes for storage were: %v", randomlySelectedIndexes)
 
 	//select nodes at the random indexes
-	var randomlySelectedStandardNodes []*Node
+	var randomlySelectedStandardNodes []*dht.Node
 	for _, currentSelIdx := range randomlySelectedIndexes {
 		randomlySelectedStandardNodes = append(randomlySelectedStandardNodes, allStandardNodes[currentSelIdx])
 	}
@@ -2125,7 +2127,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry(t *tes
 	fmt.Printf("Selected random indexes for find were: %v", randomlySelectedIndexesForFind)
 
 	//next obtain references to the standard nodes at the selected indexes.
-	var randomlySelectedStandardNodesForFind []*Node
+	var randomlySelectedStandardNodesForFind []*dht.Node
 	for _, currentSelIdx := range randomlySelectedIndexesForFind {
 		randomlySelectedStandardNodesForFind = append(randomlySelectedStandardNodesForFind, allStandardNodes[currentSelIdx])
 	}
@@ -2236,7 +2238,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry(t *testin
 	fmt.Printf("Selected random indexes for storage were: %v", randomlySelectedIndexes)
 
 	//select nodes at the random indexes
-	var randomlySelectedStandardNodes []*Node
+	var randomlySelectedStandardNodes []*dht.Node
 	for _, currentSelIdx := range randomlySelectedIndexes {
 		randomlySelectedStandardNodes = append(randomlySelectedStandardNodes, allStandardNodes[currentSelIdx])
 	}
@@ -2250,7 +2252,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry(t *testin
 	//randomly selected node as the current index.
 	curIdx := 0
 	for k, v := range *sampleData {
-		storageErr := randomlySelectedStandardNodes[curIdx].StoreIndex(k, IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
+		storageErr := randomlySelectedStandardNodes[curIdx].StoreIndex(k, dht.IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
 		if storageErr != nil {
 			t.Fatalf("Failed to store entry with key: %s and value: %s on standard node: %s", k, v, randomlySelectedStandardNodes[curIdx].ID)
 		}
@@ -2277,7 +2279,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry(t *testin
 	fmt.Printf("Selected random indexes for find were: %v", randomlySelectedIndexesForFind)
 
 	//next obtain references to the standard nodes at the selected indexes.
-	var randomlySelectedStandardNodesForFind []*Node
+	var randomlySelectedStandardNodesForFind []*dht.Node
 	for _, currentSelIdx := range randomlySelectedIndexesForFind {
 		randomlySelectedStandardNodesForFind = append(randomlySelectedStandardNodesForFind, allStandardNodes[currentSelIdx])
 	}
@@ -2358,10 +2360,10 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_O
 
 	//OK next we add two brand new (ENTRY) nodes to the network, however we only connect them to a SINGLE
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
-	entryNode1, _ := NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
+	entryNode1, _ := dht.NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
-	entryNode2, _ := NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, NT_ENTRY)
+	entryNode2, _ := dht.NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -2404,7 +2406,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_O
 	}
 
 	//obtain reference to STANDARD nodes at our randomly selected indexes.
-	randomlySelectedNodes := make([]*Node, 0)
+	randomlySelectedNodes := make([]*dht.Node, 0)
 	for _, currentIdx := range randomlySelectedNodeIndexes {
 		randomlySelectedNodes = append(randomlySelectedNodes, ctx.Nodes[currentIdx])
 	}
@@ -2566,10 +2568,10 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_One_
 
 	//OK next we add two brand new (ENTRY) nodes to the network, however we only connect them to a SINGLE
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
-	entryNode1, _ := NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
+	entryNode1, _ := dht.NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
-	entryNode2, _ := NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, NT_ENTRY)
+	entryNode2, _ := dht.NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -2612,7 +2614,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_One_
 	}
 
 	//obtain reference to STANDARD nodes at our randomly selected indexes.
-	randomlySelectedNodes := make([]*Node, 0)
+	randomlySelectedNodes := make([]*dht.Node, 0)
 	for _, currentIdx := range randomlySelectedNodeIndexes {
 		randomlySelectedNodes = append(randomlySelectedNodes, ctx.Nodes[currentIdx])
 	}
@@ -2625,7 +2627,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_One_
 	currentCount := 0
 	for k, v := range *sampleData {
 		curNode := randomlySelectedNodes[currentCount]
-		storeErr := curNode.StoreIndex(k, IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
+		storeErr := curNode.StoreIndex(k, dht.IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
 		if storeErr != nil {
 			t.Fatalf("An error occurred whilst attempting to store entry to node at index: %d the error was: %v", currentCount, storeErr)
 		}
@@ -2780,17 +2782,17 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 
 	//OK next we add two brand new (ENTRY) nodes to the network, however we only connect them to a SINGLE
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
-	entryNode1, _ := NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
+	entryNode1, _ := dht.NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
-	entryNode2, _ := NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, NT_ENTRY)
+	entryNode2, _ := dht.NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//finally add our EXTERNAL nodes which will bootstrap via the ENTRY nodes created above.
-	externalNode1, _ := NewNode("externalNode1", ":1983", netx.NewTCP(), ctx.Config, NT_EXTERNAL)
+	externalNode1, _ := dht.NewNode("externalNode1", ":1983", netx.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
 	externalNode1.Bootstrap([]string{entryNode1.Addr}, 7000)
-	externalNode2, _ := NewNode("externalNode2", ":1984", netx.NewTCP(), ctx.Config, NT_EXTERNAL)
+	externalNode2, _ := dht.NewNode("externalNode2", ":1984", netx.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
 	externalNode2.Bootstrap([]string{entryNode2.Addr}, 7000)
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -2832,7 +2834,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 	}
 
 	//obtain reference to STANDARD nodes at our randomly selected indexes.
-	randomlySelectedNodes := make([]*Node, 0)
+	randomlySelectedNodes := make([]*dht.Node, 0)
 	for _, currentIdx := range randomlySelectedNodeIndexes {
 		randomlySelectedNodes = append(randomlySelectedNodes, ctx.Nodes[currentIdx])
 	}
@@ -3036,17 +3038,17 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_Two_
 
 	//OK next we add two brand new (ENTRY) nodes to the network, however we only connect them to a SINGLE
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
-	entryNode1, _ := NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, NT_ENTRY)
+	entryNode1, _ := dht.NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
-	entryNode2, _ := NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, NT_ENTRY)
+	entryNode2, _ := dht.NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//finally add our EXTERNAL nodes which will bootstrap via the ENTRY nodes created above.
-	externalNode1, _ := NewNode("externalNode1", ":1983", netx.NewTCP(), ctx.Config, NT_EXTERNAL)
+	externalNode1, _ := dht.NewNode("externalNode1", ":1983", netx.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
 	externalNode1.Bootstrap([]string{entryNode1.Addr}, 7000)
-	externalNode2, _ := NewNode("externalNode2", ":1984", netx.NewTCP(), ctx.Config, NT_EXTERNAL)
+	externalNode2, _ := dht.NewNode("externalNode2", ":1984", netx.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
 	externalNode2.Bootstrap([]string{entryNode2.Addr}, 7000)
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -3088,7 +3090,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_Two_
 	}
 
 	//obtain reference to STANDARD nodes at our randomly selected indexes.
-	randomlySelectedNodes := make([]*Node, 0)
+	randomlySelectedNodes := make([]*dht.Node, 0)
 	for _, currentIdx := range randomlySelectedNodeIndexes {
 		randomlySelectedNodes = append(randomlySelectedNodes, ctx.Nodes[currentIdx])
 	}
@@ -3101,7 +3103,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_Two_
 	currentCount := 0
 	for k, v := range *sampleData {
 		curNode := randomlySelectedNodes[currentCount]
-		storeErr := curNode.StoreIndex(k, IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
+		storeErr := curNode.StoreIndex(k, dht.IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
 		if storeErr != nil {
 			t.Fatalf("An error occurred whilst attempting to store entry to node at index: %d", currentCount)
 		}
@@ -3350,7 +3352,6 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes
 
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 
-	
 	/*
 		For the purposes we will create a set of nodes and select
 		two nodes which will not be permitted to reference one another
@@ -3389,20 +3390,16 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 	//define shared key
 	key := "leaf/x"
 
-	node1StoreErr := node1.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + node1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	node1StoreErr := node1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + node1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if node1StoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", node1StoreErr)
 	}
 
-	fmt.Printf("\nNode 1 peer list: %v\n", node1.ListPeerAddresses())
-
-	node2StoreErr := node2.StoreIndex(key, IndexEntry{Source: key, Target: "super/" + node2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	node2StoreErr := node2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + node2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if node2StoreErr != nil {
 
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", node2StoreErr)
 	}
-
-	fmt.Printf("\nNode 2 peer list: %v\n", node2.ListPeerAddresses())
 
 	//wait for approx half of the sync delay before validating that the nodes are not in
 	//each other replica set, post the storage operation.
@@ -3413,8 +3410,15 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 
 	if slices.Contains(node2.ListPeerAddresses(), node1.Addr) {
 		fmt.Printf("\nNode 2 peer list INSIDE: %v\n", node2.ListPeerAddresses())
-		t.Fatalf("Node 2 peer list should NOT contain Node 1 but it does, peer list: %v", node2.ListPeers())
+		t.Fatalf("Node 2 peer list should NOT contain Node 1 but it does, peer list: %v", node2.ListPeerAddresses())
 	}
+
+	//now we have confirmed that the nodes ARE NOT in each others replica set (as a result of the blacklist)
+	//we wait half the sync delay time and unblacklist the nodes so they are able to exchange
+	//SYNC INDEX messages.
+	time.Sleep(ctx.Config.IndexRecordSyncDelay / 2)
+	node1.RemoveFromBlacklist(node2.Addr)
+	node2.RemoveFromBlacklist(node1.Addr)
 
 	//pause to allow some time for storage opp 2 to propergate.
 	time.Sleep(20000*time.Millisecond + ctx.Config.IndexRecordSyncDelay)
@@ -3424,6 +3428,7 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 		t.Fatalf("Expected node1 data store to equal 2 actual length was: %d", len(indexFromNode1))
 	}
 
+	//look uop entries in local store
 	indexFromNode2, found := node2.FindIndexLocal(key)
 	if !found || len(indexFromNode2) != 2 {
 		t.Fatalf("Expected node2 data store to equal 2 actual length was: %d", len(indexFromNode2))
@@ -3440,9 +3445,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 
 // TestContext is used to hold context info for e2e tests
 type TestContext struct {
-	Nodes          []*Node
+	Nodes          []*dht.Node
 	Config         *config.Config
-	BootstrapNodes []*Node
+	BootstrapNodes []*dht.Node
 }
 
 // NewDefaultTestContext creates a new default test context with two connected nodes
@@ -3458,9 +3463,9 @@ func NewDefaultTestContext(t *testing.T) *TestContext {
 	cfg.JanitorInterval = 10 * time.Second
 
 	//create nodes
-	n1, _ := NewNode("node1", ":9321", netx.NewTCP(), cfg, NT_CORE)
-	n2, _ := NewNode("node2", ":9322", netx.NewTCP(), cfg, NT_CORE)
-	Nodes := []*Node{n1, n2}
+	n1, _ := dht.NewNode("node1", ":9321", netx.NewTCP(), cfg, dht.NT_CORE)
+	n2, _ := dht.NewNode("node2", ":9322", netx.NewTCP(), cfg, dht.NT_CORE)
+	Nodes := []*dht.Node{n1, n2}
 
 	//we now bootstrap via the connect public interface method.
 	if err := n1.Connect(n2.Addr); err != nil {
@@ -3500,14 +3505,14 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, conf *config.Config
 	}
 
 	//attempt to create the requested number of nodes specified via the node count.
-	Nodes := make([]*Node, 0)
+	Nodes := make([]*dht.Node, 0)
 	startingIP := 8999
 	for i := 0; i < nodeCount; i++ {
 		startingIP++
 		nodeIP := startingIP + 1
 		nodeNameStr := "node" + strconv.Itoa(i+1)
 		nodeIpStr := strconv.Itoa(nodeIP)
-		node, _ := NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), cfg, NT_CORE)
+		node, _ := dht.NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), cfg, dht.NT_CORE)
 		Nodes = append(Nodes, node)
 	}
 
@@ -3578,9 +3583,9 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 	}
 
 	//first create and bootstrap the core network (bootstrap) nodes.
-	bootstrapNodes := make([]*Node, 0)
+	bootstrapNodes := make([]*dht.Node, 0)
 	for i, addr := range bootstrapAddresses {
-		bootstrapNode, instantiationErr := NewNode("bootstrapNode"+strconv.Itoa(i), addr, netx.NewTCP(), cfg, NT_CORE)
+		bootstrapNode, instantiationErr := dht.NewNode("bootstrapNode"+strconv.Itoa(i), addr, netx.NewTCP(), cfg, dht.NT_CORE)
 		if instantiationErr != nil {
 			t.Fatalf("Failed to create bootstrap node %d at address %s: %v", i+1, addr, instantiationErr)
 		}
@@ -3590,14 +3595,14 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 	}
 
 	//Next create some STANDARD test nodes.
-	standardNodes := make([]*Node, 0)
+	standardNodes := make([]*dht.Node, 0)
 	startingIP := 8999
 	for i := 0; i < standardNodeCount; i++ {
 		startingIP++
 		nodeIP := startingIP + 1
 		nodeNameStr := "node" + strconv.Itoa(i+1)
 		nodeIpStr := strconv.Itoa(nodeIP)
-		node, instantiationErr := NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), cfg, NT_EXTERNAL)
+		node, instantiationErr := dht.NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), cfg, dht.NT_EXTERNAL)
 		if instantiationErr != nil {
 			t.Fatalf("Failed to create standard node %d at address %s: %v", i+1, ":"+nodeIpStr, instantiationErr)
 		}
@@ -3755,11 +3760,11 @@ func ToDisjoint[T any, K comparable](pairings []Pairing[T], opts DisjointSetOpts
 	return disjointPairings, nil
 }
 
-func ToSparsePairings(pairings []Pairing[*Node], bootstrapNodes []*Node) []Pairing[*Node] {
+func ToSparsePairings(pairings []Pairing[*dht.Node], bootstrapNodes []*dht.Node) []Pairing[*dht.Node] {
 
 	//forward-like, function declaration to allow us to call the fuction recursively.
-	var selectRandomNode func([]*Node, *Node, int, int) (*Node, error)
-	selectRandomNode = func(allNodes []*Node, callerNode *Node, retryCount int, maxRetries int) (*Node, error) {
+	var selectRandomNode func([]*dht.Node, *dht.Node, int, int) (*dht.Node, error)
+	selectRandomNode = func(allNodes []*dht.Node, callerNode *dht.Node, retryCount int, maxRetries int) (*dht.Node, error) {
 
 		selected := rand.Intn(len(bootstrapNodes) - 1)
 
@@ -3810,7 +3815,7 @@ func ToSparsePairings(pairings []Pairing[*Node], bootstrapNodes []*Node) []Pairi
 	return pairings
 }
 
-func IsSparsePairing(pairings []Pairing[*Node]) bool {
+func IsSparsePairing(pairings []Pairing[*dht.Node]) bool {
 
 	for _, pairing := range pairings {
 
