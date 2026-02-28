@@ -11,10 +11,9 @@ import (
 	"time"
 
 	"github.com/SharefulNetworks/shareful-dht/config"
+	"github.com/SharefulNetworks/shareful-dht/dht"
 	"github.com/SharefulNetworks/shareful-dht/netx"
 	"github.com/SharefulNetworks/shareful-dht/types"
-	"github.com/SharefulNetworks/shareful-dht/dht"
-	
 )
 
 /*****************************************************************************************************************
@@ -57,12 +56,12 @@ func Test_Create_And_Find_Index_Entry_Value(t *testing.T) {
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer1StoreIndexErr := n1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -208,12 +207,12 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer1StoreIndexErr := n1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -239,7 +238,7 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 	//which should now only contain a single entry
 	time.Sleep(6000 * time.Millisecond)
 	var ok bool
-	var entsPostDelete []dht.IndexEntry
+	var entsPostDelete []dht.RecordIndexEntry
 	entsPostDelete, ok = n2.FindIndex(key)
 
 	fmt.Println("#####Found entries AFTER deletion are: ")
@@ -268,12 +267,12 @@ func Test_Create_And_Delete_Index_Entry_Value_With_Non_Existent_Key(t *testing.T
 
 	//store entries from both nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer1StoreIndexErr := n1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -321,12 +320,12 @@ func Test_Create_And_Delete_Index_Entry_Value_With_PublisherId_Mismatch(t *testi
 
 	//store index entries from the first two nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer1StoreIndexErr := n1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -457,12 +456,12 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 
 	//store index entries from the first two nodes under the same key
 	key := "leaf/x"
-	peer1StoreIndexErr := n1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer1StoreIndexErr := n1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + n1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer1StoreIndexErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", peer1StoreIndexErr)
 	}
 
-	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	peer2IndexIndexStoreErr := n2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + n2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
 	if peer2IndexIndexStoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", peer2IndexIndexStoreErr)
 	}
@@ -861,7 +860,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry(t *testi
 	//randomly selected node as the current index.
 	curIdx := 0
 	for k, v := range *sampleData {
-		randomlySelectedStandardNodes[curIdx].StoreIndex(k, dht.IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
+		randomlySelectedStandardNodes[curIdx].StoreIndex(k, dht.RecordIndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
 		curIdx++
 	}
 
@@ -1217,7 +1216,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Dis
 			curSampleDataValue := (*sampleData)[curSampleDataKey]
 			curPairing := disjointNodePairings[i] //.Store(k, v)
 			curPairingStandardNode := curPairing.Node2
-			storeErr = curPairingStandardNode.StoreIndex(curSampleDataKey, dht.IndexEntry{Source: curSampleDataKey, Target: string(curSampleDataValue), UpdatedUnix: time.Now().UnixNano()})
+			storeErr = curPairingStandardNode.StoreIndex(curSampleDataKey, dht.RecordIndexEntry{Source: curSampleDataKey, Target: string(curSampleDataValue), UpdatedUnix: time.Now().UnixNano()})
 
 			if storeErr != nil {
 				t.Fatalf("store failed (i=%d, key=%q, node=%s): %v",
@@ -1283,7 +1282,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Dis
 		dataKey := sampleDataKeySet[i]
 		dataValue := (*sampleData)[dataKey]
 		pairingBootstrapNode := pairing.Node1
-		var indexEntries []dht.IndexEntry
+		var indexEntries []dht.RecordIndexEntry
 		var ok bool
 
 		queryStart := time.Now()
@@ -1592,7 +1591,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_One
 	currentCount := 0
 	for k, v := range *sampleData {
 		curNode := randomlySelectedNodes[currentCount]
-		storeErr := curNode.StoreIndex(k, dht.IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
+		storeErr := curNode.StoreIndex(k, dht.RecordIndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
 		if storeErr != nil {
 			t.Fatalf("An error occurred whilst attempting to store entry to node at index: %d", currentCount)
 		}
@@ -1938,7 +1937,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Two
 	currentCount := 0
 	for k, v := range *sampleData {
 		curNode := randomlySelectedNodes[currentCount]
-		storeErr := curNode.StoreIndex(k, dht.IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
+		storeErr := curNode.StoreIndex(k, dht.RecordIndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
 		if storeErr != nil {
 			t.Fatalf("An error occurred whilst attempting to store entry to node at index: %d", currentCount)
 		}
@@ -2252,7 +2251,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry(t *testin
 	//randomly selected node as the current index.
 	curIdx := 0
 	for k, v := range *sampleData {
-		storageErr := randomlySelectedStandardNodes[curIdx].StoreIndex(k, dht.IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
+		storageErr := randomlySelectedStandardNodes[curIdx].StoreIndex(k, dht.RecordIndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
 		if storageErr != nil {
 			t.Fatalf("Failed to store entry with key: %s and value: %s on standard node: %s", k, v, randomlySelectedStandardNodes[curIdx].ID)
 		}
@@ -2627,7 +2626,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_One_
 	currentCount := 0
 	for k, v := range *sampleData {
 		curNode := randomlySelectedNodes[currentCount]
-		storeErr := curNode.StoreIndex(k, dht.IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
+		storeErr := curNode.StoreIndex(k, dht.RecordIndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
 		if storeErr != nil {
 			t.Fatalf("An error occurred whilst attempting to store entry to node at index: %d the error was: %v", currentCount, storeErr)
 		}
@@ -3103,7 +3102,7 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_Two_
 	currentCount := 0
 	for k, v := range *sampleData {
 		curNode := randomlySelectedNodes[currentCount]
-		storeErr := curNode.StoreIndex(k, dht.IndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
+		storeErr := curNode.StoreIndex(k, dht.RecordIndexEntry{Source: k, Target: string(v), UpdatedUnix: time.Now().UnixNano()})
 		if storeErr != nil {
 			t.Fatalf("An error occurred whilst attempting to store entry to node at index: %d", currentCount)
 		}
@@ -3352,6 +3351,7 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes
 
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 
+
 	/*
 		For the purposes we will create a set of nodes and select
 		two nodes which will not be permitted to reference one another
@@ -3376,7 +3376,7 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 	//slightly alter the default config to extend the sync delay, this will allow us
 	//to verify that the pair of nodes that we select are NOT in each others replica set
 	//prior to the synchronization process.
-	ctx.Config.IndexRecordSyncDelay = 40 * time.Second
+	ctx.Config.IndexSyncDelay = 40 * time.Second
 
 	//allow sufficient time for the bootstrap process to complete.
 	time.Sleep(30000 * time.Millisecond)
@@ -3390,12 +3390,12 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 	//define shared key
 	key := "leaf/x"
 
-	node1StoreErr := node1.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + node1.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	node1StoreErr := node1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node1.ID.String(), EnableIndexUpdateEvents: true})
 	if node1StoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", node1StoreErr)
 	}
 
-	node2StoreErr := node2.StoreIndex(key, dht.IndexEntry{Source: key, Target: "super/" + node2.ID.String(), UpdatedUnix: time.Now().UnixNano()})
+	node2StoreErr := node2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node2.ID.String(), EnableIndexUpdateEvents: true})
 	if node2StoreErr != nil {
 
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", node2StoreErr)
@@ -3416,12 +3416,12 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 	//now we have confirmed that the nodes ARE NOT in each others replica set (as a result of the blacklist)
 	//we wait half the sync delay time and unblacklist the nodes so they are able to exchange
 	//SYNC INDEX messages.
-	time.Sleep(ctx.Config.IndexRecordSyncDelay / 2)
+	time.Sleep(ctx.Config.IndexSyncDelay / 2)
 	node1.RemoveFromBlacklist(node2.Addr)
 	node2.RemoveFromBlacklist(node1.Addr)
 
 	//pause to allow some time for storage opp 2 to propergate.
-	time.Sleep(20000*time.Millisecond + ctx.Config.IndexRecordSyncDelay)
+	time.Sleep(20000*time.Millisecond + ctx.Config.IndexSyncDelay)
 
 	indexFromNode1, found := node1.FindIndexLocal(key)
 	if !found || len(indexFromNode1) != 2 {

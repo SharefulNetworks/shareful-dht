@@ -591,16 +591,18 @@ func (x *FindResponse) GetErr() string {
 }
 
 type IndexEntry struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Source        string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
-	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
-	Meta          []byte                 `protobuf:"bytes,3,opt,name=meta,proto3" json:"meta,omitempty"`
-	UpdatedUnix   int64                  `protobuf:"varint,4,opt,name=updated_unix,json=updatedUnix,proto3" json:"updated_unix,omitempty"`
-	PublisherId   []byte                 `protobuf:"bytes,5,opt,name=publisher_id,json=publisherId,proto3" json:"publisher_id,omitempty"`
-	PublisherAddr string                 `protobuf:"bytes,6,opt,name=publisher_addr,json=publisherAddr,proto3" json:"publisher_addr,omitempty"`
-	Ttl           int64                  `protobuf:"varint,7,opt,name=ttl,proto3" json:"ttl,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	Source                  string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	Target                  string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	Meta                    []byte                 `protobuf:"bytes,3,opt,name=meta,proto3" json:"meta,omitempty"`
+	UpdatedUnix             int64                  `protobuf:"varint,4,opt,name=updated_unix,json=updatedUnix,proto3" json:"updated_unix,omitempty"`
+	PublisherId             []byte                 `protobuf:"bytes,5,opt,name=publisher_id,json=publisherId,proto3" json:"publisher_id,omitempty"`
+	PublisherAddr           string                 `protobuf:"bytes,6,opt,name=publisher_addr,json=publisherAddr,proto3" json:"publisher_addr,omitempty"`
+	Ttl                     int64                  `protobuf:"varint,7,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	EnableIndexUpdateEvents bool                   `protobuf:"varint,8,opt,name=enable_index_update_events,json=enableIndexUpdateEvents,proto3" json:"enable_index_update_events,omitempty"`
+	CreatedUnix             int64                  `protobuf:"varint,9,opt,name=created_unix,json=createdUnix,proto3" json:"created_unix,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *IndexEntry) Reset() {
@@ -678,6 +680,20 @@ func (x *IndexEntry) GetPublisherAddr() string {
 func (x *IndexEntry) GetTtl() int64 {
 	if x != nil {
 		return x.Ttl
+	}
+	return 0
+}
+
+func (x *IndexEntry) GetEnableIndexUpdateEvents() bool {
+	if x != nil {
+		return x.EnableIndexUpdateEvents
+	}
+	return false
+}
+
+func (x *IndexEntry) GetCreatedUnix() int64 {
+	if x != nil {
+		return x.CreatedUnix
 	}
 	return 0
 }
@@ -1474,7 +1490,7 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\fFindResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\x12\x10\n" +
-	"\x03err\x18\x03 \x01(\tR\x03err\"\xcf\x01\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err\"\xaf\x02\n" +
 	"\n" +
 	"IndexEntry\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x16\n" +
@@ -1483,7 +1499,9 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\fupdated_unix\x18\x04 \x01(\x03R\vupdatedUnix\x12!\n" +
 	"\fpublisher_id\x18\x05 \x01(\fR\vpublisherId\x12%\n" +
 	"\x0epublisher_addr\x18\x06 \x01(\tR\rpublisherAddr\x12\x10\n" +
-	"\x03ttl\x18\a \x01(\x03R\x03ttl\"\x85\x01\n" +
+	"\x03ttl\x18\a \x01(\x03R\x03ttl\x12;\n" +
+	"\x1aenable_index_update_events\x18\b \x01(\bR\x17enableIndexUpdateEvents\x12!\n" +
+	"\fcreated_unix\x18\t \x01(\x03R\vcreatedUnix\"\x85\x01\n" +
 	"\x11StoreIndexRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12+\n" +
 	"\aentries\x18\x02 \x03(\v2\x11.dhtpb.IndexEntryR\aentries\x12\x15\n" +

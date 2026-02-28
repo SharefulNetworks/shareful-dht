@@ -27,7 +27,8 @@ type Config struct {
 	BucketRefreshInterval                     time.Duration //the duration of time to wait before refreshing buckets in the routing table. This is useful to ensure that the routing table is kept up to date with the current state of the network and to prevent stale entries from accumulating in the routing table over time.
 	BucketRefreshBatchSize                    int           //the number of bucket refresh jobs to process in a single batch. This is useful to prevent overwhelming the network or the node itself with a large number of find operations in scenarios where many buckets require refreshing at the same time.
 	BucketRefreshBatchDelayInterval           time.Duration //the duration of time to wait between processing batches of bucket refresh jobs. This is useful to prevent overwhelming the network or the node itself with a large number of find operations in scenarios where many buckets require refreshing at the same time.
-	IndexRecordSyncDelay                      time.Duration //the duration of time to wait after a successful store index operation before dispatching sync index requests to other peers. This is useful to allow sufficient time for the store operation to propagate and for the publisher's peer list to be updated with any new peers that may have been added as part of the store operation before dispatching sync requests to ensure that applicable peers are included in the sync process.
+	IndexSyncDelay                            time.Duration //the duration of time to wait after a successful store index operation before dispatching sync index requests to other peers. This is useful to allow sufficient time for the store operation to propagate and for the publisher's peer list to be updated with any new peers that may have been added as part of the store operation before dispatching sync requests to ensure that applicable peers are included in the sync process.
+	IndexUpdateEventsEnabled                  bool          //determines whether IndexEntryUpdateEvents are enabled globally, where this is set to FALSE the value defined in the IndexEntry is ignored.
 }
 
 var singletonConfig *Config
@@ -56,7 +57,8 @@ func GetDefaultSingletonInstance() *Config {
 			BucketRefreshInterval:                     15 * time.Minute,
 			BucketRefreshBatchSize:                    10,
 			BucketRefreshBatchDelayInterval:           10 * time.Second,
-			IndexRecordSyncDelay:                      2 * time.Second,
+			IndexSyncDelay:                            2 * time.Second,
+			IndexUpdateEventsEnabled:                  true,
 		}
 	}
 	return singletonConfig
