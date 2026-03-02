@@ -12,6 +12,7 @@ import (
 
 	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/dht"
+	"github.com/SharefulNetworks/shareful-dht/events"
 	"github.com/SharefulNetworks/shareful-dht/netx"
 	"github.com/SharefulNetworks/shareful-dht/types"
 )
@@ -3351,7 +3352,6 @@ func Test_Full_Network_Core_Bootstrap_Nodes_Interconnectivity_And_Standard_Nodes
 
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 
-
 	/*
 		For the purposes we will create a set of nodes and select
 		two nodes which will not be permitted to reference one another
@@ -3381,7 +3381,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 	//allow sufficient time for the bootstrap process to complete.
 	time.Sleep(30000 * time.Millisecond)
 
-	//chose any two nodes.
+	//chose any two nodes, we blacklist them from one another to prevent them
+	//choosing each other as replica set peers. We want to ensure that the nodes
+	//ONLY discover each others entries via the IndexSync mechanism.
 	node1 := ctx.BootstrapNodes[0]
 	node2 := ctx.BootstrapNodes[3]
 	node1.AddToBlacklist(node2.Addr)
@@ -3390,12 +3392,12 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 	//define shared key
 	key := "leaf/x"
 
-	node1StoreErr := node1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node1.ID.String(), EnableIndexUpdateEvents: true})
+	node1StoreErr := node1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node1.ID.String()})
 	if node1StoreErr != nil {
 		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", node1StoreErr)
 	}
 
-	node2StoreErr := node2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node2.ID.String(), EnableIndexUpdateEvents: true})
+	node2StoreErr := node2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node2.ID.String()})
 	if node2StoreErr != nil {
 
 		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", node2StoreErr)
@@ -3433,6 +3435,154 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 	if !found || len(indexFromNode2) != 2 {
 		t.Fatalf("Expected node2 data store to equal 2 actual length was: %d", len(indexFromNode2))
 	}
+
+	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
+	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
+
+}
+
+func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Event_Publication(t *testing.T) {
+
+	/*
+		For the purposes we will create a set of nodes and select
+		two nodes which will not be permitted to reference one another
+		as part of their replica set when storing entries. To do this
+		we blacklist each of the selected nodes from one another. We then
+		store a new Index Record to each node, with the SAME key.
+
+		We then  validate synchronization by confirming that each node
+		has a copy of the others IndexEntry, in the Record associated
+		with the key, in their respective local data store. The fact that
+		the two nodes cannot be in eaches respective replica set
+		ensures that they could have only have learnt of each others
+		IndexEntrys via the Index Synchronization mechanism.
+	*/
+
+	//define node addresses for each set
+	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//slightly alter the default config to extend the sync delay, this will allow us
+	//to verify that the pair of nodes that we select are NOT in each others replica set
+	//prior to the synchronization process.
+	ctx.Config.IndexSyncDelay = 40 * time.Second
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//chose any two nodes, we blacklist them from one another to prevent them
+	//choosing each other as replica set peers. We want to ensure that the nodes
+	//ONLY discover each others entries via the IndexSync mechanism.
+	node1 := ctx.BootstrapNodes[0]
+	node2 := ctx.BootstrapNodes[3]
+	node1.AddToBlacklist(node2.Addr)
+	node2.AddToBlacklist(node1.Addr)
+
+	//register to receive events from both nodes, via our test node event listener which will simply
+	//add any received events to an internal queue that we can later query to validate that
+	//events were received to our nodes as expected.
+	node1EventListener := NewTestNodeEventListener()
+	node2EventListener := NewTestNodeEventListener()
+	node1.AppendNodeEventListener("node1", node1EventListener)
+	node2.AppendNodeEventListener("node2", node2EventListener)
+
+	//define shared key
+	key := "leaf/x"
+
+	//store our test index record 1 taking care to set EnableIndexUpdateEvents to true, this will ensure events are published when this index is updated.
+	node1StoreErr := node1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node1.ID.String(), EnableIndexUpdateEvents: true})
+	if node1StoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", node1StoreErr)
+	}
+
+	//store our test index record 2 taking care to set EnableIndexUpdateEvents to true, this will ensure events are published when this index is updated.
+	node2StoreErr := node2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node2.ID.String(), EnableIndexUpdateEvents: true})
+	if node2StoreErr != nil {
+
+		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", node2StoreErr)
+	}
+
+	//wait for approx half of the sync delay before validating that the nodes are not in
+	//each other replica set, post the storage operation.
+	if slices.Contains(node1.ListPeerAddresses(), node2.Addr) {
+		fmt.Printf("\nNode 1 peer list INSIDE: %v\n", node1.ListPeerAddresses())
+		t.Fatalf("Node 1 peer list should NOT contain Node 2 but it does, peer list: %v", node1.ListPeerAddresses())
+	}
+
+	if slices.Contains(node2.ListPeerAddresses(), node1.Addr) {
+		fmt.Printf("\nNode 2 peer list INSIDE: %v\n", node2.ListPeerAddresses())
+		t.Fatalf("Node 2 peer list should NOT contain Node 1 but it does, peer list: %v", node2.ListPeerAddresses())
+	}
+
+	//now we have confirmed that the nodes ARE NOT in each others replica set (as a result of the blacklist)
+	//we wait half the sync delay time and unblacklist the nodes so they are able to exchange
+	//SYNC INDEX messages.
+	time.Sleep(ctx.Config.IndexSyncDelay / 2)
+	node1.RemoveFromBlacklist(node2.Addr)
+	node2.RemoveFromBlacklist(node1.Addr)
+
+	//pause to allow some time for storage opp 2 to propergate.
+	time.Sleep(10000*time.Millisecond + ctx.Config.IndexSyncDelay)
+
+	indexFromNode1, found := node1.FindIndexLocal(key)
+	if !found || len(indexFromNode1) != 2 {
+		t.Fatalf("Expected node1 data store to equal 2 actual length was: %d", len(indexFromNode1))
+	}
+
+	//look uop entries in local store
+	indexFromNode2, found := node2.FindIndexLocal(key)
+	if !found || len(indexFromNode2) != 2 {
+		t.Fatalf("Expected node2 data store to equal 2 actual length was: %d", len(indexFromNode2))
+	}
+
+	time.Sleep(5000 * time.Millisecond)
+	//Next to validate receipt of the events on both nodes we pull the event store
+	//from their respectie listeners. We expect Node1 to have received an event from Node2
+	//and vice versa, indicating that each node received an index update event as a result of
+	//the other nodes store operation and subsequent synchronization.
+	node1Events := node1EventListener.GetReceivedIndexUpdateEvents()
+	node2Events := node2EventListener.GetReceivedIndexUpdateEvents()
+
+
+	//verify node 1 received and Index Update Event from Node 2
+	if len(node1Events) == 0 {
+		t.Fatal("Node 1 did not receive any index update events but was expected to receive at least one.")
+	} else {
+		t.Logf("\nNode 1 received %d index update events\n", len(node1Events))
+	}
+	
+	foundEventFromNode2 := false
+	for _, curNode1Event := range node1Events {
+		fmt.Printf("\n Node: %s Received event from node @: %s\n", node1.Addr, curNode1Event.GetPublisherAddress())
+		if curNode1Event.GetPublisherAddress() == node2.Addr {
+			t.Logf("Node 1 received expected index update event: %v", curNode1Event)
+			foundEventFromNode2 = true
+			break
+		}
+	}
+	if !foundEventFromNode2 {
+		t.Fatal("Node 1 did not receive expected index update event from Node 2")
+	}
+
+	//verify node 2 received and Index Update Event from Node 1
+	if len(node2Events) == 0 {
+		t.Fatal("Node 2 did not receive any index update events but was expected to receive at least one.")
+	}
+
+	foundEventFromNode1 := false
+	for _, curNode2Event := range node2Events {
+		fmt.Printf("\n Node: %s Received event from node @: %s\n", node2.Addr, curNode2Event.GetPublisherAddress())
+		if curNode2Event.GetPublisherAddress() == node1.Addr {
+			t.Logf("Node 2 received expected index update event: %v", curNode2Event)
+			foundEventFromNode1 = true
+			break
+		}
+	}
+	if !foundEventFromNode1 {
+		t.Fatal("Node 2 did not receive expected index update event from Node 1")
+	}	
 
 	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
@@ -3851,4 +4001,24 @@ type Pairing[T any] struct {
 	Node1   T
 	Node2   T
 	DataKey string
+}
+
+// TestNodeEventListener - A simple implementation of the NodeEventListener interface which
+// will add any received IndexUpdateEvents to the receivedIndexUpdateEvents collection
+// for later validation.
+type TestNodeEventListener struct {
+	receivedIndexUpdateEvents []events.IndexUpdateEvent
+}
+
+func (tl *TestNodeEventListener) OnIndexUpdated(event events.IndexUpdateEvent) {
+	//fmt.Printf("\n++++++Appending event to collection: %v", event)
+	tl.receivedIndexUpdateEvents = append(tl.receivedIndexUpdateEvents, event)
+}
+func (tl *TestNodeEventListener) GetReceivedIndexUpdateEvents() []events.IndexUpdateEvent {
+	return tl.receivedIndexUpdateEvents
+}
+func NewTestNodeEventListener() *TestNodeEventListener {
+	return &TestNodeEventListener{
+		receivedIndexUpdateEvents: make([]events.IndexUpdateEvent, 0),
+	}
 }

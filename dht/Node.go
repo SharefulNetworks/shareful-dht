@@ -1400,7 +1400,7 @@ func (n *Node) RemoveFromBlacklist(addr string) {
 // listen for various events that occur within the node, such as the reception of messages,
 // storage of records, etc. Thereby allowing the parent application, making use of the DHT,
 // to undertake application-level operation in response to these events.
-func (n *Node) AppendNodeEventListener(id string, listener events.NodeEventListener[commons.RecordIndexEntryLike]) {
+func (n *Node) AppendNodeEventListener(id string, listener events.NodeEventListener) {
 	n.nodeEventListeners.Store(id, listener)
 }
 
@@ -1920,7 +1920,7 @@ func (n *Node) onMessage(from string, data []byte) {
 					//if index update events are enabled globally and for this key specifically
 					//publish an IndexUpdateEvent to notify listeners that the index has been mutated/updated
 					if n.cfg.IndexUpdateEventsEnabled && n.indexUpdateEventsEnabledForKey(req.Key) {
-						n.publishIndexUpdateEvent(req.Key, updatedIndexRecEntries)
+						n.publishIndexUpdateEvent(req.Key, updatedIndexRecEntries, nodeID, fromAddr)
 					}
 				}
 
@@ -2596,7 +2596,22 @@ func (n *Node) setUpdateEventsEnabled(newIndexEntry *RecordIndexEntry, allIndexE
 //	NOTE: The call to this method schedules the publishing of the event
 //	      on alternate thread/goroutine and returns immediately, thereby
 //	      ensuring event prodution and dispatch does not tie up the main thread.
-func (n *Node) publishIndexUpdateEvent(indexKey string, entries []RecordIndexEntry) {
+func (n *Node) publishIndexUpdateEvent(indexKey string, entries []RecordIndexEntry, publisherId types.NodeID, publisherAddress string) {
+
+	//TODO:GT Delete post debug.
+	/*
+		lstnr1, found1 := n.nodeEventListeners.Load("node1")
+		lstnr2, found2 := n.nodeEventListeners.Load("node2")
+		if found1 {
+			fmt.Printf("\nListener 1 found: %v", lstnr1)
+		}
+		if found2 {
+			fmt.Printf("\nListener 2 found: %v", lstnr2)
+		}
+	*/
+
+	//convert record index entries to record index entries like
+	recordIndexEntryLikeArr := n.toRecordIndexEntriesLike(entries)
 
 	time.AfterFunc(500*time.Millisecond, func() {
 
@@ -2604,17 +2619,20 @@ func (n *Node) publishIndexUpdateEvent(indexKey string, entries []RecordIndexEnt
 
 		n.nodeEventListeners.Range(func(key, value any) bool {
 
-			listener, ok := value.(events.NodeEventListener[RecordIndexEntry])
+			listener, ok := value.(events.NodeEventListener)
 			if !ok {
+				fmt.Printf("\nDEBUG: +++++ Listener type assertion failed,skipping dispatch of Index Update Event for index with key: %s to listener with key: %s\n", indexKey, key)
 				return true
 			}
+
+			fmt.Printf("\nDEBUG: Node: %s is dispatching Index Update Event to listener for index with key: %s to target node: %s\n", n.ID.String(), indexKey, n.Addr)
 
 			//create a new event instance
 			event := events.NewIndexUpdateEvent(
 				indexKey,
-				entries,
-				n.ID.String(),
-				n.Addr,
+				recordIndexEntryLikeArr,
+				publisherId.String(),
+				publisherAddress,
 				time.Now(),
 			)
 
@@ -2631,6 +2649,14 @@ func (n *Node) isFatalError(err error) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), "Fatal:")
+}
+
+func (n *Node) toRecordIndexEntriesLike(entries []RecordIndexEntry) []commons.RecordIndexEntryLike {
+	recordIndexEntryLikesArr := make([]commons.RecordIndexEntryLike, 0, len(entries))
+	for _, v := range entries {
+		recordIndexEntryLikesArr = append(recordIndexEntryLikesArr, v)
+	}
+	return recordIndexEntryLikesArr
 }
 
 func (n *Node) janitor() {

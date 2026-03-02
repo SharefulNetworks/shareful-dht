@@ -6,23 +6,23 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/commons"
 )
 
-type IndexUpdateEvent[T commons.RecordIndexEntryLike] struct {
+type IndexUpdateEvent struct {
 	key              string
-	entries          []T
+	entries          []commons.RecordIndexEntryLike
 	publisherId      string
 	publisherAddress string
 	eventTime        time.Time
 }
 
 // NewIndexUpdateEvent - Creates and returns a new instance of an IndexUpdateEvent.
-func NewIndexUpdateEvent[T commons.RecordIndexEntryLike](
+func NewIndexUpdateEvent(
 	key string,
-	entries []T,
+	entries []commons.RecordIndexEntryLike,
 	publisherId string,
 	publisherAddress string,
 	eventTime time.Time,
-) IndexUpdateEvent[T] {
-	return IndexUpdateEvent[T]{
+) IndexUpdateEvent {
+	return IndexUpdateEvent{
 		key:              key,
 		entries:          entries,
 		publisherId:      publisherId,
@@ -31,22 +31,22 @@ func NewIndexUpdateEvent[T commons.RecordIndexEntryLike](
 	}
 }
 
-func (e IndexUpdateEvent[T]) GetKey() string {
+func (e IndexUpdateEvent) GetKey() string {
 	return e.key
 }
 
-func (e IndexUpdateEvent[T]) GetEntries() []T {
+func (e IndexUpdateEvent) GetEntries() []commons.RecordIndexEntryLike {
 	return e.entries
 }
 
-func (e IndexUpdateEvent[T]) GetPublisherId() string {
+func (e IndexUpdateEvent) GetPublisherId() string {
 	return e.publisherId
 }
 
-func (e IndexUpdateEvent[T]) GetPublisherAddress() string {
+func (e IndexUpdateEvent) GetPublisherAddress() string {
 	return e.publisherAddress
 }
 
-func (e IndexUpdateEvent[T]) GetEventTime() time.Time {
+func (e IndexUpdateEvent) GetEventTime() time.Time {
 	return e.eventTime
 }
