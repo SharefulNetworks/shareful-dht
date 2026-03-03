@@ -666,7 +666,14 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 			e.CreatedUnix = time.Now().UnixMilli()
 
 			//set the new entries id based on existing entries where they exist.
-			n.setUpdateEventsEnabled(e, entries)
+			//TODO:GT: WE WILL HAVE TO RE-THINK THIS, THE MECHANISM FOR AUTO SDETTING THE ENABLEMENT
+			//.        FLAG BASED ON PRIOR ENTRIES WILL NOT WORK BECAUSE WE DON'T LOOK UP THE INDEX
+			//         RECORD PRIOR TO STORAGE THUS, AT THIS POINT, THE ENTRIES ARRAY WILL ONLY CONTAIN
+			//         THE NEW ENTRY/ENTRIES BEING STORED. NOW, WHEN THIS METHOD IS CALLED FROM THE
+			//         SYNC ROUTINE **IT WILL** CONTAIN THE EXISTING ENTRIES BUT BY THAT TIME IT'S TOO
+			//         LATE THE ENABLEMENT FLAG WOULD HAVE ALREADY BEEN SET ON THE NEW ENTRY AND
+			//.        PROPEGATED TO THE REPLIA SET. FOR NOW: WE JUST ACCEPT THE VALUE PROVIDED IN THE ENTRY.
+			//n.setUpdateEventsEnabled(e, entries)
 
 			//where update events are enabled for the IndexEntry(as determined by the call to
 			// setUpdateEventEnsbled in the immediately preceeding instuction) store its
@@ -1871,8 +1878,16 @@ func (n *Node) onMessage(from string, data []byte) {
 					resp = &dhtpb.SyncIndexResponse{Ok: true, Err: ""}
 				}
 
+				//TODO:GT Where the delete operation was successful we will want to publish
+				//.       an event to notify any listeners that an index entry has been deleted.
+
+				//unlike the update path below, which may nessitate several sub async requests
+				//and thus take longer than we are able to resonably wait for a response,
+				//DELTE is undertaken synchronously and thus we may wait on its execution
+				//and directly return result in the response to the requester.
 				b, _ := n.encode(resp)
 				msg, _ := n.cd.Wrap(OP_SYNC_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
+				fmt.Printf("\nDEBUG: &&&&&&& SENDING SYNC INDEX (DELETE) RESPONSE TO NODE @ %s\n", fromAddr)
 				_ = n.transport.Send(fromAddr, msg)
 
 			})
@@ -1934,7 +1949,7 @@ func (n *Node) onMessage(from string, data []byte) {
 
 			b, _ := n.encode(resp)
 			msg, _ := n.cd.Wrap(OP_SYNC_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
-			fmt.Printf("\n &&&&&&& SENDING SYNC INDEX RESPONSE TO NODE @ %s\n", fromAddr)
+			fmt.Printf("\nDEBUG: &&&&&&& SENDING SYNC INDEX RESPONSE TO NODE @ %s\n", fromAddr)
 			_ = n.transport.Send(fromAddr, msg)
 			return
 		}
@@ -2586,6 +2601,7 @@ func (n *Node) setUpdateEventsEnabled(newIndexEntry *RecordIndexEntry, allIndexE
 	if len(allIndexEntries) >= 2 {
 		oldestEntry := findOldestEntry(allIndexEntries)
 		newIndexEntry.EnableIndexUpdateEvents = oldestEntry.EnableIndexUpdateEvents
+		fmt.Printf("\nDEBUG: Entry related to node @ %s has had its EnableIndexUpdateEvents flag set to %v based on the oldest entry in the set from node @ %s", newIndexEntry.PublisherAddr, oldestEntry.EnableIndexUpdateEvents, oldestEntry.PublisherAddr)
 		return
 	}
 }
