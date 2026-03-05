@@ -3947,7 +3947,7 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Del
 		a breif moment to allow the creation to propergate before deleting one of the entries
 		associated with one of the nodes. We then pause again to allow the deletion operation
 		to also propergate before validating that the entry in question has been
-		removed from BOTH nodes.
+		removed from BOTH nodes and requisite events were published.
 
 	*/
 
@@ -4095,6 +4095,339 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Del
 	// and checking the length of the resulting collection.
 	if len(node2Listener.GetReceivedIndexUpdateEvents()) != 2 {
 		t.Fatalf("Expected Node 2 to have received 2 index update events but it received: %d", len(node2Listener.GetReceivedIndexUpdateEvents()))
+	}
+
+	t.Logf("\n Node 1 data store entries are: \n %v", indexEntriesFromNode1PostDeletion)
+	t.Logf("\n Node 2 data store entries are: \n %v", indexEntriesFromNode2PostDeletion)
+
+}
+
+func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Deletion_Event_Publication_When_Index_Update_Events_Globally_Disabled(t *testing.T) {
+
+	/*
+		We create two new index entries (one per node) under a shared key, pause for
+		a breif moment to allow the creation to propergate before deleting one of the entries
+		associated with one of the nodes. We then pause again to allow the deletion operation
+		to also propergate before validating that the entry in question has been
+		removed from BOTH nodes. However here we DO NOT expect any events were published
+		as we explicitly disabled all Index Update events globally via the config.
+
+	*/
+
+	//define node addresses for each set
+	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//critically we DISABLE index update events globally via the config.
+	ctx.Config.IndexUpdateEventsEnabled = false
+
+	//slightly alter the default config to extend the sync delay, this will allow us
+	//to verify that the pair of nodes that we select are NOT in each others replica set
+	//prior to the synchronization process.
+	ctx.Config.IndexSyncDelay = 40 * time.Second
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//chose any two nodes, we blacklist them from one another to prevent them
+	//choosing each other as replica set peers. We want to ensure that the nodes
+	//ONLY discover each others entries via the IndexSync mechanism.
+	node1 := ctx.BootstrapNodes[0]
+	node2 := ctx.BootstrapNodes[3]
+	node1.AddToBlacklist(node2.Addr)
+	node2.AddToBlacklist(node1.Addr)
+
+	//before storing the entry we attach listeners to both nodes in order to be notified
+	//of the deletion, out TestListener will merely append all events it receives to
+	//an internal collection which may then query later for validaton purposes.
+	node1Listener := NewTestNodeEventListener()
+	node2Listener := NewTestNodeEventListener()
+	node1.AppendNodeEventListener("Node1Lsnr", node1Listener)
+	node2.AppendNodeEventListener("Node2Lsnr", node2Listener)
+
+	//define shared key
+	key := "leaf/x"
+
+	node1StoreErr := node1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node1.ID.String(), EnableIndexUpdateEvents: true})
+	if node1StoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", node1StoreErr)
+	}
+
+	node2StoreErr := node2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node2.ID.String(), EnableIndexUpdateEvents: true})
+	if node2StoreErr != nil {
+
+		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", node2StoreErr)
+	}
+
+	//wait for approx half of the sync delay before validating that the nodes are not in
+	//each other replica set, post the storage operation.
+	if slices.Contains(node1.ListPeerAddresses(), node2.Addr) {
+		fmt.Printf("\nNode 1 peer list INSIDE: %v\n", node1.ListPeerAddresses())
+		t.Fatalf("Node 1 peer list should NOT contain Node 2 but it does, peer list: %v", node1.ListPeerAddresses())
+	}
+
+	if slices.Contains(node2.ListPeerAddresses(), node1.Addr) {
+		fmt.Printf("\nNode 2 peer list INSIDE: %v\n", node2.ListPeerAddresses())
+		t.Fatalf("Node 2 peer list should NOT contain Node 1 but it does, peer list: %v", node2.ListPeerAddresses())
+	}
+
+	//now we have confirmed that the nodes ARE NOT in each others replica set (as a result of the blacklist)
+	//we wait half the sync delay time and unblacklist the nodes so they are able to exchange
+	//SYNC INDEX messages.
+	time.Sleep(ctx.Config.IndexSyncDelay / 2)
+	node1.RemoveFromBlacklist(node2.Addr)
+	node2.RemoveFromBlacklist(node1.Addr)
+
+	//pause to allow some time for storage opp 2 to propergate.
+	time.Sleep(20000*time.Millisecond + ctx.Config.IndexSyncDelay)
+
+	indexEntrieFromNode1PreDeletion, found := node1.FindIndexLocal(key)
+	if !found || len(indexEntrieFromNode1PreDeletion) != 2 {
+		t.Fatalf("Expected node1 data store to equal 2 actual length was: %d", len(indexEntrieFromNode1PreDeletion))
+	}
+
+	//look uop entries in local store
+	indexEntriesFromNode2PreDeletion, found := node2.FindIndexLocal(key)
+	if !found || len(indexEntriesFromNode2PreDeletion) != 2 {
+		t.Fatalf("Expected node2 data store to equal 2 actual length was: %d", len(indexEntriesFromNode2PreDeletion))
+	}
+
+	//before deletion we will also need to black list the nodes from one another
+	//again as delete, like store, will internally attempt to build up a replica
+	//set to propergate the deletion to, for sync events to work the nodes in question
+	//MUST NOT be present in each others replica set.
+	/*
+		node1.AddToBlacklist(node2.Addr)
+		node2.AddToBlacklist(node1.Addr)
+	*/
+
+	//next we delete the entry from one of the nodes, which should, in turn, trigger the
+	//sync process and notify the other node that the entry has been removed.
+	//NOTE: For the purposes of the test key and indexSource are set to equal values.
+	deletionErr := node1.DeleteIndex(key, key, false)
+	if deletionErr != nil {
+		t.Fatalf("LOCAL DELETION FAILED: An error occurred whilst deleting index entry from Node 1: %v", deletionErr)
+	} else {
+		t.Logf("LOCAL DELETION SUCCEEDED: %s", key)
+	}
+
+	//propergation will happen after 40 seconds, as per the delay we set above thus
+	//once half this time has elapsed we unblacklist the nodes from one another so
+	//they are able to exchange the necessary SYNC messages.
+	/*
+		time.Sleep(ctx.Config.IndexSyncDelay / 2)
+		node1.RemoveFromBlacklist(node2.Addr)
+		node2.RemoveFromBlacklist(node1.Addr)
+	*/
+
+	//next we wait the remaining delay time plus a little extra to allow for the deletion
+	//to fully propergate and be processed by both nodes, which should result in the
+	//deletion of the relevant index entry from both nodes.
+	time.Sleep(ctx.Config.IndexSyncDelay + (7000 * time.Millisecond))
+
+	indexEntriesFromNode1PostDeletion, found := node1.FindIndexLocal(key)
+	if len(indexEntriesFromNode1PostDeletion) != 1 {
+		t.Fatalf("Expected node1 data store to equal 1 actual length was: %d", len(indexEntriesFromNode1PostDeletion))
+	}
+
+	indexEntriesFromNode2PostDeletion, found := node2.FindIndexLocal(key)
+	if len(indexEntriesFromNode2PostDeletion) != 1 {
+		t.Logf("\n Node 2 Data store entries are as follows: %v\n", indexEntriesFromNode2PostDeletion)
+		t.Fatalf("Expected node2 data store to equal 1 actual length was: %d", len(indexEntriesFromNode2PostDeletion))
+
+	}
+
+	//since we deleted index from NODE 1, we further validate that the only remaining
+	//entry on BOTH nodes is that belonging to Node 2.
+	if indexEntriesFromNode1PostDeletion[0].GetPublisherAddr() != node2.Addr {
+		t.Fatalf("Expected remaining index entry in node 1 data store to be that of Node 2 but it was: %v", indexEntriesFromNode1PostDeletion[0])
+	}
+
+	if indexEntriesFromNode2PostDeletion[0].GetPublisherAddr() != node2.Addr {
+		t.Fatalf("Expected remaining index entry in node 2 data store to be that of Node 2 but it was: %v", indexEntriesFromNode2PostDeletion[0])
+	}
+
+	//node 1 should have received exactly ONE event, related to the initial storage operation
+	//that preceeded the deletion. As the deletion was executed on this node IT SHOULD not
+	//hhave received a second deletion event related to itself
+	if len(node1Listener.GetReceivedIndexUpdateEvents()) > 0 {
+		t.Fatalf("Expected Node 1 to have received 0 index update events but it received: %d", len(node1Listener.GetReceivedIndexUpdateEvents()))
+	}
+
+	//node 2 should have received exactly TWO events, one for the initial store operation and one for the subsequent deletion,
+	// we validate that this is the case here by pulling the received events from our test listener
+	// and checking the length of the resulting collection.
+	if len(node2Listener.GetReceivedIndexUpdateEvents()) > 0 {
+		t.Fatalf("Expected Node 2 to have received 0 index update events but it received: %d", len(node2Listener.GetReceivedIndexUpdateEvents()))
+	}
+
+	t.Logf("\n Node 1 data store entries are: \n %v", indexEntriesFromNode1PostDeletion)
+	t.Logf("\n Node 2 data store entries are: \n %v", indexEntriesFromNode2PostDeletion)
+
+}
+
+func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Deletion_Event_Publication_When_Index_Update_Events_Individually_Disabled(t *testing.T) {
+
+	/*
+		We create two new index entries (one per node) under a shared key, pause for
+		a breif moment to allow the creation to propergate before deleting one of the entries
+		associated with one of the nodes. We then pause again to allow the deletion operation
+		to also propergate before validating that the entry in question has been
+		removed from BOTH nodes. However here we DO NOT expect any events were published
+		as we explicitly disabled all Index Update events globally via the config.
+
+	*/
+
+	//define node addresses for each set
+	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//slightly alter the default config to extend the sync delay, this will allow us
+	//to verify that the pair of nodes that we select are NOT in each others replica set
+	//prior to the synchronization process.
+	ctx.Config.IndexSyncDelay = 40 * time.Second
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//chose any two nodes, we blacklist them from one another to prevent them
+	//choosing each other as replica set peers. We want to ensure that the nodes
+	//ONLY discover each others entries via the IndexSync mechanism.
+	node1 := ctx.BootstrapNodes[0]
+	node2 := ctx.BootstrapNodes[3]
+	node1.AddToBlacklist(node2.Addr)
+	node2.AddToBlacklist(node1.Addr)
+
+	//before storing the entry we attach listeners to both nodes in order to be notified
+	//of the deletion, out TestListener will merely append all events it receives to
+	//an internal collection which may then query later for validaton purposes.
+	node1Listener := NewTestNodeEventListener()
+	node2Listener := NewTestNodeEventListener()
+	node1.AppendNodeEventListener("Node1Lsnr", node1Listener)
+	node2.AppendNodeEventListener("Node2Lsnr", node2Listener)
+
+	//define shared key
+	key := "leaf/x"
+
+	// critically we DISABLE index update events on the individual store operations themselves via the RecordIndexEntry parameter (or more specifically the omission of it
+	// as the parameter defaults to false), this will allow us to validate that even if index update
+	// events are enabled globally, via the config, if they are disabled at the individual operation level
+	// then no events will be received.
+	node1StoreErr := node1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node1.ID.String()})
+	if node1StoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", node1StoreErr)
+	}
+
+	node2StoreErr := node2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node2.ID.String()})
+	if node2StoreErr != nil {
+
+		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", node2StoreErr)
+	}
+
+	//wait for approx half of the sync delay before validating that the nodes are not in
+	//each other replica set, post the storage operation.
+	if slices.Contains(node1.ListPeerAddresses(), node2.Addr) {
+		fmt.Printf("\nNode 1 peer list INSIDE: %v\n", node1.ListPeerAddresses())
+		t.Fatalf("Node 1 peer list should NOT contain Node 2 but it does, peer list: %v", node1.ListPeerAddresses())
+	}
+
+	if slices.Contains(node2.ListPeerAddresses(), node1.Addr) {
+		fmt.Printf("\nNode 2 peer list INSIDE: %v\n", node2.ListPeerAddresses())
+		t.Fatalf("Node 2 peer list should NOT contain Node 1 but it does, peer list: %v", node2.ListPeerAddresses())
+	}
+
+	//now we have confirmed that the nodes ARE NOT in each others replica set (as a result of the blacklist)
+	//we wait half the sync delay time and unblacklist the nodes so they are able to exchange
+	//SYNC INDEX messages.
+	time.Sleep(ctx.Config.IndexSyncDelay / 2)
+	node1.RemoveFromBlacklist(node2.Addr)
+	node2.RemoveFromBlacklist(node1.Addr)
+
+	//pause to allow some time for storage opp 2 to propergate.
+	time.Sleep(20000*time.Millisecond + ctx.Config.IndexSyncDelay)
+
+	indexEntrieFromNode1PreDeletion, found := node1.FindIndexLocal(key)
+	if !found || len(indexEntrieFromNode1PreDeletion) != 2 {
+		t.Fatalf("Expected node1 data store to equal 2 actual length was: %d", len(indexEntrieFromNode1PreDeletion))
+	}
+
+	//look uop entries in local store
+	indexEntriesFromNode2PreDeletion, found := node2.FindIndexLocal(key)
+	if !found || len(indexEntriesFromNode2PreDeletion) != 2 {
+		t.Fatalf("Expected node2 data store to equal 2 actual length was: %d", len(indexEntriesFromNode2PreDeletion))
+	}
+
+	//before deletion we will also need to black list the nodes from one another
+	//again as delete, like store, will internally attempt to build up a replica
+	//set to propergate the deletion to, for sync events to work the nodes in question
+	//MUST NOT be present in each others replica set.
+	/*
+		node1.AddToBlacklist(node2.Addr)
+		node2.AddToBlacklist(node1.Addr)
+	*/
+
+	//next we delete the entry from one of the nodes, which should, in turn, trigger the
+	//sync process and notify the other node that the entry has been removed.
+	//NOTE: For the purposes of the test key and indexSource are set to equal values.
+	deletionErr := node1.DeleteIndex(key, key, false)
+	if deletionErr != nil {
+		t.Fatalf("LOCAL DELETION FAILED: An error occurred whilst deleting index entry from Node 1: %v", deletionErr)
+	} else {
+		t.Logf("LOCAL DELETION SUCCEEDED: %s", key)
+	}
+
+	//propergation will happen after 40 seconds, as per the delay we set above thus
+	//once half this time has elapsed we unblacklist the nodes from one another so
+	//they are able to exchange the necessary SYNC messages.
+	/*
+		time.Sleep(ctx.Config.IndexSyncDelay / 2)
+		node1.RemoveFromBlacklist(node2.Addr)
+		node2.RemoveFromBlacklist(node1.Addr)
+	*/
+
+	//next we wait the remaining delay time plus a little extra to allow for the deletion
+	//to fully propergate and be processed by both nodes, which should result in the
+	//deletion of the relevant index entry from both nodes.
+	time.Sleep(ctx.Config.IndexSyncDelay + (7000 * time.Millisecond))
+
+	indexEntriesFromNode1PostDeletion, found := node1.FindIndexLocal(key)
+	if len(indexEntriesFromNode1PostDeletion) != 1 {
+		t.Fatalf("Expected node1 data store to equal 1 actual length was: %d", len(indexEntriesFromNode1PostDeletion))
+	}
+
+	indexEntriesFromNode2PostDeletion, found := node2.FindIndexLocal(key)
+	if len(indexEntriesFromNode2PostDeletion) != 1 {
+		t.Logf("\n Node 2 Data store entries are as follows: %v\n", indexEntriesFromNode2PostDeletion)
+		t.Fatalf("Expected node2 data store to equal 1 actual length was: %d", len(indexEntriesFromNode2PostDeletion))
+
+	}
+
+	//since we deleted index from NODE 1, we further validate that the only remaining
+	//entry on BOTH nodes is that belonging to Node 2.
+	if indexEntriesFromNode1PostDeletion[0].GetPublisherAddr() != node2.Addr {
+		t.Fatalf("Expected remaining index entry in node 1 data store to be that of Node 2 but it was: %v", indexEntriesFromNode1PostDeletion[0])
+	}
+
+	if indexEntriesFromNode2PostDeletion[0].GetPublisherAddr() != node2.Addr {
+		t.Fatalf("Expected remaining index entry in node 2 data store to be that of Node 2 but it was: %v", indexEntriesFromNode2PostDeletion[0])
+	}
+
+	//node 1 should have received exactly ONE event, related to the initial storage operation
+	//that preceeded the deletion. As the deletion was executed on this node IT SHOULD not
+	//hhave received a second deletion event related to itself
+	if len(node1Listener.GetReceivedIndexUpdateEvents()) > 0 {
+		t.Fatalf("Expected Node 1 to have received 0 index update events but it received: %d", len(node1Listener.GetReceivedIndexUpdateEvents()))
+	}
+
+	//node 2 should have received exactly TWO events, one for the initial store operation and one for the subsequent deletion,
+	// we validate that this is the case here by pulling the received events from our test listener
+	// and checking the length of the resulting collection.
+	if len(node2Listener.GetReceivedIndexUpdateEvents()) > 0 {
+		t.Fatalf("Expected Node 2 to have received 0 index update events but it received: %d", len(node2Listener.GetReceivedIndexUpdateEvents()))
 	}
 
 	t.Logf("\n Node 1 data store entries are: \n %v", indexEntriesFromNode1PostDeletion)
