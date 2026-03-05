@@ -11,6 +11,7 @@ type IndexUpdateEvent struct {
 	entries          []commons.RecordIndexEntryLike
 	publisherId      string
 	publisherAddress string
+	isDeletion       bool
 	eventTime        time.Time
 }
 
@@ -20,6 +21,7 @@ func NewIndexUpdateEvent(
 	entries []commons.RecordIndexEntryLike,
 	publisherId string,
 	publisherAddress string,
+	isDeletion bool,
 	eventTime time.Time,
 ) IndexUpdateEvent {
 	return IndexUpdateEvent{
@@ -27,6 +29,7 @@ func NewIndexUpdateEvent(
 		entries:          entries,
 		publisherId:      publisherId,
 		publisherAddress: publisherAddress,
+		isDeletion:       isDeletion,
 		eventTime:        eventTime,
 	}
 }
@@ -49,4 +52,8 @@ func (e IndexUpdateEvent) GetPublisherAddress() string {
 
 func (e IndexUpdateEvent) GetEventTime() time.Time {
 	return e.eventTime
+}
+
+func (e IndexUpdateEvent) IsDeletion() bool{
+	return e.isDeletion
 }

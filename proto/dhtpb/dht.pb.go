@@ -1048,6 +1048,7 @@ type DeleteIndexRequest struct {
 	PublisherId   []byte                 `protobuf:"bytes,2,opt,name=publisher_id,json=publisherId,proto3" json:"publisher_id,omitempty"`
 	Source        string                 `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
 	Target        string                 `protobuf:"bytes,4,opt,name=target,proto3" json:"target,omitempty"`
+	IsSyncRelated bool                   `protobuf:"varint,5,opt,name=is_sync_related,json=isSyncRelated,proto3" json:"is_sync_related,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1108,6 +1109,13 @@ func (x *DeleteIndexRequest) GetTarget() string {
 		return x.Target
 	}
 	return ""
+}
+
+func (x *DeleteIndexRequest) GetIsSyncRelated() bool {
+	if x != nil {
+		return x.IsSyncRelated
+	}
+	return false
 }
 
 type DeleteIndexResponse struct {
@@ -1523,12 +1531,13 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\x0fConnectResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\fR\x06nodeId\x12\x10\n" +
-	"\x03err\x18\x03 \x01(\tR\x03err\"y\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err\"\xa1\x01\n" +
 	"\x12DeleteIndexRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12!\n" +
 	"\fpublisher_id\x18\x02 \x01(\fR\vpublisherId\x12\x16\n" +
 	"\x06source\x18\x03 \x01(\tR\x06source\x12\x16\n" +
-	"\x06target\x18\x04 \x01(\tR\x06target\"7\n" +
+	"\x06target\x18\x04 \x01(\tR\x06target\x12&\n" +
+	"\x0fis_sync_related\x18\x05 \x01(\bR\risSyncRelated\"7\n" +
 	"\x13DeleteIndexResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
 	"\x03err\x18\x02 \x01(\tR\x03err\"h\n" +

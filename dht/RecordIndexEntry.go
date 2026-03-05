@@ -16,7 +16,10 @@ type RecordIndexEntry struct {
 
 }
 
-// create setter functions
+// create setter functions, 
+//NB: The setters are not used but MUST remain in place to allow RecordIndexEntryLike to
+//    satisfy this interface and have access to the data these functions provide.
+
 func (entry RecordIndexEntry) SetSource(source string) {
 	entry.Source = source
 }
