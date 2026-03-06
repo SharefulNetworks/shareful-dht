@@ -611,6 +611,11 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 
 	//fmt.Printf("DEBUG: Call to StoreIndexWithTTL call graph is as follows: %s", debug.Stack())
 
+	//chec that at least one entry has been provided.
+	if len(entries) == 0 {
+		return errors.New("At least one index entry must be provided")
+	}
+
 	//holds our collection of replica addresses
 	var reps []string
 	var blErr error
@@ -639,6 +644,22 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 
 		}
 
+	}
+
+	//next we must exclude co-publishers, i.e other first-party publishers to this
+	//index (that we know about) from the replica set as they will be updated via the SyncIndex
+	//mechanism and the two data propogation strategies are mutually exclusive.
+	//NOTE: This will only apply to NON SYNC operations.
+	if !isIndexSyncRelated {
+
+		//check our local store to determine if we have existing knowledge of the index
+		//any associated co-publishers.
+		locallyStoredIndexEntries, found := n.FindIndexLocal(indexKey)
+		if found {
+			reps = n.excludeCoPublisherAddresses(reps, locallyStoredIndexEntries, indexKey)
+		} else {
+			fmt.Printf("\nDEBUG no co-publishers related to index with key: %s was found.\n", indexKey)
+		}
 	}
 
 	//clamp replicas to the replication factor defined in the prevailing config
@@ -2638,9 +2659,36 @@ func (n *Node) excludeBlackListedPeerAddresses(peerAddresses []string) []string 
 	return filtered
 }
 
+func (n *Node) excludeCoPublisherAddresses(peerAddresses []string, indexEntries []RecordIndexEntry, key string) []string {
+
+	//build up our filtered list of peer addresses,ensuring co-publishers are excluded.
+	filtered := make([]string, 0, len(peerAddresses))
+	for _, peerAddr := range peerAddresses {
+		if peerAddr == "" || peerAddr == n.Addr {
+			continue
+		}
+		if n.isCoPublisher(peerAddr, indexEntries) {
+			fmt.Printf("\nDEBUG: >>>> *** <<<<Peer address: %s belongs to a co-publisher of index with key: %s and thus will be excluded from the replica set.\n", peerAddr, key)
+			continue
+		}
+		filtered = append(filtered, peerAddr)
+	}
+	return filtered
+
+}
+
 func (n *Node) indexUpdateEventsEnabledForKey(key string) bool {
 	_, ok := n.indexUpdateEventKeys.Load(key)
 	return ok
+}
+
+func (n *Node) isCoPublisher(address string, entries []RecordIndexEntry) bool {
+	for _, curEntry := range entries {
+		if curEntry.PublisherAddr == address {
+			return true
+		}
+	}
+	return false
 }
 
 // setUpdateEventsEnabled Determines whether events should be enabled for the given NEW index

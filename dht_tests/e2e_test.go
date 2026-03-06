@@ -4435,6 +4435,89 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Del
 
 }
 
+func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution(t *testing.T) {
+
+	
+	/*
+		Here we extend the Test_Full_Network_Create_Index_Entry_And_Validate_Sync test
+		a little further by verifying that nodes now auto resolve the replica set/sync
+		conflict that may arrise in smaller network when a node pick another as a replica
+		that is also a first party publisher of the same index being stored. This should
+		now happen WITHOUT calls to blacklist.
+
+	*/
+
+	//define node addresses for each set, we choose 3 to ensure they are each in each others replica set to begin with; the default replica set size is 3.
+	bootstrapNodes := []string{":7401", ":7402", ":7403"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//slightly alter the default config to extend the sync delay, this will allow us
+	//to verify that the pair of nodes that we select are NOT in each others replica set
+	//prior to the synchronization process.
+	ctx.Config.IndexSyncDelay = 40 * time.Second
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//chose any two nodes..
+	node1 := ctx.BootstrapNodes[0]
+	node2 := ctx.BootstrapNodes[2]
+
+	//define shared key
+	key := "leaf/x"
+
+	node1StoreErr := node1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node1.ID.String()})
+	if node1StoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", node1StoreErr)
+	}
+
+	//pause to allow some time for the first storage operation to propergate, this is vital to this
+	//specific test as the entry must be present on node 2 for the new conflict resolution logic
+	//in the store method to lookup the entry locally and ensure its not included in the replica set.
+	time.Sleep(5000 * time.Millisecond)
+
+	node2StoreErr := node2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node2.ID.String()})
+	if node2StoreErr != nil {
+
+		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", node2StoreErr)
+	}
+
+	//pause for a breif time to allow the second storage operation to propergate.
+	time.Sleep(5000 * time.Millisecond)
+
+	//after a short time we validate that node 1 still only contains a SINGLE entry; node 2
+	//entry should not have propergated to node 1 (via replica set) as a result of the conflict resolution logic
+	// in the store method which should prevent node 1 from include 2 in it's replica set as they
+	//are both first party publishers of the same index entry.
+	indexFromNode1BeforeSync, found := node1.FindIndexLocal(key)
+	if !found || len(indexFromNode1BeforeSync) != 1 {
+		t.Fatalf("Expected node1 data store BEFORE SYNC to equal 1 actual length was: %d", len(indexFromNode1BeforeSync))
+	}
+
+	//pause to allow some time for storage opp 2 to propergate, which SHOULD undertake the
+	//Sync Index process once the ctx.Config.IndexSyncDelay time has elapsed. THIS will
+	//propegate the storage to node 1 rather than via replica-set propergation, which would
+	//have been detected and blocked by the conflict resolution logic in the store method.
+	time.Sleep(20000*time.Millisecond + ctx.Config.IndexSyncDelay)
+
+	indexFromNode1, found := node1.FindIndexLocal(key)
+	if !found || len(indexFromNode1) != 2 {
+		t.Fatalf("Expected node1 data store to equal 2 actual length was: %d", len(indexFromNode1))
+	}
+
+	//look uop entries in local store
+	indexFromNode2, found := node2.FindIndexLocal(key)
+	if !found || len(indexFromNode2) != 2 {
+		t.Fatalf("Expected node2 data store to equal 2 actual length was: %d", len(indexFromNode2))
+	}
+
+	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
+	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
+
+}
+
 /* NB: This test will always fail until the EnableIndexUpdateEvents flag inheritance mechanism is properly implemented
        currently there is not way to do this without executing a Find operation, to pull the IndexRecord
 	   prior to storage, which will obviously introduce significant overhead.
