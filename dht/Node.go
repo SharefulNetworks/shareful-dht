@@ -955,7 +955,7 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 			select {
 			case r := <-ch:
 				for _, e := range r.ents {
-					merged[e.Source+"\x1f"+e.Target+"\x1f"+e.Publisher.String()] = e
+					merged[e.Source+"\x1f"+e.Publisher.String()] = e
 					//fmt.Printf("\n^^^^^^^^^^^Found node: %s\n", e.PublisherAddr)
 				}
 				for _, np := range r.peers {
@@ -977,7 +977,7 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 	//if local find suceeded append entries to our merged collection
 	if localFindIndexOk {
 		for _, e := range localFindIndexEntries {
-			merged[e.Source+"\x1f"+e.Target+"\x1f"+e.Publisher.String()] = e
+			merged[e.Source+"\x1f"+e.Publisher.String()] = e
 		}
 	}
 
