@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -650,17 +649,17 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 	//index (that we know about) from the replica set as they will be updated via the SyncIndex
 	//mechanism and the two data propogation strategies are mutually exclusive.
 	//NOTE: This will only apply to NON SYNC operations.
-	if !isIndexSyncRelated {
+	//if !isIndexSyncRelated {
 
-		//check our local store to determine if we have existing knowledge of the index
-		//any associated co-publishers.
-		locallyStoredIndexEntries, found := n.FindIndexLocal(indexKey)
-		if found {
-			reps = n.excludeCoPublisherAddresses(reps, locallyStoredIndexEntries, indexKey)
-		} else {
-			fmt.Printf("\nDEBUG no co-publishers related to index with key: %s was found.\n", indexKey)
-		}
+	//check our local store to determine if we have existing knowledge of the index
+	//any associated co-publishers.
+	locallyStoredIndexEntries, found := n.FindIndexLocal(indexKey)
+	if found {
+		reps = n.excludeCoPublisherAddresses(reps, locallyStoredIndexEntries, indexKey)
+	} else {
+		fmt.Printf("\nDEBUG no co-publishers related to index with key: %s was found.\n", indexKey)
 	}
+	//}
 
 	//clamp replicas to the replication factor defined in the prevailing config
 	reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
@@ -720,13 +719,15 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 	for i := range entries {
 		e := &entries[i]
 		protoBuffEntry := &dhtpb.IndexEntry{
-			Source:        e.Source,
-			Target:        e.Target,
-			Meta:          e.Meta,
-			UpdatedUnix:   e.UpdatedUnix,
-			PublisherId:   e.Publisher[:],
-			Ttl:           e.TTL,
-			PublisherAddr: e.PublisherAddr,
+			Source:                  e.Source,
+			Target:                  e.Target,
+			Meta:                    e.Meta,
+			UpdatedUnix:             e.UpdatedUnix,
+			PublisherId:             e.Publisher[:],
+			Ttl:                     e.TTL,
+			PublisherAddr:           e.PublisherAddr,
+			CreatedUnix:             e.CreatedUnix,
+			EnableIndexUpdateEvents: e.EnableIndexUpdateEvents,
 		}
 		protoBuffEntries = append(protoBuffEntries, protoBuffEntry)
 	}
@@ -918,12 +919,14 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 					out := make([]RecordIndexEntry, 0, len(resp.Entries))
 					for _, ie := range resp.Entries {
 						e := RecordIndexEntry{
-							Source:        ie.Source,
-							Target:        ie.Target,
-							Meta:          ie.Meta,
-							UpdatedUnix:   ie.UpdatedUnix,
-							TTL:           ie.Ttl,
-							PublisherAddr: ie.PublisherAddr,
+							Source:                  ie.Source,
+							Target:                  ie.Target,
+							Meta:                    ie.Meta,
+							UpdatedUnix:             ie.UpdatedUnix,
+							TTL:                     ie.Ttl,
+							PublisherAddr:           ie.PublisherAddr,
+							CreatedUnix:             ie.CreatedUnix,
+							EnableIndexUpdateEvents: ie.EnableIndexUpdateEvents,
 						}
 						copy(e.Publisher[:], ie.PublisherId[:])
 						out = append(out, e)
@@ -977,6 +980,9 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 	//if local find suceeded append entries to our merged collection
 	if localFindIndexOk {
 		for _, e := range localFindIndexEntries {
+			//if e.Publisher != n.ID {
+			//	continue
+			//}
 			merged[e.Source+"\x1f"+e.Publisher.String()] = e
 		}
 	}
@@ -1634,12 +1640,14 @@ func (n *Node) onMessage(from string, data []byte) {
 		if len(r.Entries) > 0 {
 			for _, pbEntry := range r.Entries {
 				entry := RecordIndexEntry{
-					Source:        pbEntry.Source,
-					Target:        pbEntry.Target,
-					Meta:          pbEntry.Meta,
-					UpdatedUnix:   pbEntry.UpdatedUnix,
-					TTL:           pbEntry.Ttl,
-					PublisherAddr: pbEntry.PublisherAddr,
+					Source:                  pbEntry.Source,
+					Target:                  pbEntry.Target,
+					Meta:                    pbEntry.Meta,
+					UpdatedUnix:             pbEntry.UpdatedUnix,
+					TTL:                     pbEntry.Ttl,
+					PublisherAddr:           pbEntry.PublisherAddr,
+					CreatedUnix:             pbEntry.CreatedUnix,
+					EnableIndexUpdateEvents: pbEntry.EnableIndexUpdateEvents,
 				}
 				copy(entry.Publisher[:], pbEntry.PublisherId[:])
 
@@ -1686,13 +1694,15 @@ func (n *Node) onMessage(from string, data []byte) {
 			resp.Entries = make([]*dhtpb.IndexEntry, 0, len(ents))
 			for _, e := range ents {
 				resp.Entries = append(resp.Entries, &dhtpb.IndexEntry{
-					Source:        e.Source,
-					Target:        e.Target,
-					Meta:          e.Meta,
-					UpdatedUnix:   e.UpdatedUnix,
-					PublisherId:   e.Publisher[:],
-					PublisherAddr: e.PublisherAddr,
-					Ttl:           e.TTL,
+					Source:                  e.Source,
+					Target:                  e.Target,
+					Meta:                    e.Meta,
+					UpdatedUnix:             e.UpdatedUnix,
+					PublisherId:             e.Publisher[:],
+					PublisherAddr:           e.PublisherAddr,
+					Ttl:                     e.TTL,
+					CreatedUnix:             e.CreatedUnix,
+					EnableIndexUpdateEvents: e.EnableIndexUpdateEvents,
 				})
 			}
 		} else {
@@ -2266,7 +2276,7 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 		//ensure that we do not include ourselves or any of the peers in the replica set we just propagated to,
 		//as candidates for the sync notification, as they will already be in possession of the latest
 		//version of the record.
-		if curEntryPublisherAddr == n.Addr || slices.Contains(replicaSetAddrs, curEntryPublisherAddr) {
+		if curEntryPublisherAddr == n.Addr { //|| slices.Contains(replicaSetAddrs, curEntryPublisherAddr) {
 			continue
 		}
 		syncIndexCandidateAddresses = append(syncIndexCandidateAddresses, curEntryPublisherAddr)
@@ -2309,9 +2319,9 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 			//Important: temporarily add syncIndexCandidateAddresses to the blacklist to prevent them being chosen
 			//as part of the replica set for THIS sync-based store operation, as always: nodes in the replica set and sync candidates
 			//list should be mutually exclusive. Nodes will be updated by either of the two mechanisms but not both.
-			n.AddToBlacklist(syncIndexCandidateAddresses...)
+			//n.AddToBlacklist(syncIndexCandidateAddresses...)
 			n.StoreIndexWithTTL(key, refetchedEntries, n.cfg.DefaultIndexEntryTTL, n.ID, false, true) //We pass in TRUE to indicste the storage is "index Related" to prevent triggering another round of syncs which would result in an infinite loop.
-			n.RemoveFromBlacklist(syncIndexCandidateAddresses...)
+			//n.RemoveFromBlacklist(syncIndexCandidateAddresses...)
 		}
 
 	}

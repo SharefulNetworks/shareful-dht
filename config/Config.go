@@ -63,3 +63,7 @@ func GetDefaultSingletonInstance() *Config {
 	}
 	return singletonConfig
 }
+
+func Reset(){
+	singletonConfig = nil
+}

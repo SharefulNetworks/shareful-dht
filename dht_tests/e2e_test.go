@@ -432,6 +432,8 @@ func Test_Standard_Entry_Auto_Expiration(t *testing.T) {
 		t.Log("Expired entry was not found as expected.")
 	}
 
+	//finally reset config to prevent our custom settings from leaking into subsequent tests
+	config.Reset()
 }
 
 func Test_Index_Entry_Auto_Expiration(t *testing.T) {
@@ -493,6 +495,9 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 		t.Log("The only remaining entry was:")
 		t.Log(ents[0])
 	}
+
+	//finally reset config to prevent our custom settings from leaking into subsequent tests
+	config.Reset()
 }
 
 /*****************************************************************************************************************
@@ -3700,6 +3705,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Eve
 	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
 
+	//critically we RE-ENABLE index update events globally so as to not leak this config change into other tests.
+	ctx.Config.IndexUpdateEventsEnabled = true
+
 }
 
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Event_Publication_When_Index_Update_Events_Individually_Disabled(t *testing.T) {
@@ -4266,6 +4274,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Del
 	t.Logf("\n Node 1 data store entries are: \n %v", indexEntriesFromNode1PostDeletion)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexEntriesFromNode2PostDeletion)
 
+	//critically we RE-ENABLE index update events globally via the config to ensure that we do not impact other tests.
+	ctx.Config.IndexUpdateEventsEnabled = true
 }
 
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Deletion_Event_Publication_When_Index_Update_Events_Individually_Disabled(t *testing.T) {
@@ -4716,7 +4726,7 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 	}
 
 	//we expect node 2 to have received no events.
-	if len(node2Listener.GetReceivedIndexUpdateEvents()) > 0 {
+	if len(node2Listener.GetReceivedIndexUpdateEvents()) != 1 {
 		t.Fatalf("Expected Node 2 to have received 0 index update events but it received: %d", len(node2Listener.GetReceivedIndexUpdateEvents()))
 	} else {
 		t.Logf("\n Node 2 received %d events", len(node2Listener.GetReceivedIndexUpdateEvents()))
@@ -4777,12 +4787,241 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 
 	//node 2 should have received one event from the second storage operation, as it was not a co publisher
 	//at the time the first store operation was executed by node 1 and was instead iinitially included in node 1's replica set.
-	if len(node2Listener.GetReceivedIndexUpdateEvents()) != 1 {
-		t.Logf("\n IN ERROR: Node 2 received the following index update event: \n %v", node1Listener.GetReceivedIndexUpdateEvents())
-		t.Fatalf("Expected Node 2 to have received 1 index update event but it received: %d", len(node2Listener.GetReceivedIndexUpdateEvents()))
+	if len(node2Listener.GetReceivedIndexUpdateEvents()) != 2 {
+		t.Logf("\n IN ERROR: Node 2 received the following index update events: \n")
+		for i, event := range node2Listener.GetReceivedIndexUpdateEvents() {
+			t.Logf("\n Event %d: %v\n", i, event)
+		}
+
+		t.Fatalf("Expected Node 2 to have received 2 index update events but it received: %d", len(node2Listener.GetReceivedIndexUpdateEvents()))
 	} else {
-		t.Logf("\n Node 2 received the following index update event: \n %v", node2Listener.GetReceivedIndexUpdateEvents()[0])
+		t.Logf("\n Node 2 received the following index update event: \n %v", node2Listener.GetReceivedIndexUpdateEvents())
 	}
+
+}
+
+func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution_With_Partially_Disjoint_Replica_Set_On_Node_1(t *testing.T) {
+
+	/*
+		Here we extend the Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution test
+		a little further by verifying that nodes CAN STILL auto resolve the replica set/sync
+		conflict that may arrise in smaller network when a node pick another as a replica
+		that is also a first party publisher of the same index being stored. The main difference
+		here is:UNLIKE THE AFOREMENTIONED PRIOR TEST, OF TWO NODES SELECTED FOR THE PURPOSES OF **THIS** TEST
+		NODE 2 WILL **NOT** BE PART OF NODE 1'S, REPLICA SET. The implications of this change is two fold:
+
+		1)When NODE 1 stores an entry, it will NOT be replicated to NODE 2 as it will not be in Node 1's replica set
+		  as a DIRECT RESULT of this the LOCAL "FIND" lookup NODE 2 undertakes, before attempting to store IT'S entry
+		  in the index WILL FAIL. It will therefore assume that its the ONLY node that references the index.
+		2)Later when we store to NODE 2, NODE 1 **WILL** BE in NODE 2's replica set and thus it will initially attempt
+		  to replicate the entry to NODE 1 ***AND THIS IS WHERE THE CONFLICT ARISES ON NODE 1 ***, as node 1, at this point, will be
+		  part of node 1s replica set for the entry AND also a first party publisher of the entry. To resolve this
+		  on receipt of the replication request NODE1 should:
+		    a)Attempt to find the entry locally, in this case the entry WILL be found.
+			b)Determine whether it has an existing entry in the index, again, it WILL in this case.
+			c)Drop the replication request, it can be sure that NODE 2, will dispatch a subsequent SYNC INDEX message
+			  a moment later once it discovers (VIA THE SYNC PROCESS) that NODE 1 is also a first party publisher, this will occur just
+			  after the storage and replication process.
+
+		3)Later, back on Node 2, it WILL learn of NODE 1's entry as part of the SYNC process which executes a network-wide find,
+		at that point it will need to dispatch a SYNC INDEX request to NODE 1, ***AND THIS IS WHERE THE CONFLICT ARISES ON NODE 2 ***
+		as node 2 at this point will have NODE 1 in its replica set AFTER having learned that its also a first party
+		publisher to the same index. To resolve this, rather than dropping all nodes present in the replica set from
+		being possible sync candidates, we should instead ad the condition to only do this when this node is NOT
+		a first party publisher itself. Note: this conflict will only need to be resolved ONCE per entry as once the
+		learn nodes about co-third party publisher, they will automatically be excluded from the replica set for
+		that entry in any subsequent storage operations.
+
+	*/
+
+	//define node addresses for each set.
+	bootstrapNodes := []string{":7401", ":7402", ":7403"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//slightly alter the default config to extend the sync delay, this will allow us
+	//to verify that the pair of nodes that we select are NOT in each others replica set
+	//prior to the synchronization process.
+	ctx.Config.IndexSyncDelay = 40 * time.Second
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//chose any two nodes..
+	node1 := ctx.BootstrapNodes[0]
+	node2 := ctx.BootstrapNodes[2]
+
+	//we explicitly blacklist node 2 from node 1
+	node1.AddToBlacklist(node2.Addr)
+
+	//define shared key
+	key := "leaf/x"
+
+	node1StoreErr := node1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node1.ID.String()})
+	if node1StoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", node1StoreErr)
+	}
+
+	//pause to allow some time for the first storage operation to propergate, this is vital to this
+	//specific test as the entry must be present on node 2 for the new conflict resolution logic
+	//in the store method to lookup the entry locally and ensure its not included in the replica set.
+	time.Sleep(5000 * time.Millisecond)
+
+	node2StoreErr := node2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node2.ID.String()})
+	if node2StoreErr != nil {
+
+		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", node2StoreErr)
+	}
+
+	//pause for a breif time to allow the second storage operation to propergate.
+	time.Sleep(5000 * time.Millisecond)
+
+	//after a short time we validate that node 2 still only contains a SINGLE entry: ITSELF; node 1
+	//entry should not have propergated to node 2 (via replica set) as a result of the temporary
+	// blacklist of node 1
+	indexFromNode2BeforeSync, found := node2.FindIndexLocal(key)
+	if len(indexFromNode2BeforeSync) != 1 {
+		t.Fatalf("Expected node2 data store BEFORE SYNC to equal 1 actual length was: %d", len(indexFromNode2BeforeSync))
+	} else {
+		t.Logf("\n Node 2 data store entries BEFORE SYNC are: \n %v", indexFromNode2BeforeSync)
+	}
+
+	//next unblacklist node 2 from node 1, to allow subsequent SYNC messages to be exchanged between the nodes.
+	node1.RemoveFromBlacklist(node2.Addr)
+
+	//pause to allow some time for storage opp 2 to propergate, which SHOULD undertake the
+	//Sync Index process once the ctx.Config.IndexSyncDelay time has elapsed. THIS will
+	//propegate the storage to node 1 rather than via replica-set propergation, which would
+	//have been detected and blocked by the conflict resolution logic in the store method.
+	time.Sleep(20000*time.Millisecond + ctx.Config.IndexSyncDelay)
+
+	indexFromNode1, found := node1.FindIndexLocal(key)
+	if !found || len(indexFromNode1) != 2 {
+		t.Fatalf("Expected node1 data store to equal 2 actual length was: %d", len(indexFromNode1))
+	}
+
+	//look uop entries in local store
+	indexFromNode2, found := node2.FindIndexLocal(key)
+	if !found || len(indexFromNode2) != 2 {
+		t.Fatalf("Expected node2 data store to equal 2 actual length was: %d", len(indexFromNode2))
+	}
+
+	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
+	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
+
+}
+
+func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution_with_Event_Publication_Enabled_With_Partially_Disjoint_Replica_Set_On_Node_1(t *testing.T) {
+
+	/*
+		Here we extend the
+		Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution
+		test to ensure requisite event it also published.
+
+	*/
+
+	//define node addresses for each set, we choose 3 to ensure they are each in each others replica set to begin with; the default replica set size is 3.
+	bootstrapNodes := []string{":7401", ":7402", ":7403"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//slightly alter the default config to extend the sync delay, this will allow us
+	//to verify that the pair of nodes that we select are NOT in each others replica set
+	//prior to the synchronization process.
+	ctx.Config.IndexSyncDelay = 40 * time.Second
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//chose any two nodes..
+	node1 := ctx.BootstrapNodes[0]
+	node2 := ctx.BootstrapNodes[2]
+
+	//lack list node 2 from node 1 to ensure its not in node 1's replica set.
+	node1.AddToBlacklist(node2.Addr)
+
+	//before storing the entry we attach listeners to both nodes in order to be notified
+	//of the deletion, out TestListener will merely append all events it receives to
+	//an internal collection which may then query later for validaton purposes.
+	node1Listener := NewTestNodeEventListener()
+	node2Listener := NewTestNodeEventListener()
+	node1.AppendNodeEventListener("Node1Lsnr", node1Listener)
+	node2.AppendNodeEventListener("Node2Lsnr", node2Listener)
+
+	//define shared key
+	key := "leaf/x"
+
+	//store data via node 1 critically, for the purposes of this test, we ensure Update events are enabled.
+	node1StoreErr := node1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node1.ID.String(), EnableIndexUpdateEvents: true})
+	if node1StoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", node1StoreErr)
+	}
+
+	//pause to allow some time for the first storage operation to propergate, this is vital to this
+	//specific test as the entry must be present on node 2 for the new conflict resolution logic
+	//in the store method to lookup the entry locally and ensure its not included in the replica set.
+	time.Sleep(5000 * time.Millisecond)
+
+	//store data via node 2 critically, for the purposes of this test, we ensure Update events are enabled.
+	node2StoreErr := node2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node2.ID.String(), EnableIndexUpdateEvents: true})
+	if node2StoreErr != nil {
+
+		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", node2StoreErr)
+	}
+
+	//pause for a breif time to allow the second storage operation to propergate.
+	time.Sleep(5000 * time.Millisecond)
+
+	//after a short time we validate that node 1 still only contains a SINGLE entry: ITSELF; node 2
+	//entry should not have propergated to node 1 as it is blacklisted.
+	indexFromNode1BeforeSync, found := node1.FindIndexLocal(key)
+	if len(indexFromNode1BeforeSync) != 1 {
+		t.Fatalf("Expected node1 data store BEFORE SYNC to equal 1 actual length was: %d", len(indexFromNode1BeforeSync))
+	} else {
+		t.Logf("\n Node 1 data store entries BEFORE SYNC are: \n %v", indexFromNode1BeforeSync)
+	}
+
+	// validate that node 2 still only contains a SINGLE entry: ITSELF; node 1 entry should not have propergated to node 2 (via replica set) as a result of the temporary
+	// blacklist of node 1
+	indexFromNode2BeforeSync, found := node2.FindIndexLocal(key)
+	if len(indexFromNode2BeforeSync) != 1 {
+		t.Fatalf("Expected node2 data store BEFORE SYNC to equal 1 actual length was: %d", len(indexFromNode2BeforeSync))
+	} else {
+		t.Logf("\n Node 2 data store entries BEFORE SYNC are: \n %v", indexFromNode2BeforeSync)
+	}
+
+	//next unblacklist node 2 from node 1, to allow subsequent SYNC messages to be exchanged between the nodes.
+	node1.RemoveFromBlacklist(node2.Addr)
+
+	//pause to allow some time for storage opp 2 to propergate, which SHOULD undertake the
+	//Sync Index process once the ctx.Config.IndexSyncDelay time has elapsed. THIS will
+	//propegate the storage to node 1 rather than via replica-set propergation, which would
+	//have been detected and blocked by the conflict resolution logic in the store method.
+	time.Sleep(20000*time.Millisecond + ctx.Config.IndexSyncDelay)
+
+	indexFromNode1, found := node1.FindIndexLocal(key)
+	if !found || len(indexFromNode1) != 2 {
+		t.Fatalf("Expected node1 data store to equal 2 actual length was: %d", len(indexFromNode1))
+	}
+
+	//look uop entries in local store
+	indexFromNode2, found := node2.FindIndexLocal(key)
+	if !found || len(indexFromNode2) != 2 {
+		t.Fatalf("Expected node2 data store to equal 2 actual length was: %d", len(indexFromNode2))
+	}
+
+	//we expect node 1 to have received a single event from node 2
+	if len(node1Listener.GetReceivedIndexUpdateEvents()) != 1 {
+		t.Fatalf("Expected Node 1 to have received 1 index update event but it received: %d", len(node1Listener.GetReceivedIndexUpdateEvents()))
+
+	} else {
+		t.Logf("\n Node 1 received the following index update event: \n %v", node1Listener.GetReceivedIndexUpdateEvents()[0])
+	}
+
+	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
+	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
 
 }
 
