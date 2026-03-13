@@ -958,7 +958,11 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 			select {
 			case r := <-ch:
 				for _, e := range r.ents {
-					merged[e.Source+"\x1f"+e.Publisher.String()] = e
+					entryKey := e.Source + "\x1f" + e.Publisher.String()
+					existing, exists := merged[entryKey]
+					if !exists || e.UpdatedUnix > existing.UpdatedUnix {
+						merged[entryKey] = e
+					}
 					//fmt.Printf("\n^^^^^^^^^^^Found node: %s\n", e.PublisherAddr)
 				}
 				for _, np := range r.peers {
@@ -980,10 +984,22 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 	//if local find suceeded append entries to our merged collection
 	if localFindIndexOk {
 		for _, e := range localFindIndexEntries {
-			//if e.Publisher != n.ID {
-			//	continue
-			//}
-			merged[e.Source+"\x1f"+e.Publisher.String()] = e
+			if e.Publisher == n.ID {
+				//always merge this nodes current local value over any value for the key that was discovered over the network, a node will always have the most up to date values of its own entries.
+				merged[e.Source+"\x1f"+e.Publisher.String()] = e
+			} else {
+				//where the entry belongs to another publisher we only merge it
+				// where we don't already have an entry for that publisher in our
+				// merged collection, OR the update timestamp of our local
+				// entry is more recent than the one discovered over the network,
+				// this is to ensure we don't accidentally merge stale data from
+				//our local record over fresher data discovered over the network.
+				existing, exists := merged[e.Source+"\x1f"+e.Publisher.String()]
+				if !exists || e.UpdatedUnix > existing.UpdatedUnix {
+					merged[e.Source+"\x1f"+e.Publisher.String()] = e
+				}
+			}
+
 		}
 	}
 
@@ -996,10 +1012,32 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 		out = append(out, e)
 	}
 
-	//if out is larger than localFindIndexEntries then this indicates that
-	//we found additional entries over the network and thus we attempt to merge
-	// these new entries to our local record.
-	if len(out) > len(localFindIndexEntries) {
+	shouldMergeLocal := false
+	if localFindIndexOk {
+		localByKey := make(map[string]RecordIndexEntry, len(localFindIndexEntries))
+		for _, e := range localFindIndexEntries {
+			localByKey[e.Source+"\x1f"+e.Publisher.String()] = e
+		}
+
+		if len(out) > len(localByKey) {
+			shouldMergeLocal = true
+		} else if len(out) == len(localByKey) {
+			//only run freshness arbitration for equal key-count sets; this path does not
+			//model deletions, so where out < localByKey we intentionally do not merge/prune.
+			for _, mergedEntry := range out {
+				entryKey := mergedEntry.Source + "\x1f" + mergedEntry.Publisher.String()
+				localEntry, exists := localByKey[entryKey]
+				if !exists || mergedEntry.UpdatedUnix > localEntry.UpdatedUnix {
+					shouldMergeLocal = true
+					break
+				}
+			}
+		}
+	}
+
+	//where this node has local index data and the merged result is newer/different,
+	//attempt to merge the freshest entries back to local storage.
+	if shouldMergeLocal {
 
 		//we call into our local merge function to attempt to merge the new entries
 		// with our local record, where applicable.
@@ -1007,7 +1045,7 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 		if mergeErr != nil {
 			fmt.Printf("\nError merging index entries locally: %v\n", mergeErr)
 		} else {
-			fmt.Printf("\nSuccessfully merged %d new entries to local record for key: %s\n", len(out)-len(localFindIndexEntries), key)
+			fmt.Printf("\nSuccessfully merged freshest index entries to local record for key: %s\n", key)
 		}
 	}
 
@@ -2572,7 +2610,9 @@ func (n *Node) mergeIndexEntriesLocal(key string, newEntries []RecordIndexEntry,
 			if entries[i].Publisher == newEntry.Publisher &&
 				entries[i].Source == newEntry.Source {
 				//entries[i].Target == e.Target{
-				entries[i] = newEntry
+				if newEntry.Publisher == n.ID || newEntry.UpdatedUnix > entries[i].UpdatedUnix {
+					entries[i] = newEntry
+				}
 				found = true
 				break
 			}

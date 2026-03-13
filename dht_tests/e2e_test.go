@@ -4800,6 +4800,104 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 
 }
 
+func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution_With_Three_Keys_And_Multi_Store_Rounds(t *testing.T) {
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//slightly alter the default config to extend the sync delay, this mirrors timing patterns from related tests.
+	ctx.Config.IndexSyncDelay = 40 * time.Second
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//select 3 nodes from the 5-node network for repeated index storage.
+	node1 := ctx.BootstrapNodes[0]
+	node2 := ctx.BootstrapNodes[2]
+	node3 := ctx.BootstrapNodes[4]
+
+	//define 3 shared keys for all selected publishers.
+	keys := []string{"leaf/x", "leaf/y", "leaf/z"}
+
+	//local helper to store all keys for a node with a specific target suffix.
+	storeAllKeys := func(node *dht.Node, suffix string) {
+		for _, key := range keys {
+			err := node.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node.ID.String() + suffix, UpdatedUnix: time.Now().UnixNano()})
+			if err != nil {
+				t.Fatalf("Error occurred whilst %s was trying to store index entry for key %s: %v", node.Addr, key, err)
+			}
+		}
+	}
+
+	//round 1
+	storeAllKeys(node1, "")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node2, "")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node3, "")
+
+	//round 2
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node1, "-two")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node2, "-two")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node3, "-two")
+
+	//round 3
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node1, "-three")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node2, "-three")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node3, "-three")
+
+	//round 4: node1 and node2 only.
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node1, "-four")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node2, "-four")
+
+	//wait sufficient time for sync/propagation across the full network.
+	time.Sleep(20000*time.Millisecond + ctx.Config.IndexSyncDelay)
+
+	//expected final targets: node1 and node2 at version four, node3 at version three.
+	expectedTargets := map[string]bool{
+		"super/" + node1.ID.String() + "-four":  true,
+		"super/" + node2.ID.String() + "-four":  true,
+		"super/" + node3.ID.String() + "-three": true,
+	}
+
+	//validate each node has exactly 3 entries per key and all are the latest versions.
+	for _, currentNode := range ctx.BootstrapNodes {
+		for _, key := range keys {
+			entries, found := currentNode.FindIndexLocal(key)
+			if !found {
+				t.Fatalf("Expected node %s to contain local index entries for key %s but found none", currentNode.Addr, key)
+			}
+
+			if len(entries) != 3 {
+				t.Fatalf("Expected node %s to have exactly 3 entries for key %s but got: %d", currentNode.Addr, key, len(entries))
+			}
+
+			actualTargets := make(map[string]bool)
+			for _, entry := range entries {
+				actualTargets[entry.Target] = true
+			}
+
+			for expectedTarget := range expectedTargets {
+				if !actualTargets[expectedTarget] {
+					t.Fatalf("Expected node %s key %s to contain latest target %s but it was missing; actual targets: %v", currentNode.Addr, key, expectedTarget, actualTargets)
+				}
+			}
+		}
+	}
+
+}
+
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution_With_Partially_Disjoint_Replica_Set_On_Node_1(t *testing.T) {
 
 	/*
