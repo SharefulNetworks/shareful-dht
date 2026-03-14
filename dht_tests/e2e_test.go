@@ -4898,6 +4898,178 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 
 }
 
+func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution_With_Three_Keys_And_Multi_Store_Rounds_And_Event_Validation(t *testing.T) {
+
+	/*
+		Extends Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution_With_Three_Keys_And_Multi_Store_Rounds
+		by additionally registering a TestNodeEventListener on each of the 3 co-publisher nodes and verifying:
+
+		1) Each co-publisher receives at least the minimum expected number of IndexUpdateEvents across all keys.
+		   Co-publishers exchange updates exclusively via the SYNC INDEX mechanism (they are mutually excluded
+		   from each other's replica sets), so event delivery is asynchronous and the count is bounded below.
+
+		2) The last IndexUpdateEvent received per key on every co-publisher carries exactly 3 entries (one per
+		   publisher) and each entry target reflects the latest version stored:
+		      - node1 and node2 both reached round four  ("-four" suffix)
+		      - node3 reached round three ("-three" suffix)
+	*/
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//slightly alter the default config to extend the sync delay, this mirrors timing patterns from related tests.
+	ctx.Config.IndexSyncDelay = 40 * time.Second
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//select 3 nodes from the 5-node network for repeated index storage.
+	node1 := ctx.BootstrapNodes[0]
+	node2 := ctx.BootstrapNodes[2]
+	node3 := ctx.BootstrapNodes[4]
+
+	//register event listeners on the 3 co-publisher nodes only; they are the only nodes
+	//that exchange updates via the SYNC INDEX mechanism and should therefore receive events.
+	node1Listener := NewTestNodeEventListener()
+	node2Listener := NewTestNodeEventListener()
+	node3Listener := NewTestNodeEventListener()
+
+	node1.AppendNodeEventListener("Node1Lsnr", node1Listener)
+	node2.AppendNodeEventListener("Node2Lsnr", node2Listener)
+	node3.AppendNodeEventListener("Node3Lsnr", node3Listener)
+
+	//define 3 shared keys for all selected publishers.
+	keys := []string{"leaf/x", "leaf/y", "leaf/z"}
+
+	//local helper to store all keys for a node with a specific target suffix.
+	storeAllKeys := func(node *dht.Node, suffix string) {
+		for _, key := range keys {
+			err := node.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: "super/" + node.ID.String() + suffix, UpdatedUnix: time.Now().UnixNano(), EnableIndexUpdateEvents: true})
+			if err != nil {
+				t.Fatalf("Error occurred whilst %s was trying to store index entry for key %s: %v", node.Addr, key, err)
+			}
+		}
+	}
+
+	//round 1
+	storeAllKeys(node1, "")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node2, "")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node3, "")
+
+	//round 2
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node1, "-two")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node2, "-two")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node3, "-two")
+
+	//round 3
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node1, "-three")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node2, "-three")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node3, "-three")
+
+	//round 4: node1 and node2 only.
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node1, "-four")
+	time.Sleep(5000 * time.Millisecond)
+	storeAllKeys(node2, "-four")
+
+	//wait sufficient time for sync/propagation across the full network.
+	time.Sleep(20000*time.Millisecond + ctx.Config.IndexSyncDelay)
+
+	//expected final targets: node1 and node2 at version four, node3 at version three.
+	expectedLatestTargets := map[string]bool{
+		"super/" + node1.ID.String() + "-four":  true,
+		"super/" + node2.ID.String() + "-four":  true,
+		"super/" + node3.ID.String() + "-three": true,
+	}
+
+	//minimum event totals (summed across all 3 keys):
+	//  Each co-publisher relies on the SYNC mechanism to learn the other two publishers' updates.
+	//  With a 40 s sync interval and the post-storage wait, at least one sync cycle fires per
+	//  co-publisher pair, so each publisher receives at least one event per key from each of the
+	//  other two publishers → minimum 2 co-publishers × 3 keys = 6 events.
+	type nodeExpectation struct {
+		listener      *TestNodeEventListener
+		node          *dht.Node
+		minEventCount int
+	}
+
+	expectations := []nodeExpectation{
+		{node1Listener, node1, 6},
+		{node2Listener, node2, 6},
+		{node3Listener, node3, 6},
+	}
+
+	for _, exp := range expectations {
+		allEvents := exp.listener.GetReceivedIndexUpdateEvents()
+
+		//1) Check the total event count across all keys meets the minimum.
+		if len(allEvents) < exp.minEventCount {
+			t.Fatalf("Node %s expected at least %d total IndexUpdateEvents but received: %d",
+				exp.node.Addr, exp.minEventCount, len(allEvents))
+		} else {
+			t.Logf("Node %s received %d total IndexUpdateEvents (minimum expected: %d)",
+				exp.node.Addr, len(allEvents), exp.minEventCount)
+		}
+
+		//2) For each key find the last event and verify its entries snapshot.
+		for _, key := range keys {
+
+			//collect all events for this specific key in the order they arrived.
+			var keyEvents []events.IndexUpdateEvent
+			for _, ev := range allEvents {
+				if ev.GetKey() == key {
+					keyEvents = append(keyEvents, ev)
+				}
+			}
+
+			if len(keyEvents) == 0 {
+				t.Fatalf("Node %s received no IndexUpdateEvents for key %s", exp.node.Addr, key)
+			}
+
+			//inspect the last (most recent) event for this key.
+			lastEvent := keyEvents[len(keyEvents)-1]
+
+			//the entries snapshot must contain exactly one entry per publisher.
+			if len(lastEvent.GetEntries()) != 3 {
+				t.Fatalf("Node %s last event for key %s: expected 3 entries but got %d",
+					exp.node.Addr, key, len(lastEvent.GetEntries()))
+			}
+
+			//every expected latest target must be present in the entries snapshot.
+			actualTargets := make(map[string]bool)
+			entryPairs := make([]string, 0, len(lastEvent.GetEntries()))
+			for _, entry := range lastEvent.GetEntries() {
+				actualTargets[entry.GetTarget()] = true
+				entryPairs = append(entryPairs, entry.GetSource()+" -> "+entry.GetTarget())
+			}
+
+			for expectedTarget := range expectedLatestTargets {
+				if !actualTargets[expectedTarget] {
+					t.Fatalf("Node %s last event for key %s: expected latest target %q but it was missing; actual targets: %v",
+						exp.node.Addr, key, expectedTarget, actualTargets)
+				}
+			}
+
+			t.Logf("Node %s key %s: last event ok — %d entries, all latest targets present",
+				exp.node.Addr, key, len(lastEvent.GetEntries()))
+			t.Logf("The last event on node %s for key %s contains the entries: %v",
+				exp.node.Addr, key, entryPairs)
+		}
+	}
+
+}
+
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution_With_Partially_Disjoint_Replica_Set_On_Node_1(t *testing.T) {
 
 	/*
