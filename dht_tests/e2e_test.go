@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"slices"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/dht"
 	"github.com/SharefulNetworks/shareful-dht/events"
 	"github.com/SharefulNetworks/shareful-dht/netx"
+	"github.com/SharefulNetworks/shareful-dht/routing"
 	"github.com/SharefulNetworks/shareful-dht/types"
 )
 
@@ -5440,6 +5442,210 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Eve
 
 }
 */
+
+func Test_PeerHealth_ThresholdCrossing_PublishesEventAndDropsPeer(t *testing.T) {
+	cfg := configurePeerHealthTest(t, 2, 200*time.Millisecond)
+	ctx := NewConfigurableTestContext(t, 2, cfg, false)
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
+	rt := n1.GetRoutingTable()
+	waitForPeerInRoutingTable(t, rt, n2.ID, 3*time.Second)
+
+	listener := newTestRoutingTableListener()
+	rt.RegisterListener("peer-health-threshold", listener)
+	defer rt.UnregisterListener("peer-health-threshold")
+
+	for i := 0; i < cfg.MaxNodeConnectionFailureThreshold; i++ {
+		rt.MarkPeerConnectionFailure(n2.ID)
+	}
+
+	listener.waitForEventCount(t, 1, time.Second)
+	time.Sleep(cfg.UnhealthyPeerGracePeriod + 200*time.Millisecond)
+
+	if _, ok := rt.GetPeer(n2.ID); ok {
+		t.Fatalf("expected peer %s to be removed after grace period", n2.ID.String())
+	}
+}
+
+func Test_PeerHealth_SuccessResetsFailureCountBeforeThreshold(t *testing.T) {
+	cfg := configurePeerHealthTest(t, 3, 400*time.Millisecond)
+	ctx := NewConfigurableTestContext(t, 2, cfg, false)
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
+	rt := n1.GetRoutingTable()
+	waitForPeerInRoutingTable(t, rt, n2.ID, 3*time.Second)
+
+	rt.MarkPeerConnectionFailure(n2.ID)
+	peer, ok := rt.GetPeer(n2.ID)
+	if !ok {
+		t.Fatalf("expected peer %s in routing table", n2.ID.String())
+	}
+	if peer.GetCumulativeConnectionFailures() != 1 {
+		t.Fatalf("expected failure count to equal 1, got %d", peer.GetCumulativeConnectionFailures())
+	}
+
+	rt.MarkPeerConnectionSuccess(n2.ID)
+	peer, ok = rt.GetPeer(n2.ID)
+	if !ok {
+		t.Fatalf("expected peer %s in routing table after success", n2.ID.String())
+	}
+	if peer.GetCumulativeConnectionFailures() != 0 {
+		t.Fatalf("expected failure count reset to 0, got %d", peer.GetCumulativeConnectionFailures())
+	}
+	if !peer.IsHealthy() {
+		t.Fatalf("expected peer %s to be healthy after success", n2.ID.String())
+	}
+}
+
+func Test_PeerHealth_SuccessBeforeGracePeriodPreventsPeerRemoval(t *testing.T) {
+	cfg := configurePeerHealthTest(t, 2, 300*time.Millisecond)
+	ctx := NewConfigurableTestContext(t, 2, cfg, false)
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
+	rt := n1.GetRoutingTable()
+	waitForPeerInRoutingTable(t, rt, n2.ID, 3*time.Second)
+
+	listener := newTestRoutingTableListener()
+	rt.RegisterListener("peer-health-recovery", listener)
+	defer rt.UnregisterListener("peer-health-recovery")
+
+	for i := 0; i < cfg.MaxNodeConnectionFailureThreshold; i++ {
+		rt.MarkPeerConnectionFailure(n2.ID)
+	}
+	listener.waitForEventCount(t, 1, time.Second)
+
+	rt.MarkPeerConnectionSuccess(n2.ID)
+	time.Sleep(cfg.UnhealthyPeerGracePeriod + 200*time.Millisecond)
+
+	peer, ok := rt.GetPeer(n2.ID)
+	if !ok {
+		t.Fatalf("expected peer %s to remain in routing table after recovery", n2.ID.String())
+	}
+	if !peer.IsHealthy() {
+		t.Fatalf("expected peer %s to be healthy after recovery", n2.ID.String())
+	}
+	if peer.GetCumulativeConnectionFailures() != 0 {
+		t.Fatalf("expected failure count reset to 0 after recovery, got %d", peer.GetCumulativeConnectionFailures())
+	}
+}
+
+func Test_PeerHealth_UnhealthyPeersExcludedFromClosestResults(t *testing.T) {
+	cfg := configurePeerHealthTest(t, 1, 5*time.Second)
+	ctx := NewConfigurableTestContext(t, 3, cfg, false)
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
+	n3 := ctx.Nodes[2]
+	rt := n1.GetRoutingTable()
+	waitForPeerInRoutingTable(t, rt, n2.ID, 3*time.Second)
+	waitForPeerInRoutingTable(t, rt, n3.ID, 3*time.Second)
+
+	initial := rt.Closest(n1.ID, 10)
+	if !peerSliceContains(initial, n2.ID) || !peerSliceContains(initial, n3.ID) {
+		t.Fatalf("expected routing table to return both peers before marking unhealthy")
+	}
+
+	rt.MarkPeerConnectionFailure(n2.ID)
+	afterFailure := rt.Closest(n1.ID, 10)
+	if peerSliceContains(afterFailure, n2.ID) {
+		t.Fatalf("expected unhealthy peer %s to be excluded from closest results", n2.ID.String())
+	}
+	if !peerSliceContains(afterFailure, n3.ID) {
+		t.Fatalf("expected healthy peer %s to remain in closest results", n3.ID.String())
+	}
+
+	rt.MarkPeerConnectionSuccess(n2.ID)
+	recovered := rt.Closest(n1.ID, 10)
+	if !peerSliceContains(recovered, n2.ID) {
+		t.Fatalf("expected recovered peer %s to reappear in closest results", n2.ID.String())
+	}
+}
+
+type routingTableEvent struct {
+	peerID   types.NodeID
+	peerAddr string
+}
+
+type testRoutingTableListener struct {
+	mu     sync.Mutex
+	events []routingTableEvent
+}
+
+func newTestRoutingTableListener() *testRoutingTableListener {
+	return &testRoutingTableListener{}
+}
+
+func (l *testRoutingTableListener) OnPeerUnhealthyStateChange(peerId types.NodeID, peerAddr string) {
+	l.mu.Lock()
+	l.events = append(l.events, routingTableEvent{peerID: peerId, peerAddr: peerAddr})
+	l.mu.Unlock()
+}
+
+func (l *testRoutingTableListener) waitForEventCount(t *testing.T, expected int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if l.eventCount() >= expected {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d routing table events (received %d)", expected, l.eventCount())
+		case <-ticker.C:
+		}
+	}
+}
+
+func (l *testRoutingTableListener) eventCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.events)
+}
+
+func waitForPeerInRoutingTable(t *testing.T, rt *routing.RoutingTable, peerID types.NodeID, timeout time.Duration) {
+	t.Helper()
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, ok := rt.GetPeer(peerID); ok {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for peer %s to appear in routing table", peerID.String())
+		case <-ticker.C:
+		}
+	}
+}
+
+func peerSliceContains(peers []*routing.Peer, peerID types.NodeID) bool {
+	for _, p := range peers {
+		if p != nil && p.ID == peerID {
+			return true
+		}
+	}
+	return false
+}
+
+func configurePeerHealthTest(t *testing.T, threshold int, grace time.Duration) *config.Config {
+	t.Helper()
+	config.Reset()
+	cfg := config.GetDefaultSingletonInstance()
+	cfg.UseProtobuf = true
+	cfg.RequestTimeout = 1000 * time.Millisecond
+	cfg.DefaultEntryTTL = 30 * time.Second
+	cfg.DefaultIndexEntryTTL = 30 * time.Second
+	cfg.RefreshInterval = 5 * time.Second
+	cfg.JanitorInterval = 10 * time.Second
+	cfg.MaxNodeConnectionFailureThreshold = threshold
+	cfg.UnhealthyPeerGracePeriod = grace
+	t.Cleanup(func() {
+		config.Reset()
+	})
+	return cfg
+}
 
 /*****************************************************************************************************************
  *                                     HELPER/UTILITY TYPES AND FUNCTIONS FOR E2E TESTS

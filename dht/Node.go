@@ -1505,8 +1505,16 @@ func (n *Node) OnPeerUnhealthyStateChange(peerId types.NodeID, peerAddr string) 
 			return // node is shutting down, skip deferred drop actions
 		default:
 		}
-		n.DropPeer(peerId)
-		fmt.Printf("\nDEBUG:UnhealthyPeer with ID %s @ %s was dropped from this node. \n", peerId.String(), peerAddr)
+
+		//if peer is STILL unhealthy after the grace period we proceed to drop it.
+		existingTargetPeer, peerExists := n.routingTable.GetPeer(peerId)
+		if peerExists &&
+			existingTargetPeer.Addr == peerAddr &&
+			!existingTargetPeer.IsHealthy() {
+			n.DropPeer(peerId)
+			fmt.Printf("\nDEBUG:UnhealthyPeer with ID %s @ %s was dropped from this node. \n", peerId.String(), peerAddr)
+		}
+
 	})
 }
 
