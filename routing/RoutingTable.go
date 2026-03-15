@@ -17,13 +17,15 @@ import (
 // It contains multiple K-Buckets, each of which in turn contain multiple peers;
 // buckers are arranged according to their respective XOR distance from the local node.
 type RoutingTable struct {
-	self       types.NodeID
-	buckets    []KBucket
-	bucketSize int
-	nodeLike   commons.NodeLike
-	mu         sync.RWMutex
-	wg         sync.WaitGroup
-	stop       chan struct{}
+	self             types.NodeID
+	buckets          []KBucket
+	bucketSize       int
+	nodeLike         commons.NodeLike
+	mu               sync.RWMutex
+	wg               sync.WaitGroup
+	stop             chan struct{}
+	listeners        map[string]RoutingTableListener
+	addressToIdCache map[string]types.NodeID //a cache to store mappings of peer addresses to their respective node ids, this is used to facilitate the process of marking Peers as healthy/unhealthy depending on whether the top-level node is able to establish a connection to that peer, from this context the Node will generally only be able to provide the address of the target peer. The cache is populated during the Update method when new peers are added to the routing table.
 }
 
 func NewRoutingTable(self types.NodeID, bucketSize int, nodeLike commons.NodeLike) *RoutingTable {
@@ -31,11 +33,13 @@ func NewRoutingTable(self types.NodeID, bucketSize int, nodeLike commons.NodeLik
 		bucketSize = 20 // a good default
 	}
 	rt := &RoutingTable{
-		self:       self,
-		buckets:    make([]KBucket, types.IDBits), // 160 buckets
-		bucketSize: bucketSize,
-		stop:       make(chan struct{}),
-		nodeLike:   nodeLike,
+		self:             self,
+		buckets:          make([]KBucket, types.IDBits), // 160 buckets
+		bucketSize:       bucketSize,
+		stop:             make(chan struct{}),
+		nodeLike:         nodeLike,
+		listeners:        make(map[string]RoutingTableListener),
+		addressToIdCache: make(map[string]types.NodeID),
 	}
 	rt.startBucketRefresher()
 	return rt
@@ -71,7 +75,14 @@ func (rt *RoutingTable) Update(id types.NodeID, addr string) {
 	for idx := range b.Peers {
 		if b.Peers[idx].ID == id {
 			if addr != "" && b.Peers[idx].Addr != addr {
+				//where this existing peer has an undated address..
+
+				//1)update the address in the peer entry.
 				b.Peers[idx].Addr = addr
+
+				//2)update the address to id cache with the new address and id mapping.
+				rt.addressToIdCache[addr] = id
+
 			}
 			b.Peers[idx].LastSeen = now
 
@@ -92,9 +103,11 @@ func (rt *RoutingTable) Update(id types.NodeID, addr string) {
 	}
 
 	//where there is adequate capacity in the bucket, append the new peer.
-	p := &Peer{ID: id, Addr: addr, LastSeen: now}
+	//and append the address to id mapping to the cache.
+	p := &Peer{ID: id, Addr: addr, LastSeen: now, healthy: true}
 	if len(b.Peers) < rt.bucketSize {
 		b.Peers = append(b.Peers, p)
+		rt.addressToIdCache[addr] = id
 		return
 	}
 
@@ -131,6 +144,10 @@ func (rt *RoutingTable) Remove(id types.NodeID) bool {
 	}
 
 	if targetRemovalIndex >= 0 {
+		//where the peer to be removed has a valid address, we also remove the corresponding entry in the address to id cache.
+		if removed {
+			delete(rt.addressToIdCache, b.Peers[targetRemovalIndex].Addr)
+		}
 		removed = b.Remove(targetRemovalIndex)
 	}
 
@@ -138,11 +155,12 @@ func (rt *RoutingTable) Remove(id types.NodeID) bool {
 
 }
 
-// GetAddr lets Node.lookupAddrForId stay simple.
-func (rt *RoutingTable) GetAddr(id types.NodeID) (string, bool) {
+// GetPeer - Returns the peer associated with the specified id, where it exists. A boolean is then returned to indicate
+// whether or not the target entry was successfully located; return TRUE where this is the case and FALSE otherwise.
+func (rt *RoutingTable) GetPeer(id types.NodeID) (*Peer, bool) {
 	i := rt.bucketIndex(rt.self, id)
 	if i < 0 {
-		return "", false
+		return nil, false
 	}
 
 	rt.mu.RLock()
@@ -151,8 +169,28 @@ func (rt *RoutingTable) GetAddr(id types.NodeID) (string, bool) {
 	b := &rt.buckets[i]
 	for _, c := range b.Peers {
 		if c.ID == id {
-			return c.Addr, true
+			return c, true
 		}
+	}
+	return nil, false
+}
+
+//GetPeerByAddr - Returns the peer associated with the specified address, where it exists. 
+//A boolean is then returned to indicate whether or not the target entry was successfully located; 
+//return TRUE where this is the case and FALSE otherwise.
+func (rt *RoutingTable) GetPeerByAddr(addr string) (*Peer, bool) {
+	var targetPeerId types.NodeID
+	rt.mu.RLock()
+	targetPeerId = rt.addressToIdCache[addr]
+	rt.mu.RUnlock()
+	return rt.GetPeer(targetPeerId)
+}
+
+// GetPeerAddr lets Node.lookupAddrForId stay simple.
+func (rt *RoutingTable) GetPeerAddr(id types.NodeID) (string, bool) {
+	peer, found := rt.GetPeer(id)
+	if found {
+		return peer.Addr, true
 	}
 	return "", false
 }
@@ -177,6 +215,15 @@ func (rt *RoutingTable) Closest(target types.NodeID, count int) []*Peer {
 	for i := range rt.buckets {
 		all = append(all, rt.buckets[i].Peers...)
 	}
+
+	//filter out all unhealthy peers from the list of candidates before sorting and returning the closest peers.
+	var healthyPeers []*Peer
+	for _, peer := range all {
+		if peer.IsHealthy() {
+			healthyPeers = append(healthyPeers, peer)
+		}
+	}
+	all = healthyPeers
 	rt.mu.RUnlock()
 
 	sort.Slice(all, func(i, j int) bool {
@@ -217,6 +264,66 @@ func (rt *RoutingTable) ListBuckets() []KBucket {
 	rt.mu.RLock()
 	defer rt.mu.RUnlock()
 	return rt.buckets
+}
+
+func (rt *RoutingTable) MarkPeerConnectionFailure(peerId types.NodeID) {
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	_, b := rt.BucketFor(peerId)
+	if b == nil {
+		return
+	}
+
+	for _, peer := range b.Peers {
+		if peer.ID == peerId {
+			wasHealthy := peer.IsHealthy()
+			peer.MarkConnectionFailure()
+			if wasHealthy && !peer.IsHealthy() { //ensures that the event is only published once when the peer transitions from a healthy to an unhealthy state.
+				//publish event to listeners.
+				rt.publishPeerUnhealthyEvent(peerId, peer.Addr)
+			}
+			break
+		}
+	}
+
+}
+
+func (rt *RoutingTable) MarkPeerConnectionSuccess(peerId types.NodeID) {
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	_, b := rt.BucketFor(peerId)
+	if b == nil {
+		return
+	}
+
+	for _, peer := range b.Peers {
+		if peer.ID == peerId {
+			peer.MarkConnectionSuccess()
+			break
+		}
+	}
+
+}
+
+// AddListener - Registers a RoutingTableListener with the routing table, the listener will be notified
+// of significant events pertaining to the state of peers in the routing table.
+// NOTE: The id is just used to unregister listener lateer, as necessary.
+func (rt *RoutingTable) RegisterListener(id string, listener RoutingTableListener) {
+	rt.mu.Lock()
+	rt.listeners[id] = listener
+	rt.mu.Unlock()
+}
+
+// UnregisterListener - Unregisters a RoutingTableListener from the routing table, the listener will no longer be notified
+// of significant events pertaining to the state of peers in the routing table.
+func (rt *RoutingTable) UnregisterListener(id string) {
+	rt.mu.Lock()
+	delete(rt.listeners, id)
+	rt.mu.Unlock()
 }
 
 func (rt *RoutingTable) bucketIndex(self, other types.NodeID) int {
@@ -268,6 +375,12 @@ func (rt *RoutingTable) compareDistance(a, b, t types.NodeID) int {
 		}
 	}
 	return 0
+}
+
+func (rt *RoutingTable) publishPeerUnhealthyEvent(peerId types.NodeID, peerAddr string) {
+	for _, listener := range rt.listeners {
+		listener.OnPeerUnhealthyStateChange(peerId, peerAddr)
+	}
 }
 
 func (rt *RoutingTable) startBucketRefresher() {

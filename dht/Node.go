@@ -88,6 +88,9 @@ func NewNode(id string, addr string, transport netx.Transport, cfg *config.Confi
 	//constructor as the routing table requires reference to the node being constructed.
 	n.routingTable = routing.NewRoutingTable(n.ID, cfg.K, n)
 
+	//append ourself as a RoutingTableListener to the routing table.
+	n.routingTable.RegisterListener("Node", n)
+
 	//start listening for incoming messages
 	_ = n.transport.Listen(addr, n.onMessage)
 
@@ -157,6 +160,7 @@ func (n *Node) Shutdown() {
 		close(n.stop)
 		n.wg.Wait() // wait for janitor and refresher to finish
 		n.transport.Close()
+		n.routingTable.UnregisterListener("Node")
 		n.routingTable.Destroy()
 	})
 }
@@ -173,7 +177,7 @@ func (n *Node) DropPeer(id types.NodeID) bool {
 
 	//we'll need the peer address to close any active connections
 	//currently being held to it. OK will be false where no active connection exist to the peer.
-	peerAddr, ok := n.routingTable.GetAddr(id)
+	peerAddr, ok := n.routingTable.GetPeerAddr(id)
 	if ok {
 		//where an active connection DOES exist to the peer close it.
 		closeErr := n.transport.CloseConnection(peerAddr)
@@ -967,7 +971,10 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 				}
 				for _, np := range r.peers {
 					if np != nil && np.ID != n.ID {
-						seen[np.ID] = np
+						_, exists := seen[np.ID]
+						if !exists {
+							seen[np.ID] = np
+						}
 					}
 				}
 			case <-deadline:
@@ -1478,6 +1485,29 @@ func (n *Node) RemoveFromBlacklist(addr ...string) {
 	for _, a := range addr {
 		n.blacklist.Delete(a)
 	}
+}
+
+// onPeerUnhealthyStateChange - This function is called by the routing table when a peer is marked as unhealthy,
+// this allows the node to undertake any necessary operations in response to this event, such as removing the
+// peer from the routing table, adding it to a blacklist, etc.
+// NOTE: At this point the RoutingTable will have already marked the peer as unhealthy
+//
+//	and will exclude it from future lookups.
+func (n *Node) OnPeerUnhealthyStateChange(peerId types.NodeID, peerAddr string) {
+	fmt.Printf("\nDEBUG:Received event to indicate that Peer has been marked as unhealthy: %s @ %s\n", peerId.String(), peerAddr)
+
+	//after a short grace period, to allow any in-flight requests to complete, we drop the
+	//unhealthy peer from the routing table AND issue a call to the Transport
+	//layer to drop any existing connections to the peer.
+	time.AfterFunc(n.cfg.UnhealthyPeerGracePeriod, func() {
+		select {
+		case <-n.stop:
+			return // node is shutting down, skip deferred drop actions
+		default:
+		}
+		n.DropPeer(peerId)
+		fmt.Printf("\nDEBUG:UnhealthyPeer with ID %s @ %s was dropped from this node. \n", peerId.String(), peerAddr)
+	})
 }
 
 // AppendNodeEventListener - Provides a mechanism by which external subscribers can
@@ -2526,16 +2556,44 @@ func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
 	n.pending.Store(reqID, ch)
 	defer n.pending.Delete(reqID)
 	if err := n.transport.Send(to, msg); err != nil {
+		n.markPeerConnectionResult(to, false)
 		return nil, err
 	}
 	select {
 	case resp := <-ch:
+
+		//where we ALREADY have the peer in our routing table mark
+		//the connection as success since we have received a response.
+		n.markPeerConnectionResult(to, true)
 		//fmt.Println("response from remote node was: ")
 		//fmt.Println(resp)
 		return resp, nil
 	case <-time.After(n.cfg.RequestTimeout):
+		//where we ALREADY have the peer in our routing table mark
+		//the connection as success since we have received a response.
+		n.markPeerConnectionResult(to, false)
 		return nil, fmt.Errorf("node request timeout")
 	}
+}
+
+func (n *Node) markPeerConnectionResult(peerAddr string, success bool) {
+	if peerAddr == "" {
+		return
+	}
+	select {
+	case <-n.stop:
+		return
+	default:
+	}
+	existingPeer, found := n.routingTable.GetPeerByAddr(peerAddr)
+	if !found {
+		return
+	}
+	if success {
+		n.routingTable.MarkPeerConnectionSuccess(existingPeer.ID)
+		return
+	}
+	n.routingTable.MarkPeerConnectionFailure(existingPeer.ID)
 }
 
 /*
@@ -2961,7 +3019,7 @@ func (n *Node) deleteIndexLocal(key string, publisher types.NodeID, source strin
 
 		// Otherwise: matched → delete (skip adding the entry to our filtered list)
 		deleted = true
-		publisherAddr, _ := n.routingTable.GetAddr(e.Publisher)
+		publisherAddr, _ := n.routingTable.GetPeerAddr(e.Publisher)
 
 		//convert this to printf
 		fmt.Printf("Deleted Index entry with source: %s and with key: %s originally published by: %s deleted from node: %s\n", source, key, publisherAddr, n.Addr)

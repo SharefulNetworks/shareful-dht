@@ -29,6 +29,8 @@ type Config struct {
 	BucketRefreshBatchDelayInterval           time.Duration //the duration of time to wait between processing batches of bucket refresh jobs. This is useful to prevent overwhelming the network or the node itself with a large number of find operations in scenarios where many buckets require refreshing at the same time.
 	IndexSyncDelay                            time.Duration //the duration of time to wait after a successful store index operation before dispatching sync index requests to other peers. This is useful to allow sufficient time for the store operation to propagate and for the publisher's peer list to be updated with any new peers that may have been added as part of the store operation before dispatching sync requests to ensure that applicable peers are included in the sync process.
 	IndexUpdateEventsEnabled                  bool          //determines whether IndexEntryUpdateEvents are enabled globally, where this is set to FALSE the value defined in the IndexEntry is ignored.
+	MaxNodeConnectionFailureThreshold         int           //the maximum number of consecutive connection failures to a given peer before the peer is considered unreaachable and an event id published to signal its removal from the routing table.
+	UnhealthyPeerGracePeriod                  time.Duration //the duration of time to wait after a peer is deemed unhealthy before actually removing the peer from the routing table. This is useful to allow for transient network issues or temporary peer unavailability without prematurely removing peers from the routing table.
 }
 
 var singletonConfig *Config
@@ -59,11 +61,13 @@ func GetDefaultSingletonInstance() *Config {
 			BucketRefreshBatchDelayInterval:           10 * time.Second,
 			IndexSyncDelay:                            2 * time.Second,
 			IndexUpdateEventsEnabled:                  true,
+			MaxNodeConnectionFailureThreshold:         5,
+			UnhealthyPeerGracePeriod:                  10 * time.Second,
 		}
 	}
 	return singletonConfig
 }
 
-func Reset(){
+func Reset() {
 	singletonConfig = nil
 }
