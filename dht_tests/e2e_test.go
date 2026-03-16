@@ -48,6 +48,8 @@ func Test_Create_And_Find_Standard_Entry_Value(t *testing.T) {
 	}
 }
 
+
+
 func Test_Create_And_Find_Index_Entry_Value(t *testing.T) {
 
 	//create new default test context
@@ -5558,6 +5560,61 @@ func Test_PeerHealth_UnhealthyPeersExcludedFromClosestResults(t *testing.T) {
 	if !peerSliceContains(recovered, n2.ID) {
 		t.Fatalf("expected recovered peer %s to reappear in closest results", n2.ID.String())
 	}
+}
+
+
+func Test_ResolvePeerAddr_LocalRoutingTableHit(t *testing.T) {
+
+	ctx := NewDefaultTestContext(t)
+
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
+
+	waitForPeerInRoutingTable(t, n1.GetRoutingTable(), n2.ID, 2*time.Second)
+
+	addr, ok := n1.ResolvePeerAddr("node2")
+	if !ok {
+		t.Fatalf("expected to resolve peer node2 from local routing table")
+	}
+	if addr != n2.Addr {
+		t.Fatalf("expected resolved address %s, got %s", n2.Addr, addr)
+	}
+}
+
+func Test_ResolvePeerAddr_RemoteLookup(t *testing.T) {
+
+	ctx := NewDefaultTestContext(t)
+
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
+
+	n3, err := dht.NewNode("node3", ":9323", netx.NewTCP(), ctx.Config, dht.NT_CORE)
+	if err != nil {
+		t.Fatalf("failed to create third node: %v", err)
+	}
+	t.Cleanup(func() {
+		n3.Shutdown()
+	})
+
+	if err := n3.Connect(n2.Addr); err != nil {
+		t.Fatalf("node3 failed to connect to node2: %v", err)
+	}
+
+	waitForPeerInRoutingTable(t, n2.GetRoutingTable(), n3.ID, 2*time.Second)
+
+	if _, ok := n1.GetRoutingTable().GetPeer(n3.ID); ok {
+		n1.DropPeer(n3.ID)
+	}
+
+	addr, ok := n1.ResolvePeerAddr("node3")
+	if !ok {
+		t.Fatalf("expected to resolve peer node3 via network lookup")
+	}
+	if addr != n3.Addr {
+		t.Fatalf("expected resolved address %s, got %s", n3.Addr, addr)
+	}
+
+	waitForPeerInRoutingTable(t, n1.GetRoutingTable(), n3.ID, 2*time.Second)
 }
 
 type routingTableEvent struct {
