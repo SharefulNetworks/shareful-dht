@@ -58,7 +58,7 @@ type Node struct {
 // newly created Node instance or non nil error object, where an error occurred
 // during the creation process. The new node will immediately begin listening for
 // incoming messages and will spin up various background network maintanence tasks.
-func NewNode(id string, addr string, transport netx.Transport, cfg *config.Config, nodeType int) (*Node, error) {
+func NewNode(plainTextId string, addr string, transport netx.Transport, cfg *config.Config, nodeType int) (*Node, error) {
 	var codec wire.Codec
 	codec = wire.JSONCodec{}
 	if cfg.UseProtobuf {
@@ -72,7 +72,7 @@ func NewNode(id string, addr string, transport netx.Transport, cfg *config.Confi
 
 	//instantiate the new DHT node
 	n := &Node{
-		ID:           HashKey(id),
+		ID:           HashKey(plainTextId),
 		Addr:         addr,
 		transport:    transport,
 		cfg:          cfg,
@@ -186,6 +186,29 @@ func (n *Node) DropPeer(id types.NodeID) bool {
 		}
 	}
 	return n.routingTable.Remove(id)
+}
+
+// ResolvePeer - attempts to resolve the network address of a peer with the given id,
+// returning the address and a boolean value of TRUE where resolution is successful and an
+// empty string with a boolean value of FALSE where resolution is unsuccessful.
+func (n *Node) ResolvePeerAddr(peerPlainTextId string) (string, bool) {
+
+	//first attempt to resolve the peers address from our local routing table.
+	id := HashKey(peerPlainTextId)
+	if addr, ok := n.routingTable.GetPeerAddr(id); ok {
+		return addr, true
+	} else {
+		//otherwise we attempt to lookup the peer over the network
+		if peers, err := n.lookupK(id); err == nil {
+			for _, p := range peers {
+				if p.ID == id {
+					return p.Addr, true
+				}
+			}
+		}
+	}
+
+	return "", false
 }
 
 // Connect sends an OP_CONNECT request to the given address, asking that
