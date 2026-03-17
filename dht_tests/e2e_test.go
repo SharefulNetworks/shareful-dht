@@ -48,8 +48,6 @@ func Test_Create_And_Find_Standard_Entry_Value(t *testing.T) {
 	}
 }
 
-
-
 func Test_Create_And_Find_Index_Entry_Value(t *testing.T) {
 
 	//create new default test context
@@ -3494,8 +3492,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Eve
 	//events were received to our nodes as expected.
 	node1EventListener := NewTestNodeEventListener()
 	node2EventListener := NewTestNodeEventListener()
-	node1.AppendNodeEventListener("node1", node1EventListener)
-	node2.AppendNodeEventListener("node2", node2EventListener)
+	node1.RegisterNodeEventListener("node1", node1EventListener)
+	node2.RegisterNodeEventListener("node2", node2EventListener)
 
 	//define shared key
 	key := "leaf/x"
@@ -3636,8 +3634,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Eve
 	//events were received to our nodes as expected.
 	node1EventListener := NewTestNodeEventListener()
 	node2EventListener := NewTestNodeEventListener()
-	node1.AppendNodeEventListener("node1", node1EventListener)
-	node2.AppendNodeEventListener("node2", node2EventListener)
+	node1.RegisterNodeEventListener("node1", node1EventListener)
+	node2.RegisterNodeEventListener("node2", node2EventListener)
 
 	//define shared key
 	key := "leaf/x"
@@ -3749,8 +3747,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Eve
 	//events were received to our nodes as expected.
 	node1EventListener := NewTestNodeEventListener()
 	node2EventListener := NewTestNodeEventListener()
-	node1.AppendNodeEventListener("node1", node1EventListener)
-	node2.AppendNodeEventListener("node2", node2EventListener)
+	node1.RegisterNodeEventListener("node1", node1EventListener)
+	node2.RegisterNodeEventListener("node2", node2EventListener)
 
 	//define shared key
 	key := "leaf/x"
@@ -3990,8 +3988,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Del
 	//an internal collection which may then query later for validaton purposes.
 	node1Listener := NewTestNodeEventListener()
 	node2Listener := NewTestNodeEventListener()
-	node1.AppendNodeEventListener("Node1Lsnr", node1Listener)
-	node2.AppendNodeEventListener("Node2Lsnr", node2Listener)
+	node1.RegisterNodeEventListener("Node1Lsnr", node1Listener)
+	node2.RegisterNodeEventListener("Node2Lsnr", node2Listener)
 
 	//define shared key
 	key := "leaf/x"
@@ -4156,8 +4154,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Del
 	//an internal collection which may then query later for validaton purposes.
 	node1Listener := NewTestNodeEventListener()
 	node2Listener := NewTestNodeEventListener()
-	node1.AppendNodeEventListener("Node1Lsnr", node1Listener)
-	node2.AppendNodeEventListener("Node2Lsnr", node2Listener)
+	node1.RegisterNodeEventListener("Node1Lsnr", node1Listener)
+	node2.RegisterNodeEventListener("Node2Lsnr", node2Listener)
 
 	//define shared key
 	key := "leaf/x"
@@ -4321,8 +4319,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Del
 	//an internal collection which may then query later for validaton purposes.
 	node1Listener := NewTestNodeEventListener()
 	node2Listener := NewTestNodeEventListener()
-	node1.AppendNodeEventListener("Node1Lsnr", node1Listener)
-	node2.AppendNodeEventListener("Node2Lsnr", node2Listener)
+	node1.RegisterNodeEventListener("Node1Lsnr", node1Listener)
+	node2.RegisterNodeEventListener("Node2Lsnr", node2Listener)
 
 	//define shared key
 	key := "leaf/x"
@@ -4565,8 +4563,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 	//an internal collection which may then query later for validaton purposes.
 	node1Listener := NewTestNodeEventListener()
 	node2Listener := NewTestNodeEventListener()
-	node1.AppendNodeEventListener("Node1Lsnr", node1Listener)
-	node2.AppendNodeEventListener("Node2Lsnr", node2Listener)
+	node1.RegisterNodeEventListener("Node1Lsnr", node1Listener)
+	node2.RegisterNodeEventListener("Node2Lsnr", node2Listener)
 
 	//define shared key
 	key := "leaf/x"
@@ -4667,8 +4665,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 	//an internal collection which may then query later for validaton purposes.
 	node1Listener := NewTestNodeEventListener()
 	node2Listener := NewTestNodeEventListener()
-	node1.AppendNodeEventListener("Node1Lsnr", node1Listener)
-	node2.AppendNodeEventListener("Node2Lsnr", node2Listener)
+	node1.RegisterNodeEventListener("Node1Lsnr", node1Listener)
+	node2.RegisterNodeEventListener("Node2Lsnr", node2Listener)
 
 	//define shared key
 	key := "leaf/x"
@@ -4941,9 +4939,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 	node2Listener := NewTestNodeEventListener()
 	node3Listener := NewTestNodeEventListener()
 
-	node1.AppendNodeEventListener("Node1Lsnr", node1Listener)
-	node2.AppendNodeEventListener("Node2Lsnr", node2Listener)
-	node3.AppendNodeEventListener("Node3Lsnr", node3Listener)
+	node1.RegisterNodeEventListener("Node1Lsnr", node1Listener)
+	node2.RegisterNodeEventListener("Node2Lsnr", node2Listener)
+	node3.RegisterNodeEventListener("Node3Lsnr", node3Listener)
 
 	//define 3 shared keys for all selected publishers.
 	keys := []string{"leaf/x", "leaf/y", "leaf/z"}
@@ -5221,8 +5219,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 	//an internal collection which may then query later for validaton purposes.
 	node1Listener := NewTestNodeEventListener()
 	node2Listener := NewTestNodeEventListener()
-	node1.AppendNodeEventListener("Node1Lsnr", node1Listener)
-	node2.AppendNodeEventListener("Node2Lsnr", node2Listener)
+	node1.RegisterNodeEventListener("Node1Lsnr", node1Listener)
+	node2.RegisterNodeEventListener("Node2Lsnr", node2Listener)
 
 	//define shared key
 	key := "leaf/x"
@@ -5561,7 +5559,6 @@ func Test_PeerHealth_UnhealthyPeersExcludedFromClosestResults(t *testing.T) {
 		t.Fatalf("expected recovered peer %s to reappear in closest results", n2.ID.String())
 	}
 }
-
 
 func Test_ResolvePeerAddr_LocalRoutingTableHit(t *testing.T) {
 
@@ -6123,17 +6120,26 @@ type Pairing[T any] struct {
 // for later validation.
 type TestNodeEventListener struct {
 	receivedIndexUpdateEvents []events.IndexUpdateEvent
+	receivedMessageEvents     []events.MessageReceivedEvent
 }
 
 func (tl *TestNodeEventListener) OnIndexUpdated(event events.IndexUpdateEvent) {
 	//fmt.Printf("\n++++++Appending event to collection: %v", event)
 	tl.receivedIndexUpdateEvents = append(tl.receivedIndexUpdateEvents, event)
 }
+
+func (tl *TestNodeEventListener) OnMessageReceived(event events.MessageReceivedEvent) {
+	tl.receivedMessageEvents = append(tl.receivedMessageEvents, event)
+}
 func (tl *TestNodeEventListener) GetReceivedIndexUpdateEvents() []events.IndexUpdateEvent {
 	return tl.receivedIndexUpdateEvents
+}
+func (tl *TestNodeEventListener) GetReceivedMessageEvents() []events.MessageReceivedEvent {
+	return tl.receivedMessageEvents
 }
 func NewTestNodeEventListener() *TestNodeEventListener {
 	return &TestNodeEventListener{
 		receivedIndexUpdateEvents: make([]events.IndexUpdateEvent, 0),
+		receivedMessageEvents:     make([]events.MessageReceivedEvent, 0),
 	}
 }

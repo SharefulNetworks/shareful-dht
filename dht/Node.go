@@ -33,6 +33,7 @@ import (
 // channels and synchronization primitives for managing networking,background and lifecycle tasks.
 type Node struct {
 	ID                   types.NodeID
+	plainTextId          string //some client facing ops, like event prop, may require reference to the user originally specified id to enable the parent app to correlate received events with application-specific/level node id assignment.
 	Addr                 string
 	transport            netx.Transport
 	cfg                  *config.Config
@@ -73,6 +74,7 @@ func NewNode(plainTextId string, addr string, transport netx.Transport, cfg *con
 	//instantiate the new DHT node
 	n := &Node{
 		ID:           HashKey(plainTextId),
+		plainTextId:  plainTextId,
 		Addr:         addr,
 		transport:    transport,
 		cfg:          cfg,
@@ -1515,13 +1517,55 @@ func (n *Node) RemoveFromBlacklist(addr ...string) {
 	}
 }
 
-//SendMessage - Provides mechanism for peers on the network to directly exchange 
-//              arbitrary messages with one another, without the need for the message to be associated 
-//              with a specific DHT operation such as Find or Store. Dynamic node resolution is implicitly
-//              supported which enables nodes to send messages to peers that they may not be directly connected
-//              to at the time SendMessage is called, as long as the node is on the network, attempts will be made to firstly
-//              resolve the recipients nodes address and where successful the message will be dispatched, in the usual way.
-func (n *Node) SendMessage(plainTextId string,message *Message) error {
+// SendMessage - Provides mechanism for peers on the network to directly exchange
+//
+//	arbitrary messages with one another, without the need for the message to be associated
+//	with a specific DHT operation such as Find or Store. Dynamic node resolution is implicitly
+//	supported which enables nodes to send messages to peers that they may not be directly connected
+//	to at the time SendMessage is called, as long as the node is on the network, attempts will be made to firstly
+//	resolve the recipients nodes address and where successful the message will be dispatched, in the usual way.
+func (n *Node) SendMessage(peerPlaintextId string, message *Message) error {
+
+	//basic input validation.
+	if len(peerPlaintextId) == 0 {
+		return fmt.Errorf("peerPlaintextId cannot be empty")
+	}
+
+	if message == nil {
+		return fmt.Errorf("message cannot be nil")
+	}
+
+	/*
+		NB: next we attempt to resolve the target peers address, the resolve  function will implicitly
+		hash the provided plaintext id and attempt to directly resolver the peer address from our own routing table,
+		only falling back to a network-wide resolution in the event that the peer is not found locally.
+	*/
+	peerAddr, peerResolved := n.ResolvePeerAddr(peerPlaintextId)
+	if !peerResolved {
+		return fmt.Errorf("\nERROR: an error occurred whilst attempting to resolve the target peers address with (plaintext) id: %s\n", peerPlaintextId)
+	}
+
+	//convert high-level Message model headers to lower level protobuf send message headers
+	var pbMessageHeaders []*dhtpb.MessageHeader
+	for _, curHeader := range message.headers {
+		pbMessageHeaders = append(pbMessageHeaders, &dhtpb.MessageHeader{
+			Key:   curHeader.Key,
+			Value: curHeader.Value,
+		})
+	}
+
+	//build request.
+	reqAny, _ := n.makeMessage(OP_SEND_MESSAGE)
+	r := reqAny.(*dhtpb.SendMessageRequest)
+	r.Headers = pbMessageHeaders
+	r.Body = message.body
+	r.SenderPlaintextId = n.plainTextId
+	r.RecipientPlaintextId = peerPlaintextId
+
+	//dispatch request to the target peer using our existing sendRequest function which will handle all of the underlying logic related to peer resolution, message encoding, etc.
+	if _, err := n.sendRequest(peerAddr, OP_SEND_MESSAGE, reqAny); err != nil {
+		return fmt.Errorf("\nERROR: an error occurred whilst attempting to send message to target peer @ %s, the error was: %v\n", peerAddr, err)
+	}
 
 	return nil
 }
@@ -1557,15 +1601,15 @@ func (n *Node) OnPeerUnhealthyStateChange(peerId types.NodeID, peerAddr string) 
 	})
 }
 
-// AppendNodeEventListener - Provides a mechanism by which external subscribers can
+// RegisterNodeEventListener - Provides a mechanism by which external subscribers can
 // listen for various events that occur within the node, such as the reception of messages,
 // storage of records, etc. Thereby allowing the parent application, making use of the DHT,
 // to undertake application-level operation in response to these events.
-func (n *Node) AppendNodeEventListener(id string, listener events.NodeEventListener) {
+func (n *Node) RegisterNodeEventListener(id string, listener events.NodeEventListener) {
 	n.nodeEventListeners.Store(id, listener)
 }
 
-func (n *Node) RemoveNodeEventListener(id string) {
+func (n *Node) UnregisterNodeEventListener(id string) {
 	n.nodeEventListeners.Delete(id)
 }
 
@@ -1575,6 +1619,8 @@ func (n *Node) RemoveNodeEventListener(id string) {
 
 func (n *Node) onMessage(from string, data []byte) {
 	op, reqID, isResp, fromID, fromAddr, nodeType, payload, err := n.cd.Unwrap(data)
+
+	fmt.Printf("\n****RECEIVED MESSAGE FROM: %s", fromID)
 
 	//if an error occurred during the unwrap, log and exit
 	if err != nil {
@@ -2130,6 +2176,50 @@ func (n *Node) onMessage(from string, data []byte) {
 			_ = n.transport.Send(fromAddr, msg)
 			return
 		}
+	case OP_SEND_MESSAGE:
+
+		req, resp := n.makeMessage(OP_SEND_MESSAGE)
+		if err := n.decode(payload, req); err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		//cast generic request object to concrete type.
+		r := req.(*dhtpb.SendMessageRequest)
+
+		//parse messageHeaders from request and convert them to high-level Header model array.
+		messageHeaders := make([]MessageHeader, 0, len(r.Headers))
+		for _, h := range r.Headers {
+			messageHeaders = append(messageHeaders, MessageHeader{
+				Key:   h.Key,
+				Value: h.Value,
+			})
+		}
+
+		//next extract the message body from the request.
+		messageBody := r.Body
+
+		//construct a high-level Message model, this will be provided to the subsequent event
+		message := NewMessage(
+			messageHeaders,
+			messageBody,
+		)
+
+		//next parse all remaining request metadata, we'll need them to publish the subsequent event.
+		senderPlaintextId := r.SenderPlaintextId
+		recipientPlaintextId := r.RecipientPlaintextId
+
+		//where the message has been successfully parsed of the wire
+		//we return a success response to the sender.
+		respObj := resp.(*dhtpb.SendMessageResponse)
+		respObj.Ok = true
+
+		b, _ := n.encode(resp)
+		msg, _ := n.cd.Wrap(OP_SEND_MESSAGE, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
+		_ = n.transport.Send(fromAddr, msg)
+
+		//finally publish the MessageReceivedEvent to any registered listeners.
+		n.publishMessageReceivedEvent(fromAddr, senderPlaintextId, recipientPlaintextId, message)
 
 	default:
 		return
@@ -2531,6 +2621,8 @@ func (n *Node) makeMessage(op int) (req any, resp any) {
 			return &dhtpb.FindValueRequest{}, &dhtpb.FindValueResponse{}
 		case OP_SYNC_INDEX:
 			return &dhtpb.SyncIndexRequest{}, &dhtpb.SyncIndexResponse{}
+		case OP_SEND_MESSAGE:
+			return &dhtpb.SendMessageRequest{}, &dhtpb.SendMessageResponse{}
 
 		default:
 			return nil, nil
@@ -2896,18 +2988,6 @@ func (n *Node) setUpdateEventsEnabled(newIndexEntry *RecordIndexEntry, allIndexE
 //	      ensuring event prodution and dispatch does not tie up the main thread.
 func (n *Node) publishIndexUpdateEvent(indexKey string, entries []RecordIndexEntry, publisherId types.NodeID, publisherAddress string, isDeletion bool) {
 
-	//TODO:GT Delete post debug.
-	/*
-		lstnr1, found1 := n.nodeEventListeners.Load("node1")
-		lstnr2, found2 := n.nodeEventListeners.Load("node2")
-		if found1 {
-			fmt.Printf("\nListener 1 found: %v", lstnr1)
-		}
-		if found2 {
-			fmt.Printf("\nListener 2 found: %v", lstnr2)
-		}
-	*/
-
 	//convert record index entries to record index entries like
 	var recordIndexEntryLikeArr []commons.RecordIndexEntryLike
 	if entries != nil {
@@ -2945,6 +3025,39 @@ func (n *Node) publishIndexUpdateEvent(indexKey string, entries []RecordIndexEnt
 
 			return true
 		})
+	})
+}
+
+func (n *Node) publishMessageReceivedEvent(fromAddr string, senderPlaintextId string, recipientPlaintextId string, message commons.MessageLike) {
+
+	//wrap the message in a time.AfterFunc to ensure the event is published on a separate thread and does not
+	//block the main execution flow of the node.
+	time.AfterFunc(500*time.Millisecond, func() {
+		fmt.Printf("\nDEBUG: Publishing Message Received Event for message received from peer @:  %s\n", fromAddr)
+
+		//build MessageReceivedEvent using the message and meta-data parsed of the wire
+		event := events.NewMessageReceivedEvent(
+			fromAddr,
+			senderPlaintextId,
+			recipientPlaintextId,
+			message,
+		)
+
+		//notify all NodeEventListeners of the new message received event by passing the event to their OnMessageReceived method
+		n.nodeEventListeners.Range(func(key, value any) bool {
+
+			listener, ok := value.(events.NodeEventListener)
+			if !ok {
+				fmt.Printf("\nDEBUG: +++++ Listener type assertion failed,skipping dispatch of Message Received Event for message received from peer @:  %s\n", fromAddr)
+				return true
+			}
+
+			listener.OnMessageReceived(event)
+
+			return true
+
+		})
+
 	})
 }
 

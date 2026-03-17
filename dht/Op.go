@@ -12,4 +12,5 @@ const (
 	OP_FIND_NODE    = 8
 	OP_FIND_VALUE   = 9 // NEW
 	OP_SYNC_INDEX   = 10
+	OP_SEND_MESSAGE = 11
 )

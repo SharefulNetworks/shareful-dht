@@ -35,6 +35,7 @@ const (
 	Op_OP_FIND_NODE    Op = 8
 	Op_OP_FIND_VALUE   Op = 9
 	Op_OP_SYNC_INDEX   Op = 10
+	Op_OP_SEND_MESSAGE Op = 11
 )
 
 // Enum value maps for Op.
@@ -51,6 +52,7 @@ var (
 		8:  "OP_FIND_NODE",
 		9:  "OP_FIND_VALUE",
 		10: "OP_SYNC_INDEX",
+		11: "OP_SEND_MESSAGE",
 	}
 	Op_value = map[string]int32{
 		"OP_UNKNOWN":      0,
@@ -64,6 +66,7 @@ var (
 		"OP_FIND_NODE":    8,
 		"OP_FIND_VALUE":   9,
 		"OP_SYNC_INDEX":   10,
+		"OP_SEND_MESSAGE": 11,
 	}
 )
 
@@ -1515,11 +1518,13 @@ func (x *MessageHeader) GetValue() string {
 }
 
 type SendMessageRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Headers       []*MessageHeader       `protobuf:"bytes,1,rep,name=headers,proto3" json:"headers,omitempty"`
-	Body          []byte                 `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Headers              []*MessageHeader       `protobuf:"bytes,1,rep,name=headers,proto3" json:"headers,omitempty"`
+	Body                 []byte                 `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
+	SenderPlaintextId    string                 `protobuf:"bytes,3,opt,name=sender_plaintext_id,json=senderPlaintextId,proto3" json:"sender_plaintext_id,omitempty"`
+	RecipientPlaintextId string                 `protobuf:"bytes,4,opt,name=recipient_plaintext_id,json=recipientPlaintextId,proto3" json:"recipient_plaintext_id,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SendMessageRequest) Reset() {
@@ -1564,6 +1569,20 @@ func (x *SendMessageRequest) GetBody() []byte {
 		return x.Body
 	}
 	return nil
+}
+
+func (x *SendMessageRequest) GetSenderPlaintextId() string {
+	if x != nil {
+		return x.SenderPlaintextId
+	}
+	return ""
+}
+
+func (x *SendMessageRequest) GetRecipientPlaintextId() string {
+	if x != nil {
+		return x.RecipientPlaintextId
+	}
+	return ""
 }
 
 type SendMessageResponse struct {
@@ -1719,13 +1738,15 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\x03err\x18\x02 \x01(\tR\x03err\"7\n" +
 	"\rMessageHeader\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"X\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\xbe\x01\n" +
 	"\x12SendMessageRequest\x12.\n" +
 	"\aheaders\x18\x01 \x03(\v2\x14.dhtpb.MessageHeaderR\aheaders\x12\x12\n" +
-	"\x04body\x18\x02 \x01(\fR\x04body\"7\n" +
+	"\x04body\x18\x02 \x01(\fR\x04body\x12.\n" +
+	"\x13sender_plaintext_id\x18\x03 \x01(\tR\x11senderPlaintextId\x124\n" +
+	"\x16recipient_plaintext_id\x18\x04 \x01(\tR\x14recipientPlaintextId\"7\n" +
 	"\x13SendMessageResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
-	"\x03err\x18\x02 \x01(\tR\x03err*\xc0\x01\n" +
+	"\x03err\x18\x02 \x01(\tR\x03err*\xd5\x01\n" +
 	"\x02Op\x12\x0e\n" +
 	"\n" +
 	"OP_UNKNOWN\x10\x00\x12\f\n" +
@@ -1740,7 +1761,8 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\fOP_FIND_NODE\x10\b\x12\x11\n" +
 	"\rOP_FIND_VALUE\x10\t\x12\x11\n" +
 	"\rOP_SYNC_INDEX\x10\n" +
-	"*F\n" +
+	"\x12\x13\n" +
+	"\x0fOP_SEND_MESSAGE\x10\v*F\n" +
 	"\bNodeType\x12\x0e\n" +
 	"\n" +
 	"NT_UNKNOWN\x10\x00\x12\v\n" +

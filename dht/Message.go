@@ -1,6 +1,9 @@
 package dht
 
-import "github.com/SharefulNetworks/shareful-dht/config"
+import (
+	"github.com/SharefulNetworks/shareful-dht/commons"
+	"github.com/SharefulNetworks/shareful-dht/config"
+)
 
 // Message models a single DHT message which may be exchanged between peers.
 type Message struct {
@@ -34,14 +37,20 @@ func NewDefaultStringMessage(body string) *Message {
 // AppendHeader - appends a header, with the provided key and value, to the Message's
 // existing headers.
 // Note: Whilst NOT mandatory its recommended that external application
-//       related headers be prefix with "x-" e.g x-myapp-header to prevent pottential
-//       conflicts with internal DHT protocol headers.
+//
+//	related headers be prefix with "x-" e.g x-myapp-header to prevent pottential
+//	conflicts with internal DHT protocol headers.
 func (m *Message) AppendHeader(key string, value string) {
 	m.headers = append(m.headers, MessageHeader{Key: key, Value: value})
 }
 
-func (m *Message) GetHeaders() []MessageHeader {
-	return m.headers
+
+func (m *Message) GetHeaders() []commons.MessageHeaderLike {
+    out := make([]commons.MessageHeaderLike, len(m.headers))
+    for i := range m.headers {
+        out[i] = m.headers[i]
+    }
+    return out
 }
 
 func (m *Message) GetBody() []byte {
@@ -72,4 +81,12 @@ func generateDefaultHeaders() []MessageHeader {
 type MessageHeader struct {
 	Key   string
 	Value string
+}
+
+func (h MessageHeader) GetKey() string {
+	return h.Key
+}
+
+func (h MessageHeader) GetValue() string {
+	return h.Value
 }

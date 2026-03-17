@@ -2,7 +2,7 @@ syntax = "proto3";
 package dhtpb;
 option go_package = "github.com/SharefulNetworks/shareful-dht/proto/dhtpb";
 
-enum Op { OP_UNKNOWN=0; OP_STORE=1; OP_FIND=2; OP_STORE_INDEX=3; OP_FIND_INDEX=4; OP_PING=5; OP_CONNECT=6; OP_DELETE_INDEX=7; OP_FIND_NODE=8; OP_FIND_VALUE=9; OP_SYNC_INDEX=10;}
+enum Op { OP_UNKNOWN=0; OP_STORE=1; OP_FIND=2; OP_STORE_INDEX=3; OP_FIND_INDEX=4; OP_PING=5; OP_CONNECT=6; OP_DELETE_INDEX=7; OP_FIND_NODE=8; OP_FIND_VALUE=9; OP_SYNC_INDEX=10; OP_SEND_MESSAGE=11;}
 enum NodeType {NT_UNKNOWN=0; NT_CORE=1; NT_ENTRY=2; NT_EXTERNAL=3;}
 message Envelope { Op op=1; uint64 req_id=2; bool is_response=3; bytes payload=4; bytes from_id = 5; string from_addr = 6; NodeType node_type = 7;}
 message StoreRequest { string key=1; bytes value=2; int64 ttl_ms=3; repeated string replicas=4; bytes publisher_id=5; }
@@ -26,7 +26,7 @@ message FindNodeResponse {bool ok = 1; repeated NodeContact peers = 2; string er
 message SyncIndexRequest {bytes publisher_id = 1;string key = 2; string index_source = 3; int64 updated_at = 4; bool index_deleted = 5;}
 message SyncIndexResponse {bool ok = 1;string err = 2;}
 message MessageHeader {string key = 1; string value = 2;}
-message SendMessageRequest {repeated MessageHeader headers = 1; bytes body = 2;}
+message SendMessageRequest {repeated MessageHeader headers = 1; bytes body = 2; string sender_plaintext_id = 3; string recipient_plaintext_id = 4;}
 message SendMessageResponse {bool ok = 1; string err=2;}
 
 
