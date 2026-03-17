@@ -84,6 +84,11 @@ func NewNode(plainTextId string, addr string, transport netx.Transport, cfg *con
 		refreshCount: 0,
 	}
 
+	//set the nodes globally reachable address if it hasn't been set already
+	if n.cfg.NodeAddress == "" {
+		n.cfg.NodeAddress = addr
+	}
+
 	//instantiate the nodes routing table, we have to do this outside of the
 	//constructor as the routing table requires reference to the node being constructed.
 	n.routingTable = routing.NewRoutingTable(n.ID, cfg.K, n)
@@ -1508,6 +1513,17 @@ func (n *Node) RemoveFromBlacklist(addr ...string) {
 	for _, a := range addr {
 		n.blacklist.Delete(a)
 	}
+}
+
+//SendMessage - Provides mechanism for peers on the network to directly exchange 
+//              arbitrary messages with one another, without the need for the message to be associated 
+//              with a specific DHT operation such as Find or Store. Dynamic node resolution is implicitly
+//              supported which enables nodes to send messages to peers that they may not be directly connected
+//              to at the time SendMessage is called, as long as the node is on the network, attempts will be made to firstly
+//              resolve the recipients nodes address and where successful the message will be dispatched, in the usual way.
+func (n *Node) SendMessage(plainTextId string,message *Message) error {
+
+	return nil
 }
 
 // onPeerUnhealthyStateChange - This function is called by the routing table when a peer is marked as unhealthy,

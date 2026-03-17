@@ -1462,6 +1462,162 @@ func (x *SyncIndexResponse) GetErr() string {
 	return ""
 }
 
+type MessageHeader struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MessageHeader) Reset() {
+	*x = MessageHeader{}
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MessageHeader) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MessageHeader) ProtoMessage() {}
+
+func (x *MessageHeader) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MessageHeader.ProtoReflect.Descriptor instead.
+func (*MessageHeader) Descriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *MessageHeader) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *MessageHeader) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+type SendMessageRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Headers       []*MessageHeader       `protobuf:"bytes,1,rep,name=headers,proto3" json:"headers,omitempty"`
+	Body          []byte                 `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendMessageRequest) Reset() {
+	*x = SendMessageRequest{}
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendMessageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendMessageRequest) ProtoMessage() {}
+
+func (x *SendMessageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendMessageRequest.ProtoReflect.Descriptor instead.
+func (*SendMessageRequest) Descriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *SendMessageRequest) GetHeaders() []*MessageHeader {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *SendMessageRequest) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+type SendMessageResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Err           string                 `protobuf:"bytes,2,opt,name=err,proto3" json:"err,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendMessageResponse) Reset() {
+	*x = SendMessageResponse{}
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendMessageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendMessageResponse) ProtoMessage() {}
+
+func (x *SendMessageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_dhtpb_dht_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendMessageResponse.ProtoReflect.Descriptor instead.
+func (*SendMessageResponse) Descriptor() ([]byte, []int) {
+	return file_proto_dhtpb_dht_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *SendMessageResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *SendMessageResponse) GetErr() string {
+	if x != nil {
+		return x.Err
+	}
+	return ""
+}
+
 var File_proto_dhtpb_dht_proto protoreflect.FileDescriptor
 
 const file_proto_dhtpb_dht_proto_rawDesc = "" +
@@ -1560,6 +1716,15 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\rindex_deleted\x18\x05 \x01(\bR\findexDeleted\"5\n" +
 	"\x11SyncIndexResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
+	"\x03err\x18\x02 \x01(\tR\x03err\"7\n" +
+	"\rMessageHeader\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"X\n" +
+	"\x12SendMessageRequest\x12.\n" +
+	"\aheaders\x18\x01 \x03(\v2\x14.dhtpb.MessageHeaderR\aheaders\x12\x12\n" +
+	"\x04body\x18\x02 \x01(\fR\x04body\"7\n" +
+	"\x13SendMessageResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
 	"\x03err\x18\x02 \x01(\tR\x03err*\xc0\x01\n" +
 	"\x02Op\x12\x0e\n" +
 	"\n" +
@@ -1596,7 +1761,7 @@ func file_proto_dhtpb_dht_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_dhtpb_dht_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_proto_dhtpb_dht_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_proto_dhtpb_dht_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_proto_dhtpb_dht_proto_goTypes = []any{
 	(Op)(0),                     // 0: dhtpb.Op
 	(NodeType)(0),               // 1: dhtpb.NodeType
@@ -1621,6 +1786,9 @@ var file_proto_dhtpb_dht_proto_goTypes = []any{
 	(*FindNodeResponse)(nil),    // 20: dhtpb.FindNodeResponse
 	(*SyncIndexRequest)(nil),    // 21: dhtpb.SyncIndexRequest
 	(*SyncIndexResponse)(nil),   // 22: dhtpb.SyncIndexResponse
+	(*MessageHeader)(nil),       // 23: dhtpb.MessageHeader
+	(*SendMessageRequest)(nil),  // 24: dhtpb.SendMessageRequest
+	(*SendMessageResponse)(nil), // 25: dhtpb.SendMessageResponse
 }
 var file_proto_dhtpb_dht_proto_depIdxs = []int32{
 	0,  // 0: dhtpb.Envelope.op:type_name -> dhtpb.Op
@@ -1631,11 +1799,12 @@ var file_proto_dhtpb_dht_proto_depIdxs = []int32{
 	18, // 5: dhtpb.FindIndexResponse.peers:type_name -> dhtpb.NodeContact
 	1,  // 6: dhtpb.NodeContact.node_type:type_name -> dhtpb.NodeType
 	18, // 7: dhtpb.FindNodeResponse.peers:type_name -> dhtpb.NodeContact
-	8,  // [8:8] is the sub-list for method output_type
-	8,  // [8:8] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	23, // 8: dhtpb.SendMessageRequest.headers:type_name -> dhtpb.MessageHeader
+	9,  // [9:9] is the sub-list for method output_type
+	9,  // [9:9] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_proto_dhtpb_dht_proto_init() }
@@ -1649,7 +1818,7 @@ func file_proto_dhtpb_dht_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_dhtpb_dht_proto_rawDesc), len(file_proto_dhtpb_dht_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   21,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

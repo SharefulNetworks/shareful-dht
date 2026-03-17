@@ -31,6 +31,8 @@ type Config struct {
 	IndexUpdateEventsEnabled                  bool          //determines whether IndexEntryUpdateEvents are enabled globally, where this is set to FALSE the value defined in the IndexEntry is ignored.
 	MaxNodeConnectionFailureThreshold         int           //the maximum number of consecutive connection failures to a given peer before the peer is considered unreaachable and an event id published to signal its removal from the routing table.
 	UnhealthyPeerGracePeriod                  time.Duration //the duration of time to wait after a peer is deemed unhealthy before actually removing the peer from the routing table. This is useful to allow for transient network issues or temporary peer unavailability without prematurely removing peers from the routing table.
+	NodeAddress                               string        //The globally reachable address of this node, where this is not supplied by a command line argument or environment variable it will be set to the value provided to the Node's constuctor.
+	MessageVersion                            string        //the version of the DHT protocol to use in message headers, this is useful to allow for future protocol updates and to maintain backward compatibility with older versions of the protocol.
 }
 
 var singletonConfig *Config
@@ -63,6 +65,8 @@ func GetDefaultSingletonInstance() *Config {
 			IndexUpdateEventsEnabled:                  true,
 			MaxNodeConnectionFailureThreshold:         5,
 			UnhealthyPeerGracePeriod:                  10 * time.Second,
+			NodeAddress:                               "",
+			MessageVersion:                            "1.0",
 		}
 	}
 	return singletonConfig
