@@ -5614,6 +5614,137 @@ func Test_ResolvePeerAddr_RemoteLookup(t *testing.T) {
 	waitForPeerInRoutingTable(t, n1.GetRoutingTable(), n3.ID, 2*time.Second)
 }
 
+func Test_Send_And_Receive_Message_To_Peer_In_Local_Routing_Table(t *testing.T) {
+	ctx := NewDefaultTestContext(t)
+
+	sender := ctx.Nodes[0]
+	receiver := ctx.Nodes[1]
+
+	waitForPeerInRoutingTable(t, sender.GetRoutingTable(), receiver.ID, 3*time.Second)
+
+	receiverListener := NewTestNodeEventListener()
+	receiver.RegisterNodeEventListener("msg-local-routing-table", receiverListener)
+
+	message := dht.NewDefaultStringMessage("hello from node1")
+
+	if err := sender.SendMessage("node2", message); err != nil {
+		t.Fatalf("expected send to succeed for local routing-table peer, got: %v", err)
+	}
+
+	waitForMessageEventCount(t, receiverListener, 1, 3*time.Second)
+
+	if len(receiverListener.GetReceivedMessageEvents()) < 1 {
+		t.Fatalf("expected at least 1 MessageReceivedEvent, got %d", len(receiverListener.GetReceivedMessageEvents()))
+	}
+}
+
+func Test_Send_And_Receive_Message_To_Peer_Not_In_Local_Routing_Table(t *testing.T) {
+	ctx := NewConfigurableTestContext(t, 3, nil, false)
+
+	sender := ctx.Nodes[0]
+	intermediate := ctx.Nodes[1]
+	receiver := ctx.Nodes[2]
+
+	waitForPeerInRoutingTable(t, sender.GetRoutingTable(), intermediate.ID, 3*time.Second)
+	waitForPeerInRoutingTable(t, sender.GetRoutingTable(), receiver.ID, 3*time.Second)
+
+	// Ensure the receiver is not present locally before sending.
+	sender.DropPeer(receiver.ID)
+	time.Sleep(200 * time.Millisecond)
+
+	if _, ok := sender.GetRoutingTable().GetPeer(receiver.ID); ok {
+		t.Fatalf("expected receiver %s to be absent from sender routing table", receiver.ID.String())
+	}
+
+	receiverListener := NewTestNodeEventListener()
+	receiver.RegisterNodeEventListener("msg-remote-lookup", receiverListener)
+
+	message := dht.NewDefaultStringMessage("hello via lookup")
+
+	if err := sender.SendMessage("node3", message); err != nil {
+		t.Fatalf("expected send via lookup to succeed, got: %v", err)
+	}
+
+	waitForMessageEventCount(t, receiverListener, 1, 4*time.Second)
+
+	if len(receiverListener.GetReceivedMessageEvents()) < 1 {
+		t.Fatalf("expected at least 1 MessageReceivedEvent, got %d", len(receiverListener.GetReceivedMessageEvents()))
+	}
+
+	// Sender should learn the receiver again after the implicit lookup.
+	waitForPeerInRoutingTable(t, sender.GetRoutingTable(), receiver.ID, 3*time.Second)
+}
+
+func Test_Send_And_Receive_Message_To_Peer_Not_In_Local_Routing_Table_With_Body_Verification(t *testing.T) {
+	ctx := NewConfigurableTestContext(t, 3, nil, false)
+
+	sender := ctx.Nodes[0]
+	intermediate := ctx.Nodes[1]
+	receiver := ctx.Nodes[2]
+
+	waitForPeerInRoutingTable(t, sender.GetRoutingTable(), intermediate.ID, 3*time.Second)
+	waitForPeerInRoutingTable(t, sender.GetRoutingTable(), receiver.ID, 3*time.Second)
+
+	// Remove receiver so the send path requires a lookup.
+	sender.DropPeer(receiver.ID)
+	time.Sleep(200 * time.Millisecond)
+
+	if _, ok := sender.GetRoutingTable().GetPeer(receiver.ID); ok {
+		t.Fatalf("expected receiver %s to be absent from sender routing table", receiver.ID.String())
+	}
+
+	receiverListener := NewTestNodeEventListener()
+	receiver.RegisterNodeEventListener("msg-remote-lookup-body-check", receiverListener)
+
+	expectedBody := "hello via lookup with body check"
+	message := dht.NewDefaultStringMessage(expectedBody)
+
+	if err := sender.SendMessage("node3", message); err != nil {
+		t.Fatalf("expected send via lookup to succeed, got: %v", err)
+	}
+
+	waitForMessageEventCount(t, receiverListener, 1, 4*time.Second)
+
+	events := receiverListener.GetReceivedMessageEvents()
+	if len(events) == 0 {
+		t.Fatalf("expected at least 1 MessageReceivedEvent, got %d", len(events))
+	}
+
+	found := false
+	for _, evt := range events {
+		if evt.Message != nil && evt.Message.GetBodyAsString() == expectedBody {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatalf("expected to find message body %q in received events", expectedBody)
+	}
+
+	// Sender should re-learn the receiver via lookup path.
+	waitForPeerInRoutingTable(t, sender.GetRoutingTable(), receiver.ID, 3*time.Second)
+}
+
+func waitForMessageEventCount(t *testing.T, listener *TestNodeEventListener, expected int, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if len(listener.GetReceivedMessageEvents()) >= expected {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d message events (received %d)", expected, len(listener.GetReceivedMessageEvents()))
+		case <-ticker.C:
+		}
+	}
+}
+
 type routingTableEvent struct {
 	peerID   types.NodeID
 	peerAddr string
