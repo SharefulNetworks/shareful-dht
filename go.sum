@@ -1,3 +1,7 @@
+github.com/SharefulNetworks/shareful-utils-slog v0.0.0-20260318180134-ccf6aac62098 h1:h5HY09XAp/Lod2o0ipjXUgaoZ6glHqFwS+Y/g9GSK50=
+github.com/SharefulNetworks/shareful-utils-slog v0.0.0-20260318180134-ccf6aac62098/go.mod h1:HsAPtWfMeIwq3jid8z5XgRA/QYFFy9vQBu362RbFAtU=
+github.com/SharefulNetworks/shareful-utils-slog v1.0.0 h1:tGqmUWkBDqzC1J9hxDrMCWBNU8HgFIKfYDDaxkG1oTo=
+github.com/SharefulNetworks/shareful-utils-slog v1.0.0/go.mod h1:HsAPtWfMeIwq3jid8z5XgRA/QYFFy9vQBu362RbFAtU=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
 github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
 google.golang.org/protobuf v1.36.10 h1:AYd7cD/uASjIL6Q9LiTjz8JLcrh/88q5UObnmY3aOOE=

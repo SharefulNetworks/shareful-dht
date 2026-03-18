@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
 	"math"
 	"sort"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/routing"
 	"github.com/SharefulNetworks/shareful-dht/types"
 	"github.com/SharefulNetworks/shareful-dht/wire"
+	"github.com/SharefulNetworks/shareful-utils-slog/slog"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -51,6 +53,7 @@ type Node struct {
 	blacklist            sync.Map
 	indexUpdateEventKeys sync.Map // map[string]struct{} used to track index keys that, on mutation, will trigger the production of a SyncIndexUpdatedEvent which the parent applicaton can use to be promptly notified of any changes and undertake any application level operations, as necessary.
 	nodeEventListeners   sync.Map
+	logger               *slog.Logger
 }
 
 // NewNode - creates and initializes a new DHT node instance.
@@ -84,6 +87,7 @@ func NewNode(plainTextId string, addr string, transport netx.Transport, cfg *con
 		dataStore:    map[string]*Record{},
 		stop:         make(chan struct{}),
 		refreshCount: 0,
+		logger:       slog.NewLogger("shareful.dht.Node", nil),
 	}
 
 	//set the nodes globally reachable address if it hasn't been set already
@@ -143,12 +147,10 @@ func (n *Node) Bootstrap(bootstrapAddrs []string, connectDelayMillis int) error 
 		//we capture any and all errors, that occur during the process and return them as a single error object.
 		if len(bootstapConnErrors) > 0 {
 			collectiveErr := CollectErrors(bootstapConnErrors)
-			fmt.Printf("An error occurred whilst attempting to bootstrap to one or mode nodes: %v", collectiveErr)
+			n.logger.Error("An error occurred whilst attempting to bootstrap to one or more nodes: %v", collectiveErr)
 		}
 
-		fmt.Println()
-		fmt.Printf("Node: %s Successfully boottrapped to all %d nodes provided. ", n.Addr, len(bootstrapAddrs))
-		fmt.Println()
+		n.logger.Info("Node: %s Successfully bootstrapped to all %d nodes provided.", n.Addr, len(bootstrapAddrs))
 
 	})
 
