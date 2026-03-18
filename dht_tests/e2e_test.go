@@ -246,6 +246,7 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 	entsPostDelete, ok = n2.FindIndex(key)
 
 	fmt.Println("#####Found entries AFTER deletion are: ")
+	
 	for _, curE := range entsPostDelete {
 		fmt.Printf("\n Publisher: %s Key: %s Value: %s \n", curE.Publisher.String(), curE.Source, curE.Target)
 	}
@@ -721,7 +722,6 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry(t *te
 
 	//pick. small subset of stabdard nodes, at random, to store entries to.
 	randomlySelectedIndexes := selectRandomNodeIndexes(make([]int, 0), len(allStandardNodes), randomNodeSelectionCount)
-	fmt.Println()
 	fmt.Printf("Selected random indexes were: %v", randomlySelectedIndexes)
 
 	//select nodes at the random indexes
@@ -851,7 +851,6 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry(t *testi
 
 	//pick. small subset of stabdard nodes, at random, to store entries to.
 	randomlySelectedIndexes := selectRandomNodeIndexes(make([]int, 0), len(allStandardNodes), randomNodeSelectionCount)
-	fmt.Println()
 	fmt.Printf("Selected random indexes were: %v", randomlySelectedIndexes)
 
 	//select nodes at the random indexes
@@ -2090,7 +2089,6 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry(t *tes
 
 	//pick. small subset of stabdard nodes, at random, to store entries to.
 	randomlySelectedIndexes := selectRandomNodeIndexes(make([]int, 0), len(allStandardNodes), randomNodeSelectionCount)
-	fmt.Println()
 	fmt.Printf("Selected random indexes for storage were: %v", randomlySelectedIndexes)
 
 	//select nodes at the random indexes
@@ -2242,7 +2240,6 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry(t *testin
 
 	//pick. small subset of stabdard nodes, at random, to store entries to.
 	randomlySelectedIndexes := selectRandomNodeIndexes(make([]int, 0), len(allStandardNodes), randomNodeSelectionCount)
-	fmt.Println()
 	fmt.Printf("Selected random indexes for storage were: %v", randomlySelectedIndexes)
 
 	//select nodes at the random indexes
@@ -4739,7 +4736,6 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
 
 	fmt.Println("PAUSING BREIFLY BEFORE NEXT ROUND OF STORAGE REQUESTS;")
-	fmt.Println()
 	time.Sleep(10000 * time.Millisecond)
 
 	//store data via node 1 critically, for the purposes of this test, we ensure Update events are enabled.

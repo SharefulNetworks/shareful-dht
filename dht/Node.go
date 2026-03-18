@@ -223,7 +223,8 @@ func (n *Node) ResolvePeerAddr(peerPlainTextId string) (string, bool) {
 // Connect sends an OP_CONNECT request to the given address, asking that
 // remote node to register this node (ID + Addr) in its peer table.
 func (n *Node) Connect(remoteAddr string) error {
-	fmt.Println("Node: " + n.ID.String() + " is connecting to node @ " + remoteAddr + " standby...")
+	n.logger.Info("Node: %s is connecting to node @ %s standby...", n.ID.String(), remoteAddr)
+
 	req := &dhtpb.ConnectRequest{
 		NodeId: n.ID[:], // types.NodeID is [20]byte, cast to slice
 		Addr:   n.Addr,
@@ -274,7 +275,7 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisher
 	//and thereby ensure that we account for node churn in the wider network and always attempt to
 	//store to the prevailing nearest K nodes.
 	if !recomputeReplicas {
-		fmt.Println("Note: local only flag provided: storage will only be propagated to known nodes in the local routing table.")
+		n.logger.Debug("Note: local only flag provided: storage will only be propagated to known nodes in the local routing table.")
 		reps = n.nearestK(key)
 	} else {
 
@@ -282,7 +283,7 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisher
 		//in the event of an error.
 		peers, err := n.lookupK(HashKey(key))
 		if err != nil {
-			fmt.Printf("An error occurred whilst attemptiing to lookup nearest nodes over the network, falling back to local search. the error was: %v", err)
+			n.logger.Error("An error occurred whilst attemptiing to lookup nearest nodes over the network, falling back to local search. the error was: %v", err)
 			reps = n.nearestK(key)
 		} else {
 			reps = n.peersToAddrs(peers)
@@ -657,23 +658,23 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 	var storeIndexErr error
 
 	if !recomputeReplicas {
-		fmt.Println("Note: local only flag provided: index storage will only be propagated to known nodes in the local routing table.")
+		n.logger.Debug("Note: local only flag provided: index storage will only be propagated to known nodes in the local routing table.")
 		reps = n.excludeBlackListedPeerAddresses(n.nearestK(indexKey))
 	} else {
 
-		fmt.Println("Note: recomputeReplicas flag provided: node will attempt to lookup nearest nodes over the network to propagate index storage to, only falling back to localised search in the event of an error.")
+		n.logger.Debug("Note: recomputeReplicas flag provided: node will attempt to lookup nearest nodes over the network to propagate index storage to, only falling back to localised search in the event of an error.")
 		//look up k nearest nodes over network, only fall back to localised search
 		//in the event of an error.
 		peers, err := n.lookupK(HashKey(indexKey))
 		if err != nil {
-			fmt.Printf("An error occurred whilst attemptiing to lookup nearest nodes over the network, falling back to local search. the error was: %v", err)
+			n.logger.Error("An error occurred whilst attemptiing to lookup nearest nodes over the network, falling back to local search. the error was: %v", err)
 			reps = n.excludeBlackListedPeerAddresses(n.nearestK(indexKey))
 		} else {
 			//exclude any blacklisted addresses before clampinng, to ensure we don't
 			//clamp out valid replicas in place of blacklisted ones.
 			reps, blErr = n.excludeBlackListedPeers(peers)
 			if blErr != nil {
-				fmt.Printf("An error occurred whilst attempting to exclude blacklisted addresses from the replica set obtained from the network lookup, the error was: %v. Proceeding with the unfiltered replica set.", blErr)
+				n.logger.Error("An error occurred whilst attempting to exclude blacklisted addresses from the replica set obtained from the network lookup, the error was: %v. Proceeding with the unfiltered replica set.", blErr)
 				reps = n.peersToAddrs(peers)
 			}
 
@@ -693,7 +694,7 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 	if found {
 		reps = n.excludeCoPublisherAddresses(reps, locallyStoredIndexEntries, indexKey)
 	} else {
-		fmt.Printf("\nDEBUG no co-publishers related to index with key: %s was found.\n", indexKey)
+		n.logger.Debug("No co-publishers related to index with key: %s was found", indexKey)
 	}
 	//}
 
@@ -820,7 +821,8 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 		})
 
 	} else {
-		fmt.Println("INFO: SYNC RELATED StoreIndexWithTTL CALL, SKIPPING DISPATCH OF SYNC REQUEST.")
+		n.logger.Info("SYNC RELATED StoreIndexWithTTL CALL, SKIPPING DISPATCH OF SYNC REQUEST.")
+
 	}
 
 	return storeIndexErr
@@ -1167,19 +1169,20 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string, isIndexSync
 		//across the network.
 		if !isIndexSyncRelated {
 
-			fmt.Println(">>>>>>>>>>INDEX DELETION SYNC REQUEST SCHEDULED<<<<<<<<<<<<<<<<<")
+			n.logger.Fine(">>>>>>>>>>INDEX DELETION SYNC REQUEST SCHEDULED<<<<<<<<<<<<<<<<<")
 
 			//wait for a short delay to allow the delete operation to propergate..
 			time.AfterFunc(n.cfg.IndexSyncDelay, func() {
 
-				fmt.Println(">>>>>>>>>>INDEX DELETION SYNC REQUEST RUNNING<<<<<<<<<<<<<<<<<")
+				n.logger.Fine(">>>>>>>>>>INDEX DELETION SYNC REQUEST RUNNING<<<<<<<<<<<<<<<<<")
 				//dispatch sync index request to applicable peers.(i.e. not ourself or those that are part of ths nodes replica set for this record.)
 				n.dispatchSyncIndexRequest(publisherId, indexKey, reps, time.Now(), true, indexEntrySource)
 
 			})
 
 		} else {
-			fmt.Println("INFO: SYNC RELATED DeleteIndex CALL, SKIPPING DISPATCH OF SYNC REQUEST.")
+			n.logger.Info("SYNC RELATED DeleteIndex CALL, SKIPPING DISPATCH OF SYNC REQUEST.")
+
 		}
 
 		return nil
@@ -1597,7 +1600,7 @@ func (n *Node) OnPeerUnhealthyStateChange(peerId types.NodeID, peerAddr string) 
 			existingTargetPeer.Addr == peerAddr &&
 			!existingTargetPeer.IsHealthy() {
 			n.DropPeer(peerId)
-			fmt.Printf("\nDEBUG:UnhealthyPeer with ID %s @ %s was dropped from this node. \n", peerId.String(), peerAddr)
+			n.logger.Debug("UnhealthyPeer with ID %s @ %s was dropped from this node.", peerId.String(), peerAddr)
 		}
 
 	})
@@ -1623,16 +1626,17 @@ func (n *Node) onMessage(from string, data []byte) {
 	op, reqID, isResp, fromID, fromAddr, nodeType, payload, err := n.cd.Unwrap(data)
 
 	fmt.Printf("\n****RECEIVED MESSAGE FROM: %s", fromID)
+	n.logger.Debug("Received message from node: %s", fromID)
 
 	//if an error occurred during the unwrap, log and exit
 	if err != nil {
-		fmt.Println("Failed to Unwrap message received from node @:", fromAddr, "of type:", nodeType, "failed on node:", n.Addr, "ERROR:", err)
+		n.logger.Error("Failed to Unwrap message received from node @:%s of type:%s failed on node:%s ERROR:%v", fromAddr, nodeType, n.Addr, err)
 		return
 	}
 
 	//the node that this message was received from MUST have published its address
 	if fromAddr == "" {
-		fmt.Printf("Received message from node: %s with no published address, dropping message.", fromID)
+		n.logger.Error("Received message from node: %s with no published address, dropping message.", fromID)
 		return
 	}
 
@@ -1641,15 +1645,14 @@ func (n *Node) onMessage(from string, data []byte) {
 	var senderNodeIDParseErr error
 	senderNodeID, senderNodeIDParseErr = ParseNodeID(fromID)
 	if senderNodeIDParseErr != nil {
-		fmt.Println("An error occurred whilst attempting to parse sender Node ID from inbound request, the request will therefore be dropped.:", fromID)
-		fmt.Println(senderNodeIDParseErr.Error())
+		n.logger.Error("Failed to parse sender Node ID from inbound request, the request will therefore be dropped. ERROR: %v", senderNodeIDParseErr)
 		return
 	}
 
 	//crucially, update our routing table with the sender's details, providing of course
 	//the node is not on our blacklist.
 	if n.IsBlacklisted(fromAddr) {
-		fmt.Printf("\nNote: Received message of type %d from blacklisted node: %s the message will be dropped\n", op, fromAddr)
+		n.logger.Debug("Note: Received message of type %d from blacklisted node: %s the message will be dropped", op, fromAddr)
 		return
 	}
 
@@ -1657,7 +1660,7 @@ func (n *Node) onMessage(from string, data []byte) {
 
 	//if this is a response message, look up the pending request channel and queue the payload for processing
 	if isResp {
-		//fmt.Println("response received")
+		n.logger.Fine("Received response from node: %s", fromID)
 		if chI, ok := n.pending.Load(reqID); ok {
 			ch := chI.(chan []byte)
 			select {
@@ -1672,7 +1675,7 @@ func (n *Node) onMessage(from string, data []byte) {
 	case OP_STORE:
 		reqAny, respAny := n.makeMessage(OP_STORE)
 		if err := n.decode(payload, reqAny); err != nil {
-			fmt.Println(err)
+			n.logger.Error("Failed to decode STORE request from node %s: %v", fromID, err)
 			return
 		}
 
@@ -1707,7 +1710,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		var exp time.Time
 		switch {
 		case ttlms < 0:
-			//fmt.Println("Received TTL: " + fmt.Sprint(ttlms) + " indicating deletion request for key: " + key)
+			n.logger.Fine("Received TTL: %d indicating deletion request for key: %s", ttlms, key)
 			exp = time.Now().Add(-time.Second) // negative ttl = force-expire (delete)
 		case ttlms == 0:
 			exp = time.Time{} // zero tll = permanent
@@ -1721,17 +1724,14 @@ func (n *Node) onMessage(from string, data []byte) {
 		n.dataStore[key] = &Record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: time.Duration(ttlms) * time.Millisecond, Publisher: publisherId}
 		n.mu.Unlock()
 
-		fmt.Println("Node: " + n.Addr + "Succesfully handled request to store/update standard entry for key:" + key)
+		n.logger.Fine("Node: %s Succesfully handled request to store/update standard entry for key:%s", n.Addr, key)
 		senderNodeID, parseNodeErr := ParseNodeID(fromID)
 		if parseNodeErr != nil {
-			fmt.Println("An error occurred whilst attempting to parse sender Node ID:", fromID)
-			fmt.Println(parseNodeErr.Error())
+			n.logger.Error("An error occurred whilst attempting to parse sender Node ID: %s ERROR: %v", fromID, parseNodeErr)
 			return
 		}
-		fmt.Println("Request was sent from node: " + senderNodeID.String())
-		fmt.Println("Request was received to node: " + n.ID.String())
-		fmt.Println("")
-		fmt.Println("")
+		n.logger.Fine("Request was sent from node: %s", senderNodeID.String())
+		n.logger.Fine("Request was received to node: %s", n.ID.String())
 
 		// Build response
 		switch r := respAny.(type) {
@@ -1746,14 +1746,13 @@ func (n *Node) onMessage(from string, data []byte) {
 		}
 		b, _ := n.encode(respAny)
 		msg, _ := n.cd.Wrap(OP_STORE, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
-		//fmt.Println("Sending response to: ")
-		//fmt.Println(from)
+		n.logger.Fine("Sending response to: %s", fromAddr)
 		_ = n.transport.Send(fromAddr, msg)
 
 	case OP_FIND:
 		reqAny, respAny := n.makeMessage(OP_FIND)
 		if err := n.decode(payload, reqAny); err != nil {
-			fmt.Println(err)
+			n.logger.Error("Failed to decode FIND request from node %s: %v", fromID, err)
 			return
 		}
 
@@ -1783,14 +1782,12 @@ func (n *Node) onMessage(from string, data []byte) {
 		}
 		b, _ := n.encode(respAny)
 		msg, _ := n.cd.Wrap(OP_FIND, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
-		//fmt.Println("Sending response to: ")
-		//fmt.Println(from)
 		_ = n.transport.Send(fromAddr, msg)
 
 	case OP_STORE_INDEX:
 		reqAny, respAny := n.makeMessage(OP_STORE_INDEX)
 		if err := n.decode(payload, reqAny); err != nil {
-			fmt.Println(err)
+			n.logger.Error("Failed to decode STORE_INDEX request from node %s: %v", fromID, err)
 			return
 		}
 
@@ -1819,31 +1816,29 @@ func (n *Node) onMessage(from string, data []byte) {
 		}
 		reps = r.Replicas
 
-		//fmt.Printf("Node @ %s received request from publisher: %s to merge entry with key: %s at: %s", n.Addr, sendertypes.NodeID, key, time.Now())
-		//fmt.Println()
+		n.logger.Fine("Node @ %s received request from publisher: %s to merge entry with key: %s at: %s", n.Addr, senderNodeID.String(), key, time.Now())
 
 		//pass in the id of the SENDER as the publisher of this index entry, the mergeIndexLocal
 		//will take care of ensuring only the original publisher can store/update their own entries.
 		//mergeIndexErr := n.mergeIndexLocal(key, entry, reps, senderNodeID)
 		mergeIndexErr := n.mergeIndexEntriesLocal(key, entries, reps, senderNodeID)
 		if mergeIndexErr != nil {
-			fmt.Println("an error occured whilst attempting to handle request to store index entry:", mergeIndexErr)
+			n.logger.Error("An error occurred whilst attempting to handle request to store index entry for key: %s on node: %s ERROR: %v", key, n.Addr, mergeIndexErr)
+		} else {
+			n.logger.Fine("Node: %s Succesfully handled request to store/update index entry for key: %s", n.Addr, key)
 		}
-		//fmt.Println("Node: " + n.Addr + "Succesfully handled request to store/update index entry for key:" + key)
-
 		res := respAny.(*dhtpb.StoreIndexResponse)
 		res.Ok = true
 
 		b, _ := n.encode(respAny)
 		msg, _ := n.cd.Wrap(OP_STORE_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
-		//fmt.Println("Sending response to: ")
-		//fmt.Println(from)
+
 		_ = n.transport.Send(fromAddr, msg)
 
 	case OP_FIND_INDEX:
 		reqAny, respAny := n.makeMessage(OP_FIND_INDEX)
 		if err := n.decode(payload, reqAny); err != nil {
-			fmt.Println(err)
+			n.logger.Error("Failed to decode FIND_INDEX request from node %s: %v", fromID, err)
 			return
 		}
 
@@ -1886,8 +1881,6 @@ func (n *Node) onMessage(from string, data []byte) {
 
 		b, _ := n.encode(respAny)
 		msg, _ := n.cd.Wrap(OP_FIND_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
-		//fmt.Println("Sending response to: ")
-		//fmt.Println(from)
 		_ = n.transport.Send(fromAddr, msg)
 
 	case OP_CONNECT:
@@ -1910,7 +1903,7 @@ func (n *Node) onMessage(from string, data []byte) {
 
 		req, resp := n.makeMessage(OP_DELETE_INDEX)
 		if err := n.decode(payload, req); err != nil {
-			fmt.Println(err)
+			n.logger.Error("Failed to decode DELETE_INDEX request from node %s: %v", fromID, err)
 			return
 		}
 
@@ -1928,16 +1921,14 @@ func (n *Node) onMessage(from string, data []byte) {
 		//the id of the sender must match the publisher id of the entry they are attempting to update
 		//UNLESS this delete is being actioned as a result of a SYNC operation.
 		if !isSyncRelated && senderNodeID != publisherId {
-			fmt.Printf("\nAn error occurred whilst processing received request to delete index entry for key: %s on node: %s. The sender of the request at: %s with id: %s is not the original publisher of the entry: %s AND this is NOT a sync related request, therefore the request will be rejected.\n", indexKey, n.Addr, fromAddr, senderNodeID.String(), publisherId.String())
-			//fmt.Println("An error occurred whilst processing received request to delete index entry for key:" + indexKey + ". Publisher Id Missmatch. ")
+			n.logger.Error("An error occurred whilst processing received request to delete index entry for key: %s on node: %s. The sender of the request at: %s with id: %s is not the original publisher of the entry: %s AND this is NOT a sync related request, therefore the request will be rejected.", indexKey, n.Addr, fromAddr, senderNodeID.String(), publisherId.String())
 			return
 		}
 
 		deleted, deletionErr := n.deleteIndexLocal(indexKey, publisherId, source)
-		fmt.Printf("\nReceived request to delete IndexEntry with key: %s The result was: %v\n", indexKey, deleted)
+		n.logger.Debug("Received request to delete IndexEntry with key: %s The result was: %v", indexKey, deleted)
 		if deletionErr != nil {
-			fmt.Println("An error occurred whilst a processing received request to delete index entry for key: " + indexKey + " on this node: " + n.ID.String())
-			fmt.Println(deletionErr.Error())
+			n.logger.Error("An error occurred whilst processing received request to delete index entry for key: %s on node: %s ERROR: %v", indexKey, n.Addr, deletionErr)
 		}
 
 		respObj := resp.(*dhtpb.DeleteIndexResponse)
@@ -2019,25 +2010,26 @@ func (n *Node) onMessage(from string, data []byte) {
 		req := &dhtpb.SyncIndexRequest{}
 		var malformedRequestErr error = nil
 		if err := n.decode(payload, req); err != nil {
-			fmt.Println("An error occurred whilst attempting to decode SyncIndexRequest received from node: " + senderNodeID.String() + " at: " + time.Now().String())
+			n.logger.Error("An error occurred whilst attempting to decode SyncIndexRequest received from node: %s at: %s ERROR: %v", senderNodeID.String(), time.Now().String(), err)
 			malformedRequestErr = fmt.Errorf("malformed request. an error occurred whilst attempting to decode SyncIndexRequest: %w", err)
+
 		}
 
 		if req.Key == "" {
-			fmt.Println("Received SyncIndexRequest with empty key from node: " + senderNodeID.String() + " at: " + time.Now().String() + " This request will be dropped.")
+			n.logger.Error("Received SyncIndexRequest with empty key from node: %s at: %s This request will be dropped.", senderNodeID.String(), time.Now().String())
 			malformedRequestErr = fmt.Errorf("malformed request. received SyncIndexRequest with empty key from node: %s", senderNodeID.String())
 		}
 
 		if len(req.PublisherId) == 0 {
-			fmt.Println("Received SyncIndexRequest with empty publisher id from node: " + senderNodeID.String() + " at: " + time.Now().String() + " This request will be dropped.")
+			n.logger.Error("Received SyncIndexRequest with empty publisher id from node: %s at: %s This request will be dropped.", senderNodeID.String(), time.Now().String())
 			malformedRequestErr = fmt.Errorf("malformed request. received SyncIndexRequest with empty publisher id from node: %s", senderNodeID.String())
 
 		}
 
 		//if the request was malformed in some way we abort processing and return an error.
 		if malformedRequestErr != nil {
+			n.logger.Error("Failed to process SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), malformedRequestErr)
 			var resp *dhtpb.SyncIndexResponse
-			fmt.Printf("Failed to process SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), malformedRequestErr)
 			resp = &dhtpb.SyncIndexResponse{Ok: false, Err: malformedRequestErr.Error()}
 			b, _ := n.encode(resp)
 			msg, _ := n.cd.Wrap(OP_SYNC_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
@@ -2182,7 +2174,7 @@ func (n *Node) onMessage(from string, data []byte) {
 
 		req, resp := n.makeMessage(OP_SEND_MESSAGE)
 		if err := n.decode(payload, req); err != nil {
-			fmt.Println(err)
+			n.logger.Error("An error occurred whilst attempting to decode SendMessageRequest received from node: %s at: %s ERROR: %v", senderNodeID.String(), time.Now().String(), err)
 			return
 		}
 
@@ -2452,7 +2444,7 @@ func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
 //	correct target, irrespective of how narrow a nodes initial view of the
 //	network is, on connection.
 func (n *Node) resolveNeighbouringNodes() {
-	fmt.Println("INFO: Attempting to resolve neighbouring nodes..")
+	n.logger.Info("Attempting to resolve neighbouring nodes..")
 	n.Find(n.ID.String()) //we don't really care about the result.
 }
 
@@ -2502,14 +2494,14 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 	//dispatch SyncIndexRequest to each of the candidates to prompt them to pull in the latest version of the record.
 	for _, candidateAddr := range syncIndexCandidateAddresses {
 
-		fmt.Println("****SENDING REQUEST**")
-		fmt.Printf("All candidates length: %d\n", len(syncIndexCandidateAddresses))
+		n.logger.Debug("Sending SyncIndexRequest to candidate peer: %s", candidateAddr)
+		n.logger.Debug("All candidates length: %d", len(syncIndexCandidateAddresses))
 		if _, err := n.sendRequest(candidateAddr, OP_SYNC_INDEX, reqAny); err != nil {
-			fmt.Printf("\nERROR: An error occurred during the post index record storage, sync process, the candidate peer: %s could not be notified of the update on node: %s the error was: %v\n", candidateAddr, n.Addr, err)
+			n.logger.Error("An error occurred during the post index record storage, sync process, the candidate peer: %s could not be notified of the update on node: %s the error was: %v", candidateAddr, n.Addr, err)
 		} else {
-			fmt.Println(indexDeleted)
+			n.logger.Debug("Index deleted: %t", indexDeleted)
 			if indexDeleted {
-				fmt.Printf("\nINFO: !!!!!!!!Successfully sent SyncIndexRequest to candidate peer: %s to notify of DELETION of index with key: %s on node: %s\n", candidateAddr, key, n.Addr)
+				n.logger.Debug("Successfully sent SyncIndexRequest to candidate peer: %s to notify of DELETION of index with key: %s on node: %s", candidateAddr, key, n.Addr)
 			}
 		}
 	}
@@ -2679,7 +2671,7 @@ func (n *Node) makeMessage(op int) (req any, resp any) {
 }
 
 func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
-	//fmt.Println("Send Request Executed...")
+	n.logger.Fine("Sending request to: %s with opcode: %d", to, op)
 
 	if n.IsBlacklisted(to) {
 		return nil, fmt.Errorf("Unable to send request,node is blacklisted: %s", to)
@@ -2706,8 +2698,7 @@ func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
 		//where we ALREADY have the peer in our routing table mark
 		//the connection as success since we have received a response.
 		n.markPeerConnectionResult(to, true)
-		//fmt.Println("response from remote node was: ")
-		//fmt.Println(resp)
+		n.logger.Fine("Received response to sent request from: %s with opcode: %d", to, op)
 		return resp, nil
 	case <-time.After(n.cfg.RequestTimeout):
 		//where we ALREADY have the peer in our routing table mark
@@ -3108,7 +3099,7 @@ func (n *Node) janitor() {
 							entryExpiryTime := time.UnixMilli(e.UpdatedUnix).Add(time.Duration(e.TTL) * time.Millisecond)
 							if now.After(entryExpiryTime) {
 								fmt.Printf("IndexEntry on node: %s with key: %s by publisher: %s expired at: %s the time is now: %s", n.Addr, k, e.Publisher.String(), entryExpiryTime.String(), now.String())
-								fmt.Println()
+
 								continue //skip adding this entry to the filtered list
 							}
 						}
@@ -3129,9 +3120,9 @@ func (n *Node) janitor() {
 
 					//otherwise for standard records just check the record expiry
 					if !rec.Expiry.IsZero() && now.After(rec.Expiry) {
-						fmt.Println("Record with key: " + k + " has expired will be deleted from node: " + n.Addr)
-						fmt.Println("Expiry:" + rec.Expiry.String())
-						fmt.Println("Now:" + now.String())
+						n.logger.Info("Record with key: %s has expired will be deleted from node: %s", k, n.Addr)
+						n.logger.Info("Expiry: %s", rec.Expiry.String())
+						n.logger.Info("Now: %s", now.String())
 						expiredEntries = append(expiredEntries, k)
 					}
 
@@ -3184,14 +3175,14 @@ func (n *Node) deleteIndexLocal(key string, publisher types.NodeID, source strin
 		publisherAddr, _ := n.routingTable.GetPeerAddr(e.Publisher)
 
 		//convert this to printf
-		fmt.Printf("Deleted Index entry with source: %s and with key: %s originally published by: %s deleted from node: %s\n", source, key, publisherAddr, n.Addr)
+		n.logger.Info("Deleted Index entry with source: %s and with key: %s originally published by: %s deleted from node: %s", source, key, publisherAddr, n.Addr)
 
 	}
 
 	// If nothing remains, remove the whole index record for the specified key
 	if len(filtered) == 0 {
 		delete(n.dataStore, key)
-		fmt.Println("All index entries have been deleted for index with key: " + key + " on node: " + n.Addr)
+		n.logger.Info("All index entries have been deleted for index with key: %s on node: %s", key, n.Addr)
 		return deleted, nil
 	}
 
@@ -3224,7 +3215,7 @@ func (n *Node) refresher() {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						fmt.Println("Recovered from panic in refresher tick:", r)
+						n.logger.Error("Recovered from panic in refresher tick: %v", r)
 					}
 				}()
 				n.refresh()
@@ -3256,7 +3247,7 @@ func (n *Node) refresh() {
 	//if there are no stored recrods log this edge case
 	//once full logging is implemented this will be a low-level DEBUF log entry
 	if len(keys) == 0 {
-		fmt.Println("No records to refresh on node: " + n.Addr)
+		n.logger.Debug("No records to refresh on node: %s", n.Addr)
 		return
 	}
 
@@ -3300,14 +3291,13 @@ func (n *Node) refresh() {
 						e.UpdatedUnix = time.Now().UnixMilli()
 						indexRefreshErr := n.StoreIndexWithTTL(k, []RecordIndexEntry{e}, ttlDuration, e.Publisher, recomputeReplicas, false)
 						if indexRefreshErr != nil {
-							fmt.Println("An error occurred whilst attempting to refresh index entry with key: " + k + " the error was: " + indexRefreshErr.Error())
+							n.logger.Error("An error occurred whilst attempting to refresh index entry with key: %s the error was: %v", k, indexRefreshErr)
 						}
 					}
 				}
 
 			}
-
-			//fmt.Println("SUCCESSFULLY REFRESHED INDEX KEY: "+k+" Refresh Count: ", n.refreshCount)
+			n.logger.Debug("SUCCESSFULLY REFRESHED INDEX KEY: %s Refresh Count: %d", k, n.refreshCount)
 		} else {
 
 			//only original publisher should refresh
@@ -3323,7 +3313,7 @@ func (n *Node) refresh() {
 			//if the record is not close to expiry, skip the refresh
 			left := time.Until(rec.Expiry)
 			if left > (n.cfg.RefreshInterval * 2) {
-				//fmt.Println("Skipping refresh for Key: "+rec.Key+" as it not near expiry.")
+				n.logger.Debug("Skipping refresh for Key: %s as it is not near expiry.", rec.Key)
 				continue
 			}
 
@@ -3348,9 +3338,9 @@ func (n *Node) refresh() {
 
 			entryRefreshErr := n.StoreWithTTL(k, rec.Value, left, rec.Publisher, recomputeReplicas)
 			if entryRefreshErr != nil {
-				fmt.Println("An error occurred whilst attempting to refresh entry with key: " + k + " the error was: " + entryRefreshErr.Error())
+				n.logger.Error("An error occurred whilst attempting to refresh entry with key: %s the error was: %v", k, entryRefreshErr)
 			}
-			//fmt.Println("SUCCESSFULLY REFRESHED ENTRY KEY: "+k+" Refresh Count: ", n.refreshCount)
+			n.logger.Debug("SUCCESSFULLY REFRESHED ENTRY KEY: %s Refresh Count: %d", k, n.refreshCount)
 		}
 	}
 }
