@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"math/rand"
 	"slices"
 	"strconv"
@@ -5726,6 +5727,107 @@ func Test_Send_And_Receive_Message_To_Peer_Not_In_Local_Routing_Table_With_Body_
 	waitForPeerInRoutingTable(t, sender.GetRoutingTable(), receiver.ID, 3*time.Second)
 }
 
+func Test_Entry_Refresh_Recomputes_Replicas_When_Local_Refresh_Limit_Reached(t *testing.T) {
+	config.Reset()
+	cfg := config.GetDefaultSingletonInstance()
+	cfg.UseProtobuf = true
+	cfg.RequestTimeout = 1200 * time.Millisecond
+	cfg.DefaultEntryTTL = 2 * time.Second
+	cfg.RefreshInterval = 300 * time.Millisecond
+	cfg.JanitorInterval = 5 * time.Second
+	cfg.MaxLocalEntryRefreshCount = 2
+	cfg.ReplicationFactor = 1
+	t.Cleanup(func() {
+		config.Reset()
+	})
+
+	ctx := NewConfigurableTestContext(t, 2, cfg, false)
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
+
+	key := "refresh-target"
+	value := []byte("v1")
+
+	if err := n1.StoreWithTTL(key, value, cfg.DefaultEntryTTL, n1.ID, true); err != nil {
+		t.Fatalf("failed to store entry: %v", err)
+	}
+
+	waitForPeerInRoutingTable(t, n1.GetRoutingTable(), n2.ID, 2*time.Second)
+	waitForLocalValueOnNode(t, n2, key, "v1", 2*time.Second)
+
+	targetID := dht.HashKey(key)
+	closerName := findPlaintextCloserThan(t, targetID, n2.ID)
+	newNodePort := ":9455"
+
+	n3, err := dht.NewNode(closerName, newNodePort, netx.NewTCP(), cfg, dht.NT_CORE)
+	if err != nil {
+		t.Fatalf("failed to create closer node: %v", err)
+	}
+	t.Cleanup(func() {
+		n3.Shutdown()
+	})
+
+	if err := n3.Connect(n1.Addr); err != nil {
+		t.Fatalf("closer node failed to connect: %v", err)
+	}
+
+	waitForPeerInRoutingTable(t, n1.GetRoutingTable(), n3.ID, 2*time.Second)
+
+	// Allow multiple refresh cycles to elapse so LocalRefreshCount crosses the threshold and triggers a network-wide recompute.
+	waitForLocalValueOnNode(t, n3, key, "v1", 8*time.Second)
+}
+
+func Test_Index_Refresh_Recomputes_Replicas_When_Local_Refresh_Limit_Reached(t *testing.T) {
+	
+	config.Reset()
+	cfg := config.GetDefaultSingletonInstance()
+	cfg.UseProtobuf = true
+	cfg.RequestTimeout = 1200 * time.Millisecond
+	cfg.DefaultIndexEntryTTL = 2 * time.Second
+	cfg.RefreshInterval = 300 * time.Millisecond
+	cfg.JanitorInterval = 5 * time.Second
+	cfg.MaxLocalIndexEntryRefreshCount = 2
+	cfg.ReplicationFactor = 1
+	t.Cleanup(func() {
+		config.Reset()
+	})
+
+	ctx := NewConfigurableTestContext(t, 2, cfg, false)
+	n1 := ctx.Nodes[0]
+	n2 := ctx.Nodes[1]
+
+	key := "refresh-index-target"
+	entry := dht.RecordIndexEntry{Source: key, Target: "t1"}
+
+	if err := n1.StoreIndexWithTTL(key, []dht.RecordIndexEntry{entry}, cfg.DefaultIndexEntryTTL, n1.ID, true, false); err != nil {
+		t.Fatalf("failed to store index entry: %v", err)
+	}
+
+	waitForPeerInRoutingTable(t, n1.GetRoutingTable(), n2.ID, 2*time.Second)
+	waitForLocalIndexEntryCount(t, n2, key, 1, 2*time.Second)
+
+	targetID := dht.HashKey(key)
+	closerName := findPlaintextCloserThan(t, targetID, n2.ID)
+	newNodePort := ":9456"
+
+	n3, err := dht.NewNode(closerName, newNodePort, netx.NewTCP(), cfg, dht.NT_CORE)
+	if err != nil {
+		t.Fatalf("failed to create closer node: %v", err)
+	}
+	t.Cleanup(func() {
+		n3.Shutdown()
+	})
+
+	if err := n3.Connect(n1.Addr); err != nil {
+		t.Fatalf("closer node failed to connect: %v", err)
+	}
+
+	waitForPeerInRoutingTable(t, n1.GetRoutingTable(), n3.ID, 2*time.Second)
+
+	// Allow multiple refresh cycles to elapse so LocalRefreshCount crosses the threshold and triggers a network-wide recompute to the closer node.
+	waitForLocalIndexEntryCount(t, n3, key, 1, 8*time.Second)
+}
+
 func waitForMessageEventCount(t *testing.T, listener *TestNodeEventListener, expected int, timeout time.Duration) {
 	t.Helper()
 
@@ -5743,6 +5845,68 @@ func waitForMessageEventCount(t *testing.T, listener *TestNodeEventListener, exp
 		case <-ticker.C:
 		}
 	}
+}
+
+func waitForLocalValueOnNode(t *testing.T, node *dht.Node, key, expected string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if val, ok := node.FindLocal(key); ok && string(val) == expected {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for key %s with expected value %s on node %s", key, expected, node.Addr)
+		case <-ticker.C:
+		}
+	}
+}
+
+func waitForLocalIndexEntryCount(t *testing.T, node *dht.Node, key string, expected int, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if entries, ok := node.FindIndexLocal(key); ok && len(entries) >= expected {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for index key %s with >=%d entries on node %s", key, expected, node.Addr)
+		case <-ticker.C:
+		}
+	}
+}
+
+func findPlaintextCloserThan(t *testing.T, target types.NodeID, current types.NodeID) string {
+	t.Helper()
+
+	currentDist := xorDistance(current, target)
+	for i := 0; i < 10000; i++ {
+		candidate := fmt.Sprintf("closer-%d", i)
+		candID := dht.HashKey(candidate)
+		if xorDistance(candID, target).Cmp(currentDist) < 0 {
+			return candidate
+		}
+	}
+
+	t.Fatalf("failed to generate plaintext id closer to target")
+	return ""
+}
+
+func xorDistance(a, b types.NodeID) *big.Int {
+	buf := make([]byte, types.IDBytes)
+	for i := 0; i < types.IDBytes; i++ {
+		buf[i] = a[i] ^ b[i]
+	}
+	return new(big.Int).SetBytes(buf)
 }
 
 type routingTableEvent struct {
