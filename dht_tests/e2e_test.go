@@ -15,7 +15,7 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/dht"
 	"github.com/SharefulNetworks/shareful-dht/events"
-	"github.com/SharefulNetworks/shareful-dht/netx"
+	netx "github.com/SharefulNetworks/shareful-dht/net"
 	"github.com/SharefulNetworks/shareful-dht/routing"
 	"github.com/SharefulNetworks/shareful-dht/types"
 )
@@ -246,7 +246,7 @@ func Test_Create_And_Delete_Index_Entry_Value(t *testing.T) {
 	entsPostDelete, ok = n2.FindIndex(key)
 
 	fmt.Println("#####Found entries AFTER deletion are: ")
-	
+
 	for _, curE := range entsPostDelete {
 		fmt.Printf("\n Publisher: %s Key: %s Value: %s \n", curE.Publisher.String(), curE.Source, curE.Target)
 	}
@@ -5774,7 +5774,7 @@ func Test_Entry_Refresh_Recomputes_Replicas_When_Local_Refresh_Limit_Reached(t *
 }
 
 func Test_Index_Refresh_Recomputes_Replicas_When_Local_Refresh_Limit_Reached(t *testing.T) {
-	
+
 	config.Reset()
 	cfg := config.GetDefaultSingletonInstance()
 	cfg.UseProtobuf = true

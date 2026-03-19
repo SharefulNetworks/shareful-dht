@@ -6,7 +6,7 @@ import (
 
 	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/dht"
-	"github.com/SharefulNetworks/shareful-dht/netx"
+	"github.com/SharefulNetworks/shareful-dht/net"
 )
 
 func main() {

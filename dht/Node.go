@@ -20,7 +20,7 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/commons"
 	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/events"
-	"github.com/SharefulNetworks/shareful-dht/netx"
+	"github.com/SharefulNetworks/shareful-dht/net"
 	"github.com/SharefulNetworks/shareful-dht/proto/dhtpb"
 	"github.com/SharefulNetworks/shareful-dht/routing"
 	"github.com/SharefulNetworks/shareful-dht/types"
