@@ -1,7 +1,10 @@
 package config
 
 import (
+	
 	"time"
+
+	"github.com/SharefulNetworks/shareful-utils-slog/slog"
 )
 
 type Config struct {
@@ -33,6 +36,7 @@ type Config struct {
 	UnhealthyPeerGracePeriod                  time.Duration //the duration of time to wait after a peer is deemed unhealthy before actually removing the peer from the routing table. This is useful to allow for transient network issues or temporary peer unavailability without prematurely removing peers from the routing table.
 	NodeAddress                               string        //The globally reachable address of this node, where this is not supplied by a command line argument or environment variable it will be set to the value provided to the Node's constuctor.
 	MessageVersion                            string        //the version of the DHT protocol to use in message headers, this is useful to allow for future protocol updates and to maintain backward compatibility with older versions of the protocol.
+	GlobalLogLevel                            slog.LogLevel//the global log level to apply to all loggers in the DHT, this is useful to control the verbosity of logging output across the entire DHT from a single configuration setting.
 }
 
 var singletonConfig *Config
@@ -67,6 +71,7 @@ func GetDefaultSingletonInstance() *Config {
 			UnhealthyPeerGracePeriod:                  10 * time.Second,
 			NodeAddress:                               "",
 			MessageVersion:                            "1.0",
+			GlobalLogLevel:                            slog.INFO,
 		}
 	}
 	return singletonConfig

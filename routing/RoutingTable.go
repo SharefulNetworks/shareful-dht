@@ -1,9 +1,10 @@
 package routing
 
 import (
-	"fmt"
+
 	"math/bits"
 	"math/rand"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/commons"
 	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/types"
+
+	"github.com/SharefulNetworks/shareful-utils-slog/slog"
 )
 
 // RoutingTable - Models a Kademlia compiant routing table.
@@ -26,6 +29,7 @@ type RoutingTable struct {
 	stop             chan struct{}
 	listeners        map[string]RoutingTableListener
 	addressToIdCache map[string]types.NodeID //a cache to store mappings of peer addresses to their respective node ids, this is used to facilitate the process of marking Peers as healthy/unhealthy depending on whether the top-level node is able to establish a connection to that peer, from this context the Node will generally only be able to provide the address of the target peer. The cache is populated during the Update method when new peers are added to the routing table.
+	logger           *slog.Logger
 }
 
 func NewRoutingTable(self types.NodeID, bucketSize int, nodeLike commons.NodeLike) *RoutingTable {
@@ -59,7 +63,8 @@ func (rt *RoutingTable) BucketFor(id types.NodeID) (int, *KBucket) {
 // (by shifting all entries to the left by one) then the new value is
 // appended to the now vacant last index in the bucket.
 func (rt *RoutingTable) Update(id types.NodeID, addr string) {
-	//fmt.Printf("\nNode: %s adding peer with ID: %s and address: %s to routing table. The call graph that lead to this call was: %s \n", rt.nodeLike.GetAddress(), id.String(), addr, debug.Stack())
+	
+	rt.logger.Debug("Adding/updating peer with ID: %s and address: %s to routing table. The call graph that lead to this call was: %s", id.String(), addr, debug.Stack())
 	i := rt.bucketIndex(rt.self, id)
 	if i < 0 {
 		return
@@ -175,9 +180,9 @@ func (rt *RoutingTable) GetPeer(id types.NodeID) (*Peer, bool) {
 	return nil, false
 }
 
-//GetPeerByAddr - Returns the peer associated with the specified address, where it exists. 
-//A boolean is then returned to indicate whether or not the target entry was successfully located; 
-//return TRUE where this is the case and FALSE otherwise.
+// GetPeerByAddr - Returns the peer associated with the specified address, where it exists.
+// A boolean is then returned to indicate whether or not the target entry was successfully located;
+// return TRUE where this is the case and FALSE otherwise.
 func (rt *RoutingTable) GetPeerByAddr(addr string) (*Peer, bool) {
 	var targetPeerId types.NodeID
 	rt.mu.RLock()
@@ -384,7 +389,8 @@ func (rt *RoutingTable) publishPeerUnhealthyEvent(peerId types.NodeID, peerAddr 
 }
 
 func (rt *RoutingTable) startBucketRefresher() {
-	fmt.Printf("\nINFO: Starting up periodic RoutingTable, bucket refresh process. The process will run every: %f Minutes\n", config.GetDefaultSingletonInstance().BucketRefreshInterval.Minutes())
+	rt.logger.Debug("Starting up periodic RoutingTable, bucket refresh process. The process will run every: %f Minutes", config.GetDefaultSingletonInstance().BucketRefreshInterval.Minutes())
+
 	go rt.bucketRefresher()
 }
 
@@ -412,7 +418,7 @@ func (rt *RoutingTable) bucketRefresher() {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						fmt.Println("Recovered from panic in refresher tick:", r)
+						rt.logger.Error("Recovered from panic in refresher tick: %v", r)
 					}
 				}()
 				rt.refreshBuckets()
@@ -452,7 +458,7 @@ func (rt *RoutingTable) refreshBuckets() {
 	bucketRefreshJobs := computeBucketRefreshJobs()
 
 	for len(bucketRefreshJobs) > 0 {
-		fmt.Printf("\nProcessing: %d bucket refresh jobs\n", len(bucketRefreshJobs))
+		rt.logger.Debug("Processing: %d bucket refresh jobs", len(bucketRefreshJobs))
 		// Process refresh jobs in batches
 		batchSize := refreshBatchSize
 		if len(bucketRefreshJobs) < batchSize {

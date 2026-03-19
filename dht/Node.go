@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime/debug"
 
 	"math"
 	"sort"
@@ -95,6 +96,9 @@ func NewNode(plainTextId string, addr string, transport netx.Transport, cfg *con
 		n.cfg.NodeAddress = addr
 	}
 
+	//set global log-level, this will apply to all loggers in the DHT.
+	slog.SetGlobalMinLevel(n.cfg.GlobalLogLevel)
+
 	//instantiate the nodes routing table, we have to do this outside of the
 	//constructor as the routing table requires reference to the node being constructed.
 	n.routingTable = routing.NewRoutingTable(n.ID, cfg.K, n)
@@ -166,17 +170,19 @@ func (n *Node) Bootstrap(bootstrapAddrs []string, connectDelayMillis int) error 
 
 func (n *Node) Shutdown() {
 	n.closeOnce.Do(func() {
+		n.logger.Info("Node: %s is shutting down, waiting for background tasks to complete and connections to close...", n.Addr)
 		close(n.stop)
 		n.wg.Wait() // wait for janitor and refresher to finish
 		n.transport.Close()
 		n.routingTable.UnregisterListener("Node")
 		n.routingTable.Destroy()
+		n.logger.Info("Node: %s has shutdown successfully.", n.Addr)
 	})
 }
 
 func (n *Node) AddPeer(addr string, id types.NodeID) {
 	if n.IsBlacklisted(addr) {
-		fmt.Printf("\nUnable to add peer, its address: %s is currently black listed\n ", addr)
+		n.logger.Warn("Unable to add peer, its address: %s is currently black listed", addr)
 		return
 	}
 	n.routingTable.Update(id, addr)
@@ -191,7 +197,7 @@ func (n *Node) DropPeer(id types.NodeID) bool {
 		//where an active connection DOES exist to the peer close it.
 		closeErr := n.transport.CloseConnection(peerAddr)
 		if closeErr != nil {
-			fmt.Printf("An error occurred whilst attempting to close active connection to the peer @: %s the error was %v", peerAddr, closeErr)
+			n.logger.Error("An error occurred whilst attempting to close active connection to the peer @: %s the error was %v", peerAddr, closeErr)
 		}
 	}
 	return n.routingTable.Remove(id)
@@ -645,7 +651,7 @@ func (n *Node) StoreIndex(indexKey string, entries ...RecordIndexEntry) error {
 
 func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, ttl time.Duration, publisherId types.NodeID, recomputeReplicas bool, isIndexSyncRelated bool) error {
 
-	//fmt.Printf("DEBUG: Call to StoreIndexWithTTL call graph is as follows: %s", debug.Stack())
+	n.logger.Fine("Node @ %s reveidd request to store index record with key: %s. The call graph looks as follows: %s", n.Addr, indexKey, debug.Stack())
 
 	//chec that at least one entry has been provided.
 	if len(entries) == 0 {
@@ -783,7 +789,8 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 		}
 	}
 
-	fmt.Printf("\nNode: %s replicated entry to following nodes %s\n", n.Addr, reps)
+	
+	n.logger.Debug("Node: %s replicated index entry with key: %s to following nodes %s", n.Addr, indexKey, reps)
 
 	//where at least one error occurred call into our utility to compile
 	//the errors into a single error object and return it.
@@ -796,7 +803,7 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 		if len(errorsList) == len(reps) {
 			storeIndexErr = fmt.Errorf("Fatal: an error occurred whilst attempting to propagate storage of index entry to ALL replica nodes, the error was: %v", allReplicationErrs)
 		} else {
-			fmt.Printf("An error occurred whilst attempting to propagate storage of index entry to one or more replica nodes, the error was: %v. However, as at least one replica node successfully received the update this is not deemed to be a fatal error and thus we proceed without returning an error.\n", allReplicationErrs)
+			n.logger.Error("An error occurred whilst attempting to propagate storage of index entry to one or more replica nodes, the error was: %v. However, as at least one replica node successfully received the update this is not deemed to be a fatal error and thus we proceed without returning an error.", allReplicationErrs)
 		}
 	}
 
@@ -808,12 +815,12 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 	//and providing a fatal error did not occur during the store operation.
 	if !isIndexSyncRelated && !n.isFatalError(storeIndexErr) {
 
-		fmt.Printf("\nINFO: Index Record Sync delay set to: %s time scheduled: %s\n", n.cfg.IndexSyncDelay, time.Now().Format("hh:mm"))
+		n.logger.Fine("Index Record Sync delay set to: %s time scheduled: %s", n.cfg.IndexSyncDelay, time.Now().Format("hh:mm"))
 
 		//wait for a short delay to allow the storage operation to propergate..
 		time.AfterFunc(n.cfg.IndexSyncDelay, func() {
 
-			fmt.Printf("\nINFO: Index Record Sync time executed: %s\n", time.Now().Format("hh:mm"))
+			n.logger.Debug("Index Record Sync time executed: %s", time.Now().Format("hh:mm"))
 
 			//dispatch sync index request to applicable peers.(i.e. not ourself or those that are part of ths nodes replica set for this record.)
 			n.dispatchSyncIndexRequest(publisherId, indexKey, reps, time.Now(), false, "")
@@ -821,7 +828,7 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 		})
 
 	} else {
-		n.logger.Info("SYNC RELATED StoreIndexWithTTL CALL, SKIPPING DISPATCH OF SYNC REQUEST.")
+		n.logger.Debug("SYNC RELATED StoreIndexWithTTL CALL, SKIPPING DISPATCH OF SYNC REQUEST.")
 
 	}
 
@@ -844,7 +851,7 @@ func (n *Node) FindIndexLocal(key string) ([]RecordIndexEntry, bool) {
 func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 	// 0) local fast-path
 	localFindIndexEntries, localFindIndexOk := n.FindIndexLocal(key)
-	fmt.Printf("***LOCAL ENTRIES COUNT : %d on Node: %x\n", len(localFindIndexEntries), n.ID)
+	n.logger.Debug("***LOCAL ENTRIES COUNT : %d on Node: %x", len(localFindIndexEntries), n.ID)
 
 	//1) to account for that fact that a single index record may be shared between multiple nodes/peers we must always go out to the network to pull any changes
 	target := HashKey(key)
@@ -1001,7 +1008,6 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 					if !exists || e.UpdatedUnix > existing.UpdatedUnix {
 						merged[entryKey] = e
 					}
-					//fmt.Printf("\n^^^^^^^^^^^Found node: %s\n", e.PublisherAddr)
 				}
 				for _, np := range r.peers {
 					if np != nil && np.ID != n.ID {
@@ -1084,9 +1090,9 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 		// with our local record, where applicable.
 		mergeErr := n.mergeIndexEntriesLocal(key, out, []string{}, n.ID)
 		if mergeErr != nil {
-			fmt.Printf("\nError merging index entries locally: %v\n", mergeErr)
+			n.logger.Error("Error merging index entries locally: %v", mergeErr)
 		} else {
-			fmt.Printf("\nSuccessfully merged freshest index entries to local record for key: %s\n", key)
+			n.logger.Debug("Successfully merged freshest index entries to local record for key: %s", key)
 		}
 	}
 
@@ -1142,7 +1148,7 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string, isIndexSync
 		return fmt.Errorf("an error occurred whilst attempting to deleted the specified Index: %o", deletionErr)
 	}
 
-	fmt.Printf("\n!!!!!!!LOCAL DELETE SUCCEEDED: %t\n", deleted)
+	n.logger.Debug("LOCAL DELETE SUCCEEDED: %t\n", deleted)
 
 	//where the index entry WAS successfully deleted locally, propagate the delete to nearest K nodes.
 	if deleted {
@@ -1582,7 +1588,7 @@ func (n *Node) SendMessage(peerPlaintextId string, message *Message) error {
 //
 //	and will exclude it from future lookups.
 func (n *Node) OnPeerUnhealthyStateChange(peerId types.NodeID, peerAddr string) {
-	fmt.Printf("\nDEBUG:Received event to indicate that Peer has been marked as unhealthy: %s @ %s\n", peerId.String(), peerAddr)
+	n.logger.Debug("Received event to indicate that Peer has been marked as unhealthy: %s @ %s", peerId.String(), peerAddr)
 
 	//after a short grace period, to allow any in-flight requests to complete, we drop the
 	//unhealthy peer from the routing table AND issue a call to the Transport
@@ -1625,7 +1631,6 @@ func (n *Node) UnregisterNodeEventListener(id string) {
 func (n *Node) onMessage(from string, data []byte) {
 	op, reqID, isResp, fromID, fromAddr, nodeType, payload, err := n.cd.Unwrap(data)
 
-	fmt.Printf("\n****RECEIVED MESSAGE FROM: %s", fromID)
 	n.logger.Debug("Received message from node: %s", fromID)
 
 	//if an error occurred during the unwrap, log and exit
@@ -2038,7 +2043,7 @@ func (n *Node) onMessage(from string, data []byte) {
 
 		}
 
-		fmt.Printf("\n &&&&&&& RECEIVED ***SYNC INDEX REQUEST*** TO NODE: %s FROM NODE @ %s\n IS DELETED: %t\n", n.Addr, fromAddr, req.IndexDeleted)
+		n.logger.Debug("RECEIVED ***SYNC INDEX REQUEST*** TO NODE: %s FROM NODE @ %s\n IS DELETED: %t\n", n.Addr, fromAddr, req.IndexDeleted)
 
 		/*
 				IMPORTANT: HERE WE MERELY **SCHEDULE** EXECUTION OF THE SYNCHRONIZATION ROUTINE
@@ -2058,10 +2063,10 @@ func (n *Node) onMessage(from string, data []byte) {
 
 				var resp *dhtpb.SyncIndexResponse
 				if deletionErr != nil {
-					fmt.Printf("\nERROR:Failed to process SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v\n", req.Key, senderNodeID.String(), time.Now().String(), deletionErr)
+					n.logger.Error("Failed to process SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), deletionErr)
 					resp = &dhtpb.SyncIndexResponse{Ok: false, Err: deletionErr.Error()}
 				} else {
-					fmt.Printf("\nINFO:Successfully processed SyncIndexRequest for index with key: %s from node: %s at: %s\n", req.Key, senderNodeID.String(), time.Now().String())
+					n.logger.Debug("Successfully processed SyncIndexRequest for index with key: %s from node: %s at: %s", req.Key, senderNodeID.String(), time.Now().String())
 					resp = &dhtpb.SyncIndexResponse{Ok: true, Err: ""}
 				}
 
@@ -2072,7 +2077,7 @@ func (n *Node) onMessage(from string, data []byte) {
 					//parse node id from the request
 					nodeID, parseErr := types.NodeIDFromBytes(req.PublisherId)
 					if parseErr != nil {
-						fmt.Printf("\nINFO: An error occurred whilst attempting to parse SYNC (DELETE) INDEX UPDATE origin node ID, as the origin node ID is required to publish an event, an event WILL NOT be published in respect of this update.\n")
+						n.logger.Error("An error occurred whilst attempting to parse SYNC (DELETE) INDEX UPDATE origin node ID from SyncIndexRequest: %v", parseErr)
 					}
 
 					//if index update events are enabled globally and for this key specifically
@@ -2080,6 +2085,7 @@ func (n *Node) onMessage(from string, data []byte) {
 					if n.cfg.IndexUpdateEventsEnabled && n.indexUpdateEventsEnabledForKey(req.Key) {
 						n.publishIndexUpdateEvent(req.Key, nil, nodeID, fromAddr, true)
 					}
+
 				}
 
 				//unlike the update path below, which may nessitate several sub async requests
@@ -2088,7 +2094,7 @@ func (n *Node) onMessage(from string, data []byte) {
 				//and directly return result in the response to the requester.
 				b, _ := n.encode(resp)
 				msg, _ := n.cd.Wrap(OP_SYNC_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
-				fmt.Printf("\nDEBUG: &&&&&&& SENDING SYNC INDEX (DELETE) RESPONSE TO NODE @ %s\n", fromAddr)
+				n.logger.Debug("SENDING SYNC INDEX (DELETE) RESPONSE TO NODE @ %s", fromAddr)
 				_ = n.transport.Send(fromAddr, msg)
 
 			})
@@ -2103,7 +2109,7 @@ func (n *Node) onMessage(from string, data []byte) {
 				var processingErr error = nil
 				updatedIndexRecEntries, found := n.FindIndex(req.Key)
 				if !found {
-					fmt.Printf("Received SyncIndexRequest for index with key: %s but failed to find the index record on the network. This may indicate that the record has been deleted or that there was an error during the lookup process.", req.Key)
+					n.logger.Debug("Received SyncIndexRequest for index with key: %s but failed to find the index record on the network. This may indicate that the record has been deleted or that there was an error during the lookup process.", req.Key)
 					processingErr = fmt.Errorf("failed to find index record on the network for key: %s", req.Key)
 				}
 
@@ -2112,7 +2118,7 @@ func (n *Node) onMessage(from string, data []byte) {
 				// implicitly handle this.
 				nodeID, err := types.NodeIDFromBytes(req.PublisherId)
 				if err != nil {
-					fmt.Printf("Failed to parse publisher NodeID from SyncIndexRequest: %v", err)
+					n.logger.Error("Failed to parse publisher NodeID from SyncIndexRequest: %v", err)
 					processingErr = fmt.Errorf("failed to parse publisher NodeID from SyncIndexRequest: %w", err)
 				}
 				ttl := n.cfg.DefaultIndexEntryTTL
@@ -2140,13 +2146,13 @@ func (n *Node) onMessage(from string, data []byte) {
 
 				//just log any processing errors.
 				if processingErr != nil && n.isFatalError(processingErr) {
-					fmt.Printf("A fatal error occurred whilst processing SyncIndexRequest (events related to this request WILL NOT be published.) for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
+					n.logger.Error("A fatal error occurred whilst processing SyncIndexRequest (events related to this request WILL NOT be published.) for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
 
 				} else {
 					if processingErr != nil {
-						fmt.Printf("A non-fatal error occurred whilst processing SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
+						n.logger.Error("A non-fatal error occurred whilst processing SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
 					} else {
-						fmt.Printf("Successfully processed SyncIndexRequest for index with key: %s from node: %s at: %s", req.Key, senderNodeID.String(), time.Now().String())
+						n.logger.Debug("Successfully processed SyncIndexRequest for index with key: %s from node: %s at: %s", req.Key, senderNodeID.String(), time.Now().String())
 					}
 
 					//if index update events are enabled globally and for this key specifically
@@ -2166,7 +2172,7 @@ func (n *Node) onMessage(from string, data []byte) {
 
 			b, _ := n.encode(resp)
 			msg, _ := n.cd.Wrap(OP_SYNC_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
-			fmt.Printf("\nDEBUG: &&&&&&& SENDING SYNC INDEX RESPONSE TO NODE @ %s\n", fromAddr)
+			n.logger.Debug("SENDING SYNC INDEX RESPONSE TO NODE @ %s", fromAddr)
 			_ = n.transport.Send(fromAddr, msg)
 			return
 		}
@@ -2450,7 +2456,8 @@ func (n *Node) resolveNeighbouringNodes() {
 
 func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, replicaSetAddrs []string, updatedAt time.Time, indexDeleted bool, deletedIndexSource string) {
 
-	fmt.Printf("\n Dispatching Sync Index request for index record with key: %s from node: %s at: %s is deleted: %t\n", key, n.Addr, updatedAt.String(), indexDeleted)
+
+	n.logger.Debug("Dispatching Sync Index request for index record with key: %s from node: %s at: %s is deleted: %t", key, n.Addr, updatedAt.String(), indexDeleted)
 
 	//first grab all entries related to this key from our local store
 	localFindIndexEntries, localFindIndexOk := n.FindIndexLocal(key)
@@ -2459,11 +2466,11 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 	//network to ensure we obtain the most up=to-date copy complete with all associated publishers.
 	refetchedEntries, found := n.FindIndex(key)
 	if !found {
-		fmt.Printf("An error occurred during the post update notification process, the updated index record could not be refetched from the network with key: %s", key)
+		n.logger.Error("An error occurred during the post update notification process, the updated index record could not be refetched from the network with key: %s", key)
 		return
 	}
 
-	fmt.Printf("Refetched Index Entries for key: %s on node:%s %v\n", key, n.Addr, refetchedEntries)
+	n.logger.Debug("Refetched Index Entries for key: %s on node:%s %v\n", key, n.Addr, refetchedEntries)
 
 	//iterate over the returned entries to parse publishers who are candidates for the sync notifications
 	//the peers must not be ourselve or be in the replica set we just propergated the storage to, as they will
@@ -2489,7 +2496,7 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 	r.IndexDeleted = indexDeleted
 	r.IndexSource = deletedIndexSource
 
-	fmt.Printf("\nCandidate Addresses: %v\n", syncIndexCandidateAddresses)
+	n.logger.Debug("Candidate Addresses: %v", syncIndexCandidateAddresses)
 
 	//dispatch SyncIndexRequest to each of the candidates to prompt them to pull in the latest version of the record.
 	for _, candidateAddr := range syncIndexCandidateAddresses {
@@ -2513,7 +2520,7 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 	if !indexDeleted {
 		if localFindIndexOk &&
 			len(localFindIndexEntries) < len(refetchedEntries) {
-			fmt.Printf("New entries discovered for index with key: %s on node: %s during sync process, propergating to replica set by executing StoreIndexWithTTL \n", key, n.Addr)
+			n.logger.Debug("New entries discovered for index with key: %s on node: %s during sync process, propergating to replica set by executing StoreIndexWithTTL \n", key, n.Addr)
 
 			//Important: temporarily add syncIndexCandidateAddresses to the blacklist to prevent them being chosen
 			//as part of the replica set for THIS sync-based store operation, as always: nodes in the replica set and sync candidates
@@ -2889,7 +2896,7 @@ func (n *Node) excludeBlackListedPeerAddresses(peerAddresses []string) []string 
 			if peer != nil {
 				removed := n.DropPeer(peer.ID) //ensure we also remove any blacklisted peers from our routing table
 				if !removed {
-					fmt.Printf("ERROR: peer with addr: %s was blacklisted but could not be removed from routing table", peer.Addr)
+					n.logger.Error("peer with addr: %s was blacklisted but could not be removed from routing table", peer.Addr)
 				}
 			}
 			continue
@@ -2908,7 +2915,7 @@ func (n *Node) excludeCoPublisherAddresses(peerAddresses []string, indexEntries 
 			continue
 		}
 		if n.isCoPublisher(peerAddr, indexEntries) {
-			fmt.Printf("\nDEBUG: >>>> *** <<<<Peer address: %s belongs to a co-publisher of index with key: %s and thus will be excluded from the replica set.\n", peerAddr, key)
+			n.logger.Debug("Peer address: %s belongs to a co-publisher of index with key: %s and thus will be excluded from the replica set.", peerAddr, key)
 			continue
 		}
 		filtered = append(filtered, peerAddr)
@@ -2968,7 +2975,7 @@ func (n *Node) setUpdateEventsEnabled(newIndexEntry *RecordIndexEntry, allIndexE
 	if len(allIndexEntries) >= 2 {
 		oldestEntry := findOldestEntry(allIndexEntries)
 		newIndexEntry.EnableIndexUpdateEvents = oldestEntry.EnableIndexUpdateEvents
-		fmt.Printf("\nDEBUG: Entry related to node @ %s has had its EnableIndexUpdateEvents flag set to %v based on the oldest entry in the set from node @ %s", newIndexEntry.PublisherAddr, oldestEntry.EnableIndexUpdateEvents, oldestEntry.PublisherAddr)
+		n.logger.Debug("Entry related to node @ %s has had its EnableIndexUpdateEvents flag set to %v based on the oldest entry in the set from node @ %s", newIndexEntry.PublisherAddr, oldestEntry.EnableIndexUpdateEvents, oldestEntry.PublisherAddr)
 		return
 	}
 }
@@ -2991,17 +2998,18 @@ func (n *Node) publishIndexUpdateEvent(indexKey string, entries []RecordIndexEnt
 
 	time.AfterFunc(500*time.Millisecond, func() {
 
-		fmt.Printf("\nDEBUG: Publishing Index Update Events for key %s\n", indexKey)
+		
+		n.logger.Debug("Publishing Index Update Event for index with key: %s on node: %s isDeletion: %t", indexKey, n.Addr, isDeletion)
 
 		n.nodeEventListeners.Range(func(key, value any) bool {
 
 			listener, ok := value.(events.NodeEventListener)
 			if !ok {
-				fmt.Printf("\nDEBUG: +++++ Listener type assertion failed,skipping dispatch of Index Update Event for index with key: %s to listener with key: %s\n", indexKey, key)
+				n.logger.Debug("Listener type assertion failed, skipping dispatch of Index Update Event for index with key: %s to listener with key: %s", indexKey, key)
 				return true
 			}
 
-			fmt.Printf("\nDEBUG: Node: %s is dispatching Index Update Event to listener for index with key: %s to target node: %s\n", n.ID.String(), indexKey, n.Addr)
+			n.logger.Debug("Node: %s is dispatching Index Update Event to listener for index with key: %s to target node: %s", n.ID.String(), indexKey, n.Addr)
 
 			//create a new event instance
 			event := events.NewIndexUpdateEvent(
@@ -3026,7 +3034,7 @@ func (n *Node) publishMessageReceivedEvent(fromAddr string, senderPlaintextId st
 	//wrap the message in a time.AfterFunc to ensure the event is published on a separate thread and does not
 	//block the main execution flow of the node.
 	time.AfterFunc(500*time.Millisecond, func() {
-		fmt.Printf("\nDEBUG: Publishing Message Received Event for message received from peer @:  %s\n", fromAddr)
+		n.logger.Debug("Publishing Message Received Event for message received from peer @:  %s", fromAddr)
 
 		//build MessageReceivedEvent using the message and meta-data parsed of the wire
 		event := events.NewMessageReceivedEvent(
@@ -3041,7 +3049,7 @@ func (n *Node) publishMessageReceivedEvent(fromAddr string, senderPlaintextId st
 
 			listener, ok := value.(events.NodeEventListener)
 			if !ok {
-				fmt.Printf("\nDEBUG: +++++ Listener type assertion failed,skipping dispatch of Message Received Event for message received from peer @:  %s\n", fromAddr)
+				n.logger.Debug("Listener type assertion failed, skipping dispatch of Message Received Event for message received from peer @:  %s", fromAddr)
 				return true
 			}
 
@@ -3098,8 +3106,7 @@ func (n *Node) janitor() {
 						if e.TTL > 0 {
 							entryExpiryTime := time.UnixMilli(e.UpdatedUnix).Add(time.Duration(e.TTL) * time.Millisecond)
 							if now.After(entryExpiryTime) {
-								fmt.Printf("IndexEntry on node: %s with key: %s by publisher: %s expired at: %s the time is now: %s", n.Addr, k, e.Publisher.String(), entryExpiryTime.String(), now.String())
-
+                                n.logger.Warn("IndexEntry on node: %s with key: %s by publisher: %s expired at: %s the time is now: %s", n.Addr, k, e.Publisher.String(), entryExpiryTime.String(), now.String())
 								continue //skip adding this entry to the filtered list
 							}
 						}
@@ -3120,9 +3127,9 @@ func (n *Node) janitor() {
 
 					//otherwise for standard records just check the record expiry
 					if !rec.Expiry.IsZero() && now.After(rec.Expiry) {
-						n.logger.Info("Record with key: %s has expired will be deleted from node: %s", k, n.Addr)
-						n.logger.Info("Expiry: %s", rec.Expiry.String())
-						n.logger.Info("Now: %s", now.String())
+						n.logger.Warn("Record with key: %s has expired will be deleted from node: %s", k, n.Addr)
+						n.logger.Warn("Expiry: %s", rec.Expiry.String())
+						n.logger.Warn("Now: %s", now.String())
 						expiredEntries = append(expiredEntries, k)
 					}
 
@@ -3174,7 +3181,7 @@ func (n *Node) deleteIndexLocal(key string, publisher types.NodeID, source strin
 		deleted = true
 		publisherAddr, _ := n.routingTable.GetPeerAddr(e.Publisher)
 
-		//convert this to printf
+		
 		n.logger.Info("Deleted Index entry with source: %s and with key: %s originally published by: %s deleted from node: %s", source, key, publisherAddr, n.Addr)
 
 	}

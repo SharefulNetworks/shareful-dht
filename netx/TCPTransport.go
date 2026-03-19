@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"io"
 	"log"
+
 	"net"
 	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/SharefulNetworks/shareful-dht/config"
+	
+	"github.com/SharefulNetworks/shareful-utils-slog/slog"
 )
 
 type TCPTransport struct {
@@ -23,6 +26,7 @@ type TCPTransport struct {
 
 	outQueue chan *Outbound
 	wg       sync.WaitGroup
+	logger               *slog.Logger
 }
 
 type Outbound struct {
@@ -43,6 +47,7 @@ func NewTCP() *TCPTransport {
 	t := &TCPTransport{
 		closed:   make(chan struct{}),
 		outQueue: make(chan *Outbound, 4096), // larger buffer helps tests
+		logger:   slog.NewLogger("shareful.dht.netx.TCPTransport", nil),
 	}
 	t.startOutboundProcessing()
 	t.startIdleConnChecker()
@@ -271,7 +276,8 @@ func (t *TCPTransport) startIdleConnChecker() {
 }
 
 func (t *TCPTransport) idleConnChecker() {
-	fmt.Printf("\nINFO:Starting idle connection checker, pooled connections will be checked for idleness every: %s minute(s)", config.GetDefaultSingletonInstance().PooledConnectionIdleCheckInterval)
+	t.logger.Info("Starting idle connection checker, pooled connections will be checked for idleness every: %s minute(s)", config.GetDefaultSingletonInstance().PooledConnectionIdleCheckInterval)
+	
 	t.wg.Add(1)
 	defer t.wg.Done()
 	timer := time.NewTicker(config.GetDefaultSingletonInstance().PooledConnectionIdleCheckInterval)
@@ -285,7 +291,7 @@ func (t *TCPTransport) idleConnChecker() {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("panic in idleConnChecker: %v\n%s", r, debug.Stack())
+						t.logger.Error("panic in idleConnChecker: %v\n%s", r, debug.Stack())
 					}
 				}()
 				t.idleConnCheck()
@@ -319,7 +325,7 @@ func (t *TCPTransport) idleConnCheck() {
 		v, ok := t.conns.Load(key)
 
 		if !ok {
-			fmt.Printf("WARNING:Unable to remove pooled connection associated with key %s the connection was not found.", key)
+			t.logger.Warn("Unable to remove pooled connection associated with key %s the connection was not found.", key)
 			continue
 		}
 
@@ -332,11 +338,11 @@ func (t *TCPTransport) idleConnCheck() {
 			connRemovalCount++
 		} else {
 			pooledConn.mu.Unlock()
-			fmt.Printf("WARNING:Unable to remove pooled connection associated with key %s its last used time is too recent.", key)
+			t.logger.Warn("Unable to remove pooled connection associated with key %s its last used time is too recent.", key)
 		}
 	}
 
 	if connRemovalCount > 0 {
-		fmt.Printf("INFO:Successfully removed: %d idle pooled connections out of possible: %d", connRemovalCount, len(idleConnKeys))
+		t.logger.Info("Successfully removed: %d idle pooled connections out of possible: %d", connRemovalCount, len(idleConnKeys))
 	}
 }
