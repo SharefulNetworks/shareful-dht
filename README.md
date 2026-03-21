@@ -5,7 +5,7 @@ A lightweight, kademlia-spec compliant, distributed hashtable. It serves as a co
 ## Features
 
 - TCP transport with connection pooling, backpressure on outbound queue, and idle-connection reaping.
-- Periodic, panic-safr, bucket refresh, record refresh, and janitor tasks to ensure the internal routing table remains fresh AND adapts to network churn.
+- Periodic, panic-safe, bucket refresh, record refresh, and janitor tasks to ensure the internal routing table remains fresh AND adapts to network churn.
 - Integrated support for the exchange of arbitrary comms messages between peers.
 - Indexing support (record + index entries) allows for the sharing of a single key 
 between multiple peers, each entry will be tied to the lifecycle of the peer that 
@@ -13,7 +13,7 @@ created it and automatically go out of scope (i.e be deleted) on exit/disconnect
 the associated peer.
 - Simple event hooks for message/index dispatch, allows third-party application to be
 notified on receipt of Index entry update/deletions as well as incomming message receipt.
-- Protobuf envelope and payloads, for easier, on-going protocol/schema evolution.
+- Protobuf envelope and payloads, for easier, on-going protocol/schema evolution and extensibility.
 
 
 ## Prerequisites
