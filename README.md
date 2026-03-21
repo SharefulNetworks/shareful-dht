@@ -3,10 +3,17 @@
 Minimal Kademlia-inspired DHT with protobuf-first messaging, TCP transport, pooled outbound connections, and panic-safe background workers.
 
 ## Features
-- Protobuf envelope and payloads (default), with JSON fallback.
+- Protobuf envelope and payloads.
 - TCP transport with connection pooling, backpressure on outbound queue, and idle-connection reaping.
-- Periodic bucket refresh, record refresh, and janitor tasks guarded by `unpanicked.RunSafe`.
-- Indexing support (record + index entries) and simple event hooks for message/index updates.
+- Periodic, panic-safr, bucket refresh, record refresh, and janitor tasks to ensure the internal routing table remains fresh AND adapts to network churn.
+- Integrated support for the exchange of arbitrary comms messages between peers.
+- Indexing support (record + index entries) allows for the sharing of a single key 
+between multiple peers, each entry will be tied to the lifecycle of the peer that 
+created it and automatically go out of scope (i.e be deleted) on exit/disconnection of
+the associated peer.
+- Simple event hooks for message/index dispatch, allows third-party application to be
+notified on receipt of Index entry update/deletions as well as incomming message receipt.
+
 
 ## Prerequisites
 - Go 1.25+
