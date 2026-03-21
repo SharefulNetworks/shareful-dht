@@ -18,7 +18,7 @@ notified on receipt of Index entry update/deletions as well as incomming message
 
 ## Prerequisites
 - Go 1.25+
-- `protoc` for regenerating protobufs.
+
 
 ## Quick Start
 1) Installation
@@ -27,23 +27,39 @@ notified on receipt of Index entry update/deletions as well as incomming message
 go get github.com/SharefulNetworks/shareful-dht@latest
 ```
 
-2) Generate protobufs
+2)Import, Instantiate and Initialise the Shareful DHT Node
 
-```bash
-protoc --go_out=. --go_opt=paths=source_relative proto/dht.proto
+```go
+package main
+
+import (
+	"time"
+
+	"github.com/SharefulNetworks/shareful-dht/config"
+	"github.com/SharefulNetworks/shareful-dht/dht"
+	"github.com/SharefulNetworks/shareful-dht/net"
+)
+
+func main() {
+	cfg := config.GetDefaultSingletonInstance()
+	cfg.UseProtobuf = true
+	cfg.RequestTimeout = 1000 * time.Millisecond
+
+	node, err := dht.NewNode("node1", ":9301", net.NewTCP(), cfg, dht.NT_CORE)
+	if err != nil {
+		panic(err)
+	}
+	defer node.Shutdown()
+
+	// supply one or more known peers; pass an empty slice if this is the first node
+	if err := node.Bootstrap([]string{":9302"}, 0); err != nil {
+		panic(err)
+	}
+}
 ```
 
-3) Run the demo node:
+See [cmd/demo/main.go](cmd/demo/main.go) for a fuller example including storing and discovering records.
 
-```bash
-go run ./cmd/demo
-```
-
-4) Run tests:
-
-```bash
-go test ./...
-```
 
 ## Configuration Highlights
 Key knobs are in `config/Config.go` (defaults via `GetDefaultSingletonInstance()`):
@@ -53,7 +69,11 @@ Key knobs are in `config/Config.go` (defaults via `GetDefaultSingletonInstance()
 - `RequestTimeout`, `BatchRequestTimeout`
 - `GlobalLogLevel`
 
-## Project Layout
+
+## Development
+Great!! You'd like to get involved with active development of the Shareful DHT library, the details below will assist you in this endeavour. To contribute back up stream to the mainline build, please open an issue first, additionally you may reach out directly via the contact details below.
+
+### Project Layout
 - `cmd/demo` — simple runnable demo node.
 - `dht` — core node logic, ops, encode/decode, background tasks.
 - `routing` — K-buckets, routing table, bucket refresher.
@@ -61,16 +81,24 @@ Key knobs are in `config/Config.go` (defaults via `GetDefaultSingletonInstance()
 - `proto` — protobuf definitions and generated code.
 - `dht_tests` — end-to-end tests.
 
-## Notes
-- Panic recovery wrappers are provided by `shareful-utils-unpanicked` to keep background loops alive and log stack traces.
-- Logging uses `shareful-utils-slog`; set `GlobalLogLevel` to control verbosity.
-# minidht (real request/response, protobuf-first)
+### Protocol Extension
+- DHT protocol messages may be added/updated by editing the plain text **./proto/dhtpb/dht.proto** file. You will then need to **re-generate** go protobuf source file by running the following:
+```bash
+protoc --go_out=. --go_opt=paths=source_relative proto/dhtpb/dht.proto
+```
+**Note:** failure to do this will result in your protocol changes taking no effect.
 
-Generate protobuf:
-  protoc --go_out=. --go_opt=paths=source_relative proto/dht.proto
+- To ensure your update hasn't introduced any breaking changes it is advisable to undertake a post update, regression test:
+```bash
+go test ./...
+```
+**Note:** This may some time as the project has an extensive e2e test suite:
 
-Run demo:
-  go run ./cmd/demo
+## Author
+Giles Thompson
+giles@shareful.net
 
-Run tests:
-  go test ./...
+## License
+GPL-2
+
+
