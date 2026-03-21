@@ -1,6 +1,6 @@
 # Shareful DHT
 
-Minimal Kademlia-inspired DHT with protobuf-first messaging, TCP transport, pooled outbound connections, and panic-safe background workers.
+A lightweight, kademlia-spec compliant, distributed hashtable. It serves as a core component of the Shareful platform & ergo includes some shareful-specific features which fall outside the scope of the Kademlia paper however, these are purely additive; thus the library may be used as-is in any project requiring a drop-in Kademlia DHT implementation.
 
 ## Features
 
@@ -27,7 +27,7 @@ notified on receipt of Index entry update/deletions as well as incomming message
 go mod download
 ```
 
-2) Generate protobufs (only if you change `proto/dht.proto`):
+2) Generate protobufs
 
 ```bash
 protoc --go_out=. --go_opt=paths=source_relative proto/dht.proto
