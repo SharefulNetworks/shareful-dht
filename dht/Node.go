@@ -26,6 +26,7 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/types"
 	"github.com/SharefulNetworks/shareful-dht/wire"
 	"github.com/SharefulNetworks/shareful-utils-slog/slog"
+	"github.com/SharefulNetworks/shareful-utils-unpanicked/unpanicked"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -38,7 +39,7 @@ type Node struct {
 	ID                   types.NodeID
 	plainTextId          string //some client facing ops, like event prop, may require reference to the user originally specified id to enable the parent app to correlate received events with application-specific/level node id assignment.
 	Addr                 string
-	transport            netx.Transport
+	transport            net.Transport
 	cfg                  *config.Config
 	nodeType             int
 	cd                   wire.Codec
@@ -63,7 +64,7 @@ type Node struct {
 // newly created Node instance or non nil error object, where an error occurred
 // during the creation process. The new node will immediately begin listening for
 // incoming messages and will spin up various background network maintanence tasks.
-func NewNode(plainTextId string, addr string, transport netx.Transport, cfg *config.Config, nodeType int) (*Node, error) {
+func NewNode(plainTextId string, addr string, transport net.Transport, cfg *config.Config, nodeType int) (*Node, error) {
 	var codec wire.Codec
 	codec = wire.JSONCodec{}
 	if cfg.UseProtobuf {
@@ -111,8 +112,14 @@ func NewNode(plainTextId string, addr string, transport netx.Transport, cfg *con
 
 	//spin up refresher and janitor background tasks and append them to the waitist.
 	n.wg.Add(2)
-	go n.janitor()
-	go n.refresher()
+	go unpanicked.RunSafe(n.janitor, func(rec any, stacktrace []byte) {
+		n.logger.Error("Janitor panicked with error: %v, stacktrace: %s", rec, string(stacktrace))
+	})
+	go unpanicked.RunSafe(n.refresher, func(rec any, stacktrace []byte) {
+		n.logger.Error("Refresher panicked with error: %v, stacktrace: %s", rec, string(stacktrace))
+	})
+
+	n.logger.Info("Node: %s @ address %s was succesfully started up.", n.ID, n.Addr)
 
 	return n, nil
 }
@@ -491,42 +498,50 @@ func (n *Node) Find(key string) ([]byte, bool) {
 
 		ch := make(chan res, len(batch))
 
-		// send requests concurrently
+		// send requests to each node in the batch concurrently
+		findValReq := func(peer *routing.Peer) {
+			req := &dhtpb.FindValueRequest{Key: key}
+
+			b, err := n.sendRequest(peer.Addr, OP_FIND_VALUE, req)
+			if err != nil {
+				ch <- res{err: err, from: peer}
+				return
+			}
+
+			resp := &dhtpb.FindValueResponse{}
+			if err := n.decode(b, resp); err != nil {
+				ch <- res{err: err, from: peer}
+				return
+			}
+
+			if resp.Ok {
+				ch <- res{ok: true, value: resp.Value, from: peer}
+				return
+			}
+
+			out := make([]*routing.Peer, 0, len(resp.Peers))
+			for _, rp := range resp.Peers {
+				if rp == nil || rp.Addr == "" || len(rp.NodeId) != len(target) {
+					continue
+				}
+				var id types.NodeID
+				copy(id[:], rp.NodeId)
+				if id == n.ID {
+					continue
+				}
+				out = append(out, &routing.Peer{ID: id, Addr: rp.Addr})
+			}
+			ch <- res{ok: false, peers: out, from: peer}
+		}
 		for _, p := range batch {
-			go func(peer *routing.Peer) {
-				req := &dhtpb.FindValueRequest{Key: key}
 
-				b, err := n.sendRequest(peer.Addr, OP_FIND_VALUE, req)
-				if err != nil {
-					ch <- res{err: err, from: peer}
-					return
-				}
-
-				resp := &dhtpb.FindValueResponse{}
-				if err := n.decode(b, resp); err != nil {
-					ch <- res{err: err, from: peer}
-					return
-				}
-
-				if resp.Ok {
-					ch <- res{ok: true, value: resp.Value, from: peer}
-					return
-				}
-
-				out := make([]*routing.Peer, 0, len(resp.Peers))
-				for _, rp := range resp.Peers {
-					if rp == nil || rp.Addr == "" || len(rp.NodeId) != len(target) {
-						continue
-					}
-					var id types.NodeID
-					copy(id[:], rp.NodeId)
-					if id == n.ID {
-						continue
-					}
-					out = append(out, &routing.Peer{ID: id, Addr: rp.Addr})
-				}
-				ch <- res{ok: false, peers: out, from: peer}
-			}(p)
+			//wrapper to allow us to (statically) pass the current peer as a parameter, this is necessary to allow the function to be passed to unpanicked.RunSafe which accepts a pointer to a function with no parameters
+			findValReqWrapper := func() {
+				findValReq(p)
+			}
+			go unpanicked.RunSafe(findValReqWrapper, func(rec any, stacktrace []byte) {
+				n.logger.Error("FindValue request to peer @ %s panicked with error: %v, stacktrace: %s", p.Addr, rec, string(stacktrace))
+			})
 		}
 
 		timer := time.NewTimer(batchTimeout)
@@ -789,7 +804,6 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 		}
 	}
 
-	
 	n.logger.Debug("Node: %s replicated index entry with key: %s to following nodes %s", n.Addr, indexKey, reps)
 
 	//where at least one error occurred call into our utility to compile
@@ -934,65 +948,75 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 
 		ch := make(chan res, len(batch))
 
-		for _, p := range batch {
-			go func(peer *routing.Peer) {
-				reqAny, _ := n.makeMessage(OP_FIND_INDEX)
+		//send request to each node in the batch concurrently
+		sendFindIndexReq := func(peer *routing.Peer) {
+			reqAny, _ := n.makeMessage(OP_FIND_INDEX)
 
-				switch r := reqAny.(type) {
-				case *dhtpb.FindIndexRequest:
-					r.Key = key
-				case *struct {
-					Key string `json:"key"`
-				}:
-					r.Key = key
-				}
+			switch r := reqAny.(type) {
+			case *dhtpb.FindIndexRequest:
+				r.Key = key
+			case *struct {
+				Key string `json:"key"`
+			}:
+				r.Key = key
+			}
 
-				b, err := n.sendRequest(peer.Addr, OP_FIND_INDEX, reqAny)
-				if err != nil {
-					ch <- res{}
-					return
-				}
-
-				_, respAny := n.makeMessage(OP_FIND_INDEX)
-				if err := n.decode(b, respAny); err != nil {
-					ch <- res{}
-					return
-				}
-
-				switch resp := respAny.(type) {
-				case *dhtpb.FindIndexResponse:
-					out := make([]RecordIndexEntry, 0, len(resp.Entries))
-					for _, ie := range resp.Entries {
-						e := RecordIndexEntry{
-							Source:                  ie.Source,
-							Target:                  ie.Target,
-							Meta:                    ie.Meta,
-							UpdatedUnix:             ie.UpdatedUnix,
-							TTL:                     ie.Ttl,
-							PublisherAddr:           ie.PublisherAddr,
-							CreatedUnix:             ie.CreatedUnix,
-							EnableIndexUpdateEvents: ie.EnableIndexUpdateEvents,
-						}
-						copy(e.Publisher[:], ie.PublisherId[:])
-						out = append(out, e)
-					}
-					ch <- res{out, n.nodeContactsToPeers(resp.GetPeers())}
-					return
-
-					//TODO:GT Remove JSON support its not used.
-				case *struct {
-					Ok      bool               `json:"ok"`
-					Entries []RecordIndexEntry `json:"entries"`
-					Peers   []string           `json:"peers"`
-				}:
-					if resp.Ok {
-						//	ch <- res{resp.Entries, n.nodeContactToPeer(resp.GetPeers())}
-						return
-					}
-				}
-
+			b, err := n.sendRequest(peer.Addr, OP_FIND_INDEX, reqAny)
+			if err != nil {
 				ch <- res{}
-			}(p)
+				return
+			}
+
+			_, respAny := n.makeMessage(OP_FIND_INDEX)
+			if err := n.decode(b, respAny); err != nil {
+				ch <- res{}
+				return
+			}
+
+			switch resp := respAny.(type) {
+			case *dhtpb.FindIndexResponse:
+				out := make([]RecordIndexEntry, 0, len(resp.Entries))
+				for _, ie := range resp.Entries {
+					e := RecordIndexEntry{
+						Source:                  ie.Source,
+						Target:                  ie.Target,
+						Meta:                    ie.Meta,
+						UpdatedUnix:             ie.UpdatedUnix,
+						TTL:                     ie.Ttl,
+						PublisherAddr:           ie.PublisherAddr,
+						CreatedUnix:             ie.CreatedUnix,
+						EnableIndexUpdateEvents: ie.EnableIndexUpdateEvents,
+					}
+					copy(e.Publisher[:], ie.PublisherId[:])
+					out = append(out, e)
+				}
+				ch <- res{out, n.nodeContactsToPeers(resp.GetPeers())}
+				return
+
+				//TODO:GT Remove JSON support its not used.
+			case *struct {
+				Ok      bool               `json:"ok"`
+				Entries []RecordIndexEntry `json:"entries"`
+				Peers   []string           `json:"peers"`
+			}:
+				if resp.Ok {
+					//	ch <- res{resp.Entries, n.nodeContactToPeer(resp.GetPeers())}
+					return
+				}
+			}
+
+			ch <- res{}
+		}
+
+		for _, p := range batch {
+
+			//wrapper to allow us to (statically) pass the current peer as a parameter, this is necessary to allow the function to be passed to unpanicked.RunSafe which accepts a pointer to a function with no parameters
+			sendFindIndexReqWrapper := func() {
+				sendFindIndexReq(p)
+			}
+			go unpanicked.RunSafe(sendFindIndexReqWrapper, func(rec any, stacktrace []byte) {
+				n.logger.Error("FindIndex request to peer @ %s panicked with error: %v, stacktrace: %s", p.Addr, rec, string(stacktrace))
+			})
 		}
 
 		prev := shortlist
@@ -1344,42 +1368,50 @@ func (n *Node) FindRaw(key types.NodeID) ([]byte, bool) {
 
 		ch := make(chan res, len(batch))
 
-		// send requests concurrently
+		// send requests concurrently to each peer in the batch
+		sendFindValueReq := func(peer *routing.Peer) {
+			req := &dhtpb.FindValueRequest{Key: "", EncryptedKey: key[:]} // Ensure encrypted key is properly copied
+
+			b, err := n.sendRequest(peer.Addr, OP_FIND_VALUE, req)
+			if err != nil {
+				ch <- res{err: err, from: peer}
+				return
+			}
+
+			resp := &dhtpb.FindValueResponse{}
+			if err := n.decode(b, resp); err != nil {
+				ch <- res{err: err, from: peer}
+				return
+			}
+
+			if resp.Ok {
+				ch <- res{ok: true, value: resp.Value, from: peer}
+				return
+			}
+
+			out := make([]*routing.Peer, 0, len(resp.Peers))
+			for _, rp := range resp.Peers {
+				if rp == nil || rp.Addr == "" || len(rp.NodeId) != len(key) {
+					continue
+				}
+				var id types.NodeID
+				copy(id[:], rp.NodeId)
+				if id == n.ID {
+					continue
+				}
+				out = append(out, &routing.Peer{ID: id, Addr: rp.Addr})
+			}
+			ch <- res{ok: false, peers: out, from: peer}
+		}
 		for _, p := range batch {
-			go func(peer *routing.Peer) {
-				req := &dhtpb.FindValueRequest{Key: "", EncryptedKey: key[:]} // Ensure encrypted key is properly copied
 
-				b, err := n.sendRequest(peer.Addr, OP_FIND_VALUE, req)
-				if err != nil {
-					ch <- res{err: err, from: peer}
-					return
-				}
-
-				resp := &dhtpb.FindValueResponse{}
-				if err := n.decode(b, resp); err != nil {
-					ch <- res{err: err, from: peer}
-					return
-				}
-
-				if resp.Ok {
-					ch <- res{ok: true, value: resp.Value, from: peer}
-					return
-				}
-
-				out := make([]*routing.Peer, 0, len(resp.Peers))
-				for _, rp := range resp.Peers {
-					if rp == nil || rp.Addr == "" || len(rp.NodeId) != len(key) {
-						continue
-					}
-					var id types.NodeID
-					copy(id[:], rp.NodeId)
-					if id == n.ID {
-						continue
-					}
-					out = append(out, &routing.Peer{ID: id, Addr: rp.Addr})
-				}
-				ch <- res{ok: false, peers: out, from: peer}
-			}(p)
+			// wrapper to allow us to (statically) pass the current peer as a parameter, this is necessary to allow the function to be passed to unpanicked.RunSafe which accepts a pointer to a function with no parameters
+			sendFindValueReqWrapper := func() {
+				sendFindValueReq(p)
+			}
+			go unpanicked.RunSafe(sendFindValueReqWrapper, func(rec any, stacktrace []byte) {
+				n.logger.Error("FindValue request to peer @ %s panicked with error: %v, stacktrace: %s", p.Addr, rec, string(stacktrace))
+			})
 		}
 
 		timer := time.NewTimer(batchTimeout)
@@ -2350,40 +2382,49 @@ func (n *Node) lookupK(target types.NodeID) ([]*routing.Peer, error) {
 		ch := make(chan res, len(batch))
 
 		//begin quering nodes in batch, in parallel
+		sendFindNodeReq := func(addr string) {
+
+			req, _ := n.makeMessage(OP_FIND_NODE)
+			r := req.(*dhtpb.FindNodeRequest)
+			r.NodeId = target[:]
+
+			b, err := n.sendRequest(addr, OP_FIND_NODE, req)
+			if err != nil {
+				ch <- res{nil, err}
+				return
+			}
+
+			var resp dhtpb.FindNodeResponse
+			if err := n.decode(b, &resp); err != nil {
+				ch <- res{nil, err}
+				return
+			}
+
+			out := make([]*routing.Peer, 0, len(resp.Peers))
+			for _, rp := range resp.Peers {
+				if rp == nil || len(rp.NodeId) != len(target) || rp.Addr == "" {
+					continue
+				}
+				var id types.NodeID
+				copy(id[:], rp.NodeId)
+				if id == n.ID {
+					continue
+				}
+				out = append(out, &routing.Peer{ID: id, Addr: rp.Addr})
+			}
+			ch <- res{out, nil}
+		}
 		for _, p := range batch {
 			queried[p.ID] = true
-			go func(addr string) {
 
-				req, _ := n.makeMessage(OP_FIND_NODE)
-				r := req.(*dhtpb.FindNodeRequest)
-				r.NodeId = target[:]
+			//wrapper function to (statically) capture the current peer address for unpanicked.RunSafe as it expects a pointer to a function with no parameters as input.
+			sendFindNodeReqWrapper := func() {
+				sendFindNodeReq(p.Addr)
+			}
+			go unpanicked.RunSafe(sendFindNodeReqWrapper, func(rec any, stacktrace []byte) {
+				n.logger.Error("Panic occurred during execution of FindNode request to peer: %s with id: %s at address: %s. This error was safely recovered from and will not crash the node. ERROR: %v\nSTACKTRACE: %s", p.ID.String(), p.ID.String(), p.Addr, rec, string(stacktrace))
+			})
 
-				b, err := n.sendRequest(addr, OP_FIND_NODE, req)
-				if err != nil {
-					ch <- res{nil, err}
-					return
-				}
-
-				var resp dhtpb.FindNodeResponse
-				if err := n.decode(b, &resp); err != nil {
-					ch <- res{nil, err}
-					return
-				}
-
-				out := make([]*routing.Peer, 0, len(resp.Peers))
-				for _, rp := range resp.Peers {
-					if rp == nil || len(rp.NodeId) != len(target) || rp.Addr == "" {
-						continue
-					}
-					var id types.NodeID
-					copy(id[:], rp.NodeId)
-					if id == n.ID {
-						continue
-					}
-					out = append(out, &routing.Peer{ID: id, Addr: rp.Addr})
-				}
-				ch <- res{out, nil}
-			}(p.Addr)
 		}
 
 		// wait up to timeout for this batch
@@ -2455,7 +2496,6 @@ func (n *Node) resolveNeighbouringNodes() {
 }
 
 func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, replicaSetAddrs []string, updatedAt time.Time, indexDeleted bool, deletedIndexSource string) {
-
 
 	n.logger.Debug("Dispatching Sync Index request for index record with key: %s from node: %s at: %s is deleted: %t", key, n.Addr, updatedAt.String(), indexDeleted)
 
@@ -2998,7 +3038,6 @@ func (n *Node) publishIndexUpdateEvent(indexKey string, entries []RecordIndexEnt
 
 	time.AfterFunc(500*time.Millisecond, func() {
 
-		
 		n.logger.Debug("Publishing Index Update Event for index with key: %s on node: %s isDeletion: %t", indexKey, n.Addr, isDeletion)
 
 		n.nodeEventListeners.Range(func(key, value any) bool {
@@ -3106,7 +3145,7 @@ func (n *Node) janitor() {
 						if e.TTL > 0 {
 							entryExpiryTime := time.UnixMilli(e.UpdatedUnix).Add(time.Duration(e.TTL) * time.Millisecond)
 							if now.After(entryExpiryTime) {
-                                n.logger.Warn("IndexEntry on node: %s with key: %s by publisher: %s expired at: %s the time is now: %s", n.Addr, k, e.Publisher.String(), entryExpiryTime.String(), now.String())
+								n.logger.Warn("IndexEntry on node: %s with key: %s by publisher: %s expired at: %s the time is now: %s", n.Addr, k, e.Publisher.String(), entryExpiryTime.String(), now.String())
 								continue //skip adding this entry to the filtered list
 							}
 						}
@@ -3181,7 +3220,6 @@ func (n *Node) deleteIndexLocal(key string, publisher types.NodeID, source strin
 		deleted = true
 		publisherAddr, _ := n.routingTable.GetPeerAddr(e.Publisher)
 
-		
 		n.logger.Info("Deleted Index entry with source: %s and with key: %s originally published by: %s deleted from node: %s", source, key, publisherAddr, n.Addr)
 
 	}
@@ -3219,14 +3257,10 @@ func (n *Node) refresher() {
 		case <-n.stop:
 			return
 		case <-t.C:
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						n.logger.Error("Recovered from panic in refresher tick: %v", r)
-					}
-				}()
-				n.refresh()
-			}()
+
+			unpanicked.RunSafe(n.refresh, func(rec any, stacktrace []byte) {
+				n.logger.Error("Panic occurred in refresher with panic: %v and stacktrace: %s", rec, string(stacktrace))
+			})
 
 		}
 	}

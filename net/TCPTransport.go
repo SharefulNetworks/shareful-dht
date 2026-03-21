@@ -1,4 +1,4 @@
-package netx
+package net
 
 import (
 	"bufio"
@@ -14,7 +14,8 @@ import (
 	"time"
 
 	"github.com/SharefulNetworks/shareful-dht/config"
-	
+	"github.com/SharefulNetworks/shareful-utils-unpanicked/unpanicked"
+
 	"github.com/SharefulNetworks/shareful-utils-slog/slog"
 )
 
@@ -26,7 +27,7 @@ type TCPTransport struct {
 
 	outQueue chan *Outbound
 	wg       sync.WaitGroup
-	logger               *slog.Logger
+	logger   *slog.Logger
 }
 
 type Outbound struct {
@@ -47,7 +48,7 @@ func NewTCP() *TCPTransport {
 	t := &TCPTransport{
 		closed:   make(chan struct{}),
 		outQueue: make(chan *Outbound, 4096), // larger buffer helps tests
-		logger:   slog.NewLogger("shareful.dht.netx.TCPTransport", nil),
+		logger:   slog.NewLogger("shareful.dht.net.TCPTransport", nil),
 	}
 	t.startOutboundProcessing()
 	t.startIdleConnChecker()
@@ -61,7 +62,41 @@ func (t *TCPTransport) Listen(addr string, handler MessageHandler) error {
 	}
 	t.ln = ln
 
-	go func() {
+	//spin up new go routine to accept incoming connections and queue them to be handled.
+	acceptConnLoop := func() {
+
+		//handleConn is the function that will be used to handle each incomming connection.
+		handleConn := func(conn net.Conn) {
+			defer conn.Close()
+			r := bufio.NewReader(conn)
+
+			for {
+				lenb := make([]byte, 4)
+				if _, err := io.ReadFull(r, lenb); err != nil {
+					return
+				}
+
+				n := binary.BigEndian.Uint32(lenb)
+				if n == 0 || n > MaxMsgSize {
+					return
+				}
+
+				buf := make([]byte, n)
+				if _, err := io.ReadFull(r, buf); err != nil {
+					return
+				}
+
+				//ensure the the closed signal has not been sent before deferring to the handler.
+				select {
+				case <-t.closed:
+					return
+				default:
+				}
+
+				handler(conn.RemoteAddr().String(), buf)
+			}
+		}
+
 		for {
 			c, err := ln.Accept()
 			if err != nil {
@@ -73,38 +108,20 @@ func (t *TCPTransport) Listen(addr string, handler MessageHandler) error {
 				continue
 			}
 
-			go func(conn net.Conn) {
-				defer conn.Close()
-				r := bufio.NewReader(conn)
+			//wrapper to allow us to (statically) pass the current connection as a parameter, this is necessary to allow the function to be passed to unpanicked.RunSafe which accepts a pointer to a function with no parameters
+			handleConnWrapper := func() {
+				handleConn(c)
+			}
+			go unpanicked.RunSafe(handleConnWrapper, func(rec any, stacktrace []byte) {
+				t.logger.Error("Connection handler for remote address: %s panicked with error: %v, stacktrace: %s", c.RemoteAddr().String(), rec, string(stacktrace))
+			})
 
-				for {
-					lenb := make([]byte, 4)
-					if _, err := io.ReadFull(r, lenb); err != nil {
-						return
-					}
-
-					n := binary.BigEndian.Uint32(lenb)
-					if n == 0 || n > MaxMsgSize {
-						return
-					}
-
-					buf := make([]byte, n)
-					if _, err := io.ReadFull(r, buf); err != nil {
-						return
-					}
-
-					//ensure the the closed signal has not been sent before deferring to the handler.
-					select {
-					case <-t.closed:
-						return
-					default:
-					}
-
-					handler(conn.RemoteAddr().String(), buf)
-				}
-			}(c)
 		}
-	}()
+	}
+
+	go unpanicked.RunSafe(acceptConnLoop, func(rec any, stacktrace []byte) {
+		t.logger.Error("Accept connection loop panicked with error: %v, stacktrace: %s", rec, string(stacktrace))
+	})
 
 	return nil
 }
@@ -245,12 +262,12 @@ func (t *TCPTransport) sendAsync(to string, data []byte) error {
 }
 
 func (t *TCPTransport) startOutboundProcessing() {
-	for i := 0; i < 4; i++ {
+	for i := 0; i < config.GetDefaultSingletonInstance().OutboundQueueWorkerCount; i++ {
 		t.wg.Add(1)
-		go func() {
-			defer t.wg.Done()
-			t.outQueueDispatcher()
-		}()
+		go unpanicked.RunSafeWithWG(&t.wg, t.outQueueDispatcher, func(rec any, stacktrace []byte) {
+			t.logger.Error("Outbound dispatcher panicked with error: %v, stacktrace: %s", rec, string(stacktrace))
+		})
+
 	}
 }
 
@@ -272,12 +289,14 @@ func (t *TCPTransport) outQueueDispatcher() {
 }
 
 func (t *TCPTransport) startIdleConnChecker() {
-	go t.idleConnChecker()
+	go unpanicked.RunSafe(t.idleConnChecker, func(rec any, stacktrace []byte) {
+		t.logger.Error("Idle connection checker panicked with error: %v, stacktrace: %s", rec, string(stacktrace))
+	})
 }
 
 func (t *TCPTransport) idleConnChecker() {
 	t.logger.Info("Starting idle connection checker, pooled connections will be checked for idleness every: %s minute(s)", config.GetDefaultSingletonInstance().PooledConnectionIdleCheckInterval)
-	
+
 	t.wg.Add(1)
 	defer t.wg.Done()
 	timer := time.NewTicker(config.GetDefaultSingletonInstance().PooledConnectionIdleCheckInterval)

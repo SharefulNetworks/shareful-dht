@@ -3,6 +3,7 @@ package dhttests
 import (
 	"errors"
 	"fmt"
+
 	"math"
 	"math/big"
 	"math/rand"
@@ -15,9 +16,10 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/dht"
 	"github.com/SharefulNetworks/shareful-dht/events"
-	netx "github.com/SharefulNetworks/shareful-dht/net"
+	"github.com/SharefulNetworks/shareful-dht/net"
 	"github.com/SharefulNetworks/shareful-dht/routing"
 	"github.com/SharefulNetworks/shareful-dht/types"
+	//"github.com/SharefulNetworks/shareful-utils-slog/slog"
 )
 
 /*****************************************************************************************************************
@@ -494,7 +496,7 @@ func Test_Index_Entry_Auto_Expiration(t *testing.T) {
 	//finally attempt to retrieve the collection of entries associated with the key which
 	//should now be of length 1 as node 2's entry should have automatically expired.
 	if ents, ok := n3.FindIndex(key); !ok || len(ents) != 1 {
-		t.Fatalf("expected merged index count to now equal: 1, it actually was equal to: " + strconv.Itoa(len(ents)))
+		t.Fatalf("expected merged index count to now equal: 1")
 	} else {
 		t.Log("The only remaining entry was:")
 		t.Log(ents[0])
@@ -1379,7 +1381,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	entryNode, _ := dht.NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
+	entryNode, _ := dht.NewNode("entryNode", ":1981", net.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                   //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1543,7 +1545,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_One
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	entryNode, _ := dht.NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
+	entryNode, _ := dht.NewNode("entryNode", ":1981", net.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                   //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1711,7 +1713,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	entryNode, _ := dht.NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
+	entryNode, _ := dht.NewNode("entryNode", ":1981", net.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                   //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1719,7 +1721,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Standard_Entry_With_
 	//ENTRY node created in the immediately preceeding instructions, thereby setting up a single thread of
 	//of interconnectivity from the External node to the Entry node and finally to  the foothold bootstrap node
 	//which should in turn provide the External node with full network reachability.
-	externalNode, _ := dht.NewNode("externalNode", ":1982", netx.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
+	externalNode, _ := dht.NewNode("externalNode", ":1982", net.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
 	externalNode.Bootstrap([]string{entryNode.Addr}, 7000) //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -1882,7 +1884,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Two
 	//other bootstrap node, which will ultimately result in it having a sparse peer list.
 	//we then later take care to select a entirely DIFFERENT bootstrap node (from the one
 	//the new node connected to) to undertake the lookup operation.
-	entryNode, _ := dht.NewNode("entryNode", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
+	entryNode, _ := dht.NewNode("entryNode", ":1981", net.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                   //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -1890,7 +1892,7 @@ func Test_Full_Network_Bootstrap_Node_To_Standard_Node_Find_Index_Entry_With_Two
 	//ENTRY node created in the immediately preceeding instructions, thereby setting up a single thread of
 	//of interconnectivity from the External node to the Entry node and finally to  the foothold bootstrap node
 	//which should in turn provide the External node with full network reachability.
-	externalNode, _ := dht.NewNode("externalNode", ":1982", netx.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
+	externalNode, _ := dht.NewNode("externalNode", ":1982", net.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
 	externalNode.Bootstrap([]string{entryNode.Addr}, 7000) //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -2365,10 +2367,10 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_O
 
 	//OK next we add two brand new (ENTRY) nodes to the network, however we only connect them to a SINGLE
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
-	entryNode1, _ := dht.NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
+	entryNode1, _ := dht.NewNode("entryNode1", ":1981", net.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
-	entryNode2, _ := dht.NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
+	entryNode2, _ := dht.NewNode("entryNode2", ":1982", net.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -2573,10 +2575,10 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_One_
 
 	//OK next we add two brand new (ENTRY) nodes to the network, however we only connect them to a SINGLE
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
-	entryNode1, _ := dht.NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
+	entryNode1, _ := dht.NewNode("entryNode1", ":1981", net.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
-	entryNode2, _ := dht.NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
+	entryNode2, _ := dht.NewNode("entryNode2", ":1982", net.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
@@ -2787,17 +2789,17 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Standard_Entry_With_T
 
 	//OK next we add two brand new (ENTRY) nodes to the network, however we only connect them to a SINGLE
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
-	entryNode1, _ := dht.NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
+	entryNode1, _ := dht.NewNode("entryNode1", ":1981", net.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
-	entryNode2, _ := dht.NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
+	entryNode2, _ := dht.NewNode("entryNode2", ":1982", net.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//finally add our EXTERNAL nodes which will bootstrap via the ENTRY nodes created above.
-	externalNode1, _ := dht.NewNode("externalNode1", ":1983", netx.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
+	externalNode1, _ := dht.NewNode("externalNode1", ":1983", net.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
 	externalNode1.Bootstrap([]string{entryNode1.Addr}, 7000)
-	externalNode2, _ := dht.NewNode("externalNode2", ":1984", netx.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
+	externalNode2, _ := dht.NewNode("externalNode2", ":1984", net.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
 	externalNode2.Bootstrap([]string{entryNode2.Addr}, 7000)
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -3043,17 +3045,17 @@ func Test_Full_Network_Standard_Node_To_Standard_Node_Find_Index_Entry_With_Two_
 
 	//OK next we add two brand new (ENTRY) nodes to the network, however we only connect them to a SINGLE
 	//other bootstrap node, which will ultimately result in them both having a sparse peer list.
-	entryNode1, _ := dht.NewNode("entryNode1", ":1981", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
+	entryNode1, _ := dht.NewNode("entryNode1", ":1981", net.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode1.Bootstrap([]string{footHoldBootstrapNode.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
-	entryNode2, _ := dht.NewNode("entryNode2", ":1982", netx.NewTCP(), ctx.Config, dht.NT_ENTRY)
+	entryNode2, _ := dht.NewNode("entryNode2", ":1982", net.NewTCP(), ctx.Config, dht.NT_ENTRY)
 	footHoldBootstrapNode2 := ctx.BootstrapNodes[rand.Intn(len(ctx.BootstrapNodes)-1)] //select another bootstrap node,at random, that this edge bootsrap node can use to get a foothold on the network
 	entryNode2.Bootstrap([]string{footHoldBootstrapNode2.Addr}, 7000)                  //after some nominal time has elapsed, attempt to bootstrap the edge node
 
 	//finally add our EXTERNAL nodes which will bootstrap via the ENTRY nodes created above.
-	externalNode1, _ := dht.NewNode("externalNode1", ":1983", netx.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
+	externalNode1, _ := dht.NewNode("externalNode1", ":1983", net.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
 	externalNode1.Bootstrap([]string{entryNode1.Addr}, 7000)
-	externalNode2, _ := dht.NewNode("externalNode2", ":1984", netx.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
+	externalNode2, _ := dht.NewNode("externalNode2", ":1984", net.NewTCP(), ctx.Config, dht.NT_EXTERNAL)
 	externalNode2.Bootstrap([]string{entryNode2.Addr}, 7000)
 
 	//wait for the bootstrap of our edge node to the network foothold node to complete,
@@ -5582,7 +5584,7 @@ func Test_ResolvePeerAddr_RemoteLookup(t *testing.T) {
 	n1 := ctx.Nodes[0]
 	n2 := ctx.Nodes[1]
 
-	n3, err := dht.NewNode("node3", ":9323", netx.NewTCP(), ctx.Config, dht.NT_CORE)
+	n3, err := dht.NewNode("node3", ":9323", net.NewTCP(), ctx.Config, dht.NT_CORE)
 	if err != nil {
 		t.Fatalf("failed to create third node: %v", err)
 	}
@@ -5755,7 +5757,7 @@ func Test_Entry_Refresh_Recomputes_Replicas_When_Local_Refresh_Limit_Reached(t *
 	closerName := findPlaintextCloserThan(t, targetID, n2.ID)
 	newNodePort := ":9455"
 
-	n3, err := dht.NewNode(closerName, newNodePort, netx.NewTCP(), cfg, dht.NT_CORE)
+	n3, err := dht.NewNode(closerName, newNodePort, net.NewTCP(), cfg, dht.NT_CORE)
 	if err != nil {
 		t.Fatalf("failed to create closer node: %v", err)
 	}
@@ -5806,7 +5808,7 @@ func Test_Index_Refresh_Recomputes_Replicas_When_Local_Refresh_Limit_Reached(t *
 	closerName := findPlaintextCloserThan(t, targetID, n2.ID)
 	newNodePort := ":9456"
 
-	n3, err := dht.NewNode(closerName, newNodePort, netx.NewTCP(), cfg, dht.NT_CORE)
+	n3, err := dht.NewNode(closerName, newNodePort, net.NewTCP(), cfg, dht.NT_CORE)
 	if err != nil {
 		t.Fatalf("failed to create closer node: %v", err)
 	}
@@ -6009,6 +6011,7 @@ func NewDefaultTestContext(t *testing.T) *TestContext {
 
 	//prepare config.
 	cfg := config.GetDefaultSingletonInstance()
+	//cfg.GlobalLogLevel = slog.DEBUG
 	cfg.UseProtobuf = true // set true after generating pb
 	cfg.RequestTimeout = 2000 * time.Millisecond
 	cfg.DefaultEntryTTL = 30 * time.Second
@@ -6016,8 +6019,8 @@ func NewDefaultTestContext(t *testing.T) *TestContext {
 	cfg.JanitorInterval = 10 * time.Second
 
 	//create nodes
-	n1, _ := dht.NewNode("node1", ":9321", netx.NewTCP(), cfg, dht.NT_CORE)
-	n2, _ := dht.NewNode("node2", ":9322", netx.NewTCP(), cfg, dht.NT_CORE)
+	n1, _ := dht.NewNode("node1", ":9321", net.NewTCP(), cfg, dht.NT_CORE)
+	n2, _ := dht.NewNode("node2", ":9322", net.NewTCP(), cfg, dht.NT_CORE)
 	Nodes := []*dht.Node{n1, n2}
 
 	//we now bootstrap via the connect public interface method.
@@ -6065,7 +6068,7 @@ func NewConfigurableTestContext(t *testing.T, nodeCount int, conf *config.Config
 		nodeIP := startingIP + 1
 		nodeNameStr := "node" + strconv.Itoa(i+1)
 		nodeIpStr := strconv.Itoa(nodeIP)
-		node, _ := dht.NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), cfg, dht.NT_CORE)
+		node, _ := dht.NewNode(nodeNameStr, ":"+nodeIpStr, net.NewTCP(), cfg, dht.NT_CORE)
 		Nodes = append(Nodes, node)
 	}
 
@@ -6138,7 +6141,7 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 	//first create and bootstrap the core network (bootstrap) nodes.
 	bootstrapNodes := make([]*dht.Node, 0)
 	for i, addr := range bootstrapAddresses {
-		bootstrapNode, instantiationErr := dht.NewNode("bootstrapNode"+strconv.Itoa(i), addr, netx.NewTCP(), cfg, dht.NT_CORE)
+		bootstrapNode, instantiationErr := dht.NewNode("bootstrapNode"+strconv.Itoa(i), addr, net.NewTCP(), cfg, dht.NT_CORE)
 		if instantiationErr != nil {
 			t.Fatalf("Failed to create bootstrap node %d at address %s: %v", i+1, addr, instantiationErr)
 		}
@@ -6155,7 +6158,7 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 		nodeIP := startingIP + 1
 		nodeNameStr := "node" + strconv.Itoa(i+1)
 		nodeIpStr := strconv.Itoa(nodeIP)
-		node, instantiationErr := dht.NewNode(nodeNameStr, ":"+nodeIpStr, netx.NewTCP(), cfg, dht.NT_EXTERNAL)
+		node, instantiationErr := dht.NewNode(nodeNameStr, ":"+nodeIpStr, net.NewTCP(), cfg, dht.NT_EXTERNAL)
 		if instantiationErr != nil {
 			t.Fatalf("Failed to create standard node %d at address %s: %v", i+1, ":"+nodeIpStr, instantiationErr)
 		}

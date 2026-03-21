@@ -1,4 +1,4 @@
-package netx
+package net
 
 // Transport defines the interface that any transport
 // mechanism must implement to be used by the DHT.

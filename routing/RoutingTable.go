@@ -1,10 +1,8 @@
 package routing
 
 import (
-
 	"math/bits"
 	"math/rand"
-	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -12,6 +10,7 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/commons"
 	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/types"
+	"github.com/SharefulNetworks/shareful-utils-unpanicked/unpanicked"
 
 	"github.com/SharefulNetworks/shareful-utils-slog/slog"
 )
@@ -44,6 +43,7 @@ func NewRoutingTable(self types.NodeID, bucketSize int, nodeLike commons.NodeLik
 		nodeLike:         nodeLike,
 		listeners:        make(map[string]RoutingTableListener),
 		addressToIdCache: make(map[string]types.NodeID),
+		logger:           slog.NewLogger("shareful.dht.routing.RoutingTable", nil),
 	}
 	rt.startBucketRefresher()
 	return rt
@@ -63,8 +63,9 @@ func (rt *RoutingTable) BucketFor(id types.NodeID) (int, *KBucket) {
 // (by shifting all entries to the left by one) then the new value is
 // appended to the now vacant last index in the bucket.
 func (rt *RoutingTable) Update(id types.NodeID, addr string) {
-	
-	rt.logger.Debug("Adding/updating peer with ID: %s and address: %s to routing table. The call graph that lead to this call was: %s", id.String(), addr, debug.Stack())
+
+	rt.logger.Debug("Adding/updating peer with ID: %s and address: %s to routing table.", id.String(), addr)
+
 	i := rt.bucketIndex(rt.self, id)
 	if i < 0 {
 		return
@@ -117,8 +118,13 @@ func (rt *RoutingTable) Update(id types.NodeID, addr string) {
 	}
 
 	//otherwise where the bucket is full,  evict oldest (LRU) as per Kademlia spec.
+	// evict LRU at index 0 and keep the address cache in sync
+	evicted := b.Peers[0]
+	delete(rt.addressToIdCache, evicted.Addr)
+
 	copy(b.Peers[0:], b.Peers[1:])
 	b.Peers[len(b.Peers)-1] = p
+	rt.addressToIdCache[addr] = id
 }
 
 // Remove - Explicitly removes the node with the sepcified id from this routing
@@ -391,7 +397,10 @@ func (rt *RoutingTable) publishPeerUnhealthyEvent(peerId types.NodeID, peerAddr 
 func (rt *RoutingTable) startBucketRefresher() {
 	rt.logger.Debug("Starting up periodic RoutingTable, bucket refresh process. The process will run every: %f Minutes", config.GetDefaultSingletonInstance().BucketRefreshInterval.Minutes())
 
-	go rt.bucketRefresher()
+	go unpanicked.RunSafe(rt.bucketRefresher, func(rec any, stacktrace []byte) {
+		rt.logger.Error("Bucket refresher panicked with error: %v, stacktrace: %s", rec, string(stacktrace))
+	})
+
 }
 
 // bucketRefresher - Periodically refreshes buckets in the routing table at intervals specified
