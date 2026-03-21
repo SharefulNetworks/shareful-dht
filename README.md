@@ -21,10 +21,10 @@ notified on receipt of Index entry update/deletions as well as incomming message
 - `protoc` for regenerating protobufs.
 
 ## Quick Start
-1) Install dependencies (Go modules):
+1) Installation
 
 ```bash
-go mod download
+go get github.com/SharefulNetworks/shareful-dht@latest
 ```
 
 2) Generate protobufs
