@@ -3,7 +3,7 @@
 Minimal Kademlia-inspired DHT with protobuf-first messaging, TCP transport, pooled outbound connections, and panic-safe background workers.
 
 ## Features
-- Protobuf envelope and payloads.
+
 - TCP transport with connection pooling, backpressure on outbound queue, and idle-connection reaping.
 - Periodic, panic-safr, bucket refresh, record refresh, and janitor tasks to ensure the internal routing table remains fresh AND adapts to network churn.
 - Integrated support for the exchange of arbitrary comms messages between peers.
@@ -13,6 +13,7 @@ created it and automatically go out of scope (i.e be deleted) on exit/disconnect
 the associated peer.
 - Simple event hooks for message/index dispatch, allows third-party application to be
 notified on receipt of Index entry update/deletions as well as incomming message receipt.
+- Protobuf envelope and payloads, for easier, on-going protocol/schema evolution.
 
 
 ## Prerequisites
