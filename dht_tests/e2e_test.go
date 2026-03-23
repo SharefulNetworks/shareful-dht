@@ -4924,9 +4924,6 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 	//slightly alter the default config to extend the sync delay, this mirrors timing patterns from related tests.
 	ctx.Config.IndexSyncDelay = 40 * time.Second
 
-	//allow sufficient time for the bootstrap process to complete.
-	time.Sleep(30000 * time.Millisecond)
-
 	//select 3 nodes from the 5-node network for repeated index storage.
 	node1 := ctx.BootstrapNodes[0]
 	node2 := ctx.BootstrapNodes[2]
@@ -4941,6 +4938,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 	node1.RegisterNodeEventListener("Node1Lsnr", node1Listener)
 	node2.RegisterNodeEventListener("Node2Lsnr", node2Listener)
 	node3.RegisterNodeEventListener("Node3Lsnr", node3Listener)
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
 
 	//define 3 shared keys for all selected publishers.
 	keys := []string{"leaf/x", "leaf/y", "leaf/z"}
@@ -5826,6 +5826,52 @@ func Test_Index_Refresh_Recomputes_Replicas_When_Local_Refresh_Limit_Reached(t *
 	waitForLocalIndexEntryCount(t, n3, key, 1, 8*time.Second)
 }
 
+func Test_Receipt_Of_Bootsrap_Complete_Event_Post_Bootstrap(t *testing.T) {
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//slightly alter the default config to extend the sync delay, this mirrors timing patterns from related tests.
+	ctx.Config.IndexSyncDelay = 40 * time.Second
+
+	//select 3 nodes from the 5-node network for repeated index storage.
+	node1 := ctx.BootstrapNodes[0]
+	node2 := ctx.BootstrapNodes[1]
+	node3 := ctx.BootstrapNodes[2]
+
+	//register event listeners on the 3 co-publisher nodes only; they are the only nodes
+	//that exchange updates via the SYNC INDEX mechanism and should therefore receive events.
+	node1Listener := NewTestNodeEventListener()
+	node2Listener := NewTestNodeEventListener()
+	node3Listener := NewTestNodeEventListener()
+
+	node1.RegisterNodeEventListener("Node1Lsnr", node1Listener)
+	node2.RegisterNodeEventListener("Node2Lsnr", node2Listener)
+	node3.RegisterNodeEventListener("Node3Lsnr", node3Listener)
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//finally validate that the listener attached to each node has received a bootstrap complete event.
+    for i := 0; i < len(ctx.BootstrapNodes); i++ {
+		curNode := ctx.BootstrapNodes[i]
+		//we justy grab the first and only listener for the purposes of this test and
+		//cast it to  a TestNodeEventListener so we can query it for received events, 
+		// we know this is safe as we only attached TestNodeEventListeners to our nodes 
+		// in this test.
+		curNodeListener := curNode.ListNodeEventListeners()[0].(*TestNodeEventListener)
+
+		if len(curNodeListener.GetReceivedBootstrapCompleteEvents()) == 0 {
+			t.Fatalf("expected node %s to have received at least 1 BootstrapCompleteEvent, but it received none", curNode.Addr)
+		} else {
+			t.Logf("\n Node %s received the following BootstrapCompleteEvent: \n %v", curNode.Addr, curNodeListener.GetReceivedBootstrapCompleteEvents()[0])
+		}
+	}
+}
+
 func waitForMessageEventCount(t *testing.T, listener *TestNodeEventListener, expected int, timeout time.Duration) {
 	t.Helper()
 
@@ -6413,8 +6459,9 @@ type Pairing[T any] struct {
 // will add any received IndexUpdateEvents to the receivedIndexUpdateEvents collection
 // for later validation.
 type TestNodeEventListener struct {
-	receivedIndexUpdateEvents []events.IndexUpdateEvent
-	receivedMessageEvents     []events.MessageReceivedEvent
+	receivedIndexUpdateEvents       []events.IndexUpdateEvent
+	receivedMessageEvents           []events.MessageReceivedEvent
+	receivedBootstrapCompleteEvents []string
 }
 
 func (tl *TestNodeEventListener) OnIndexUpdated(event events.IndexUpdateEvent) {
@@ -6425,15 +6472,24 @@ func (tl *TestNodeEventListener) OnIndexUpdated(event events.IndexUpdateEvent) {
 func (tl *TestNodeEventListener) OnMessageReceived(event events.MessageReceivedEvent) {
 	tl.receivedMessageEvents = append(tl.receivedMessageEvents, event)
 }
+
+func (tl *TestNodeEventListener) OnBootstrapComplete() {
+	tl.receivedBootstrapCompleteEvents = append(tl.receivedBootstrapCompleteEvents, "Bootstrap complete event received")
+}
+
 func (tl *TestNodeEventListener) GetReceivedIndexUpdateEvents() []events.IndexUpdateEvent {
 	return tl.receivedIndexUpdateEvents
 }
 func (tl *TestNodeEventListener) GetReceivedMessageEvents() []events.MessageReceivedEvent {
 	return tl.receivedMessageEvents
 }
+func (tl *TestNodeEventListener) GetReceivedBootstrapCompleteEvents() []string {
+	return tl.receivedBootstrapCompleteEvents
+}
 func NewTestNodeEventListener() *TestNodeEventListener {
 	return &TestNodeEventListener{
-		receivedIndexUpdateEvents: make([]events.IndexUpdateEvent, 0),
-		receivedMessageEvents:     make([]events.MessageReceivedEvent, 0),
+		receivedIndexUpdateEvents:       make([]events.IndexUpdateEvent, 0),
+		receivedMessageEvents:           make([]events.MessageReceivedEvent, 0),
+		receivedBootstrapCompleteEvents: make([]string, 0),
 	}
 }

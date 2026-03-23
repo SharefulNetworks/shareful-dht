@@ -163,6 +163,9 @@ func (n *Node) Bootstrap(bootstrapAddrs []string, connectDelayMillis int) error 
 
 		n.logger.Info("Node: %s Successfully bootstrapped to all %d nodes provided.", n.Addr, len(bootstrapAddrs))
 
+		//schedule the firing of the onBootstrapComplete event, we do this in a time thread to avoid tieing up the main thread
+		time.AfterFunc(500*time.Millisecond, n.publishOnBootstrapCompleteEvent)
+
 	})
 
 	// discover neighbouring peers after a delay post bootstrap, to allow time for the bootstrap connections
@@ -1656,6 +1659,15 @@ func (n *Node) UnregisterNodeEventListener(id string) {
 	n.nodeEventListeners.Delete(id)
 }
 
+func (n *Node) ListNodeEventListeners() []events.NodeEventListener {
+	var listeners []events.NodeEventListener
+	n.nodeEventListeners.Range(func(key, value interface{}) bool {
+		listeners = append(listeners, value.(events.NodeEventListener))
+		return true
+	})
+	return listeners
+}
+
 // -----------------------------------------------------------------------------
 // DHT Incoming Message Handler (uses makeMessage + encode/decode)
 // -----------------------------------------------------------------------------
@@ -3099,6 +3111,24 @@ func (n *Node) publishMessageReceivedEvent(fromAddr string, senderPlaintextId st
 		})
 
 	})
+}
+
+func (n *Node) publishOnBootstrapCompleteEvent() {
+
+	n.nodeEventListeners.Range(func(key, value any) bool {
+
+		listener, ok := value.(events.NodeEventListener)
+		if !ok {
+			n.logger.Debug("Listener type assertion failed, skipping dispatch of OnBootstrapComplete event to listener with key: %s", key)
+			return true
+		}
+
+		listener.OnBootstrapComplete()
+
+		return true
+
+	})
+
 }
 
 func (n *Node) isFatalError(err error) bool {
