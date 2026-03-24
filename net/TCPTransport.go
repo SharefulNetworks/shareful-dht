@@ -195,7 +195,6 @@ func (t *TCPTransport) getConn(address string) (*PooledConn, error) {
 		//      being created AFTER the initial check. We simply close the newly created
 		//      connection if we *already* hold a connection to the specified address
 		_ = c.Close()
-		//TODO: We may need to set lastUsed to now here as well, however we can monitor this in testing and add if we find that it is required.
 		loadedConn := actual.(*PooledConn)
 		loadedConn.mu.Lock()
 		loadedConn.lastUsed = time.Now() //set last used to now, this will help us detect idle connections.
