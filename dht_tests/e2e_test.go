@@ -6063,6 +6063,7 @@ func NewDefaultTestContext(t *testing.T) *TestContext {
 	cfg.DefaultEntryTTL = 30 * time.Second
 	cfg.RefreshInterval = 5 * time.Second
 	cfg.JanitorInterval = 10 * time.Second
+	
 
 	//create nodes
 	n1, _ := dht.NewNode("node1", ":9321", net.NewTCP(), cfg, dht.NT_CORE)

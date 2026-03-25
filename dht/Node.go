@@ -76,6 +76,10 @@ func NewNode(plainTextId string, addr string, transport net.Transport, cfg *conf
 		return nil, fmt.Errorf("An unsupported node type was provided: %d", nodeType)
 	}
 
+	if addr == "" || !strings.Contains(addr, ":") {
+		return nil, fmt.Errorf("A valid network address must be provided")
+	}
+
 	//instantiate the new DHT node
 	n := &Node{
 		ID:           HashKey(plainTextId),
@@ -107,8 +111,24 @@ func NewNode(plainTextId string, addr string, transport net.Transport, cfg *conf
 	//append ourself as a RoutingTableListener to the routing table.
 	n.routingTable.RegisterListener("Node", n)
 
-	//start listening for incoming messages
-	_ = n.transport.Listen(addr, n.onMessage)
+	//start listening for incoming messages, we bind to all TCP interfaces (:PORT), regardless of
+	//the actual address that was passed into the node. As per the Go net.Listen documentation
+	//specifying a globally reachable HOST NAME has the two following implications:
+	//1)An internal DNS lookup will need to be undertaken in order for the node to start listening.
+	//2)The node will ONLY accept incoming connection on a single interface on a single IP address.
+	var listenAddr string
+	if strings.HasPrefix(addr, ":") {
+		listenAddr = addr //if the address already begins with ":" we may use it as is.
+	} else {
+
+		//take a substring from : onwards
+		_, after, _ := strings.Cut(addr, ":")
+		listenAddr = fmt.Sprintf(":%s", after)
+
+	}
+	_ = n.transport.Listen(listenAddr, n.onMessage)
+
+	n.logger.Debug("Node started listening for incoming connections on: %s", listenAddr)
 
 	//spin up refresher and janitor background tasks and append them to the waitist.
 	n.wg.Add(2)
