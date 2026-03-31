@@ -5874,6 +5874,83 @@ func Test_Receipt_Of_Bootsrap_Complete_Event_Post_Bootstrap(t *testing.T) {
 	}
 }
 
+func Test_Index_Entries_With_Indentical_Targets_But_Different_Publishers_To_Unique_Value_Mapping(t *testing.T) {
+	
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//grab reference to all 3 nodes for ease of use in the test, we will be storing index entries
+	// with identical targets but different publishers to each of these nodes.
+	node1 := ctx.BootstrapNodes[0]
+	node2 := ctx.BootstrapNodes[1]
+	node3 := ctx.BootstrapNodes[2]
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//define shared key and target
+	key := "leaf/x"
+	target := "super/target"
+
+	//store index entries with identical targets but different publishers to each of the 3 nodes.
+	node1StoreErr := node1.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: target, EnableIndexUpdateEvents: false})
+	if node1StoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 1 was trying to store index entry: %v", node1StoreErr)
+	}
+
+	node2StoreErr := node2.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: target, EnableIndexUpdateEvents: false})
+	if node2StoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 2 was trying to store index entry: %v", node2StoreErr)
+	}
+
+	node3StoreErr := node3.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: target, EnableIndexUpdateEvents: false})
+	if node3StoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node 3 was trying to store index entry: %v", node3StoreErr)
+	}
+
+	//allow some time for the store operations to propagate and any synchronization to occur.
+	time.Sleep(20000 * time.Millisecond)
+
+	//validate that each node has referenced to the merged index including all 3 entries.
+	for i := 0; i < len(ctx.BootstrapNodes); i++ {
+		curNode := ctx.BootstrapNodes[i]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != 3 {
+			t.Fatalf("expected node %s to have 3 index entries for key %s, got %d", curNode.Addr, key, len(indexEntries))
+		}
+	}
+
+	//next pick any of the nodes, find the index with our target key then pass the resulting
+	//IndexEntries to our new IndexToUniqueValueMap which should return a map containing a single
+	//entry with "key" set to our (shared ) target defined above and the "value" should be
+	//an array of all 3 IndexEntries, on per node, that stored an index entry with that target.
+	nodeToQuery := ctx.BootstrapNodes[0]
+	indexEntries, found := nodeToQuery.FindIndexLocal(key)
+	if !found {
+		t.Fatalf("expected to find index entries for key %s on node %s but found none", key, nodeToQuery.Addr)
+	}
+
+	//here we validate that the IndexToUniqueValueMap function correctly maps the 3 index entries with identical targets to a single unique value entry containing all 3 entries.
+	uniqueValueMap := nodeToQuery.IndexToUniqueValueMap(indexEntries)
+
+	if len(uniqueValueMap) != 1 {
+		t.Fatalf("expected unique value map to contain exactly 1 entry for target %s, got %d", target, len(uniqueValueMap))
+	}
+
+	uniqueValueEntry, ok := uniqueValueMap[target]
+	if !ok {
+		t.Fatalf("expected unique value map to contain entry for target %s", target)
+	}
+
+	if len(uniqueValueEntry) != 3 {
+		t.Fatalf("expected unique value entry for target %s to contain 3 index entries, got %d", target, len(uniqueValueEntry))
+	}
+
+}
+
 func waitForMessageEventCount(t *testing.T, listener *TestNodeEventListener, expected int, timeout time.Duration) {
 	t.Helper()
 

@@ -10,7 +10,6 @@ import (
 	"io"
 	"runtime/debug"
 
-
 	"math"
 	"sort"
 	"strings"
@@ -1700,14 +1699,13 @@ func (n *Node) OnPeerUnhealthyStateChange(peerId types.NodeID, peerAddr string) 
 // and stores the value once as the "key" component of the map, the "value" component of the map is then set to all IndexEntries
 // that share this value which likely entries created by differing publishers.
 func (n *Node) IndexToUniqueValueMap(indexEntries []RecordIndexEntry) map[string][]RecordIndexEntry {
-	
-	uniqueValueMap := make(map[string][]RecordIndexEntry)
-	for _, entry := range indexEntries {	
-		curEntryValue := entry.Source
-		uniqueValueMap[curEntryValue] = append(uniqueValueMap[curEntryValue], entry)
 
+	uniqueValueMap := make(map[string][]RecordIndexEntry)
+	for _, entry := range indexEntries {
+		curEntryValue := entry.Target
+		uniqueValueMap[curEntryValue] = append(uniqueValueMap[curEntryValue], entry)
 	}
-	
+
 	return uniqueValueMap
 }
 
