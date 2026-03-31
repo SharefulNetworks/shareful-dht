@@ -19,6 +19,7 @@ import (
 	"github.com/SharefulNetworks/shareful-dht/net"
 	"github.com/SharefulNetworks/shareful-dht/routing"
 	"github.com/SharefulNetworks/shareful-dht/types"
+	"github.com/SharefulNetworks/shareful-utils-slog/slog"
 	//"github.com/SharefulNetworks/shareful-utils-slog/slog"
 )
 
@@ -4729,7 +4730,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 
 	//we expect node 2 to have received no events.
 	if len(node2Listener.GetReceivedIndexUpdateEvents()) != 1 {
-		t.Fatalf("Expected Node 2 to have received 0 index update events but it received: %d", len(node2Listener.GetReceivedIndexUpdateEvents()))
+
+		t.Fatalf("Expected Node 2 to have received 1 index update events but it received: %d", len(node2Listener.GetReceivedIndexUpdateEvents()))
 	} else {
 		t.Logf("\n Node 2 received %d events", len(node2Listener.GetReceivedIndexUpdateEvents()))
 	}
@@ -5856,11 +5858,11 @@ func Test_Receipt_Of_Bootsrap_Complete_Event_Post_Bootstrap(t *testing.T) {
 	time.Sleep(30000 * time.Millisecond)
 
 	//finally validate that the listener attached to each node has received a bootstrap complete event.
-    for i := 0; i < len(ctx.BootstrapNodes); i++ {
+	for i := 0; i < len(ctx.BootstrapNodes); i++ {
 		curNode := ctx.BootstrapNodes[i]
 		//we justy grab the first and only listener for the purposes of this test and
-		//cast it to  a TestNodeEventListener so we can query it for received events, 
-		// we know this is safe as we only attached TestNodeEventListeners to our nodes 
+		//cast it to  a TestNodeEventListener so we can query it for received events,
+		// we know this is safe as we only attached TestNodeEventListeners to our nodes
 		// in this test.
 		curNodeListener := curNode.ListNodeEventListeners()[0].(*TestNodeEventListener)
 
@@ -6063,9 +6065,9 @@ func NewDefaultTestContext(t *testing.T) *TestContext {
 	cfg.DefaultEntryTTL = 30 * time.Second
 	cfg.RefreshInterval = 5 * time.Second
 	cfg.JanitorInterval = 10 * time.Second
-	
 
 	//create nodes
+	//node122221.core.nodes.shareful.net:9322
 	n1, _ := dht.NewNode("node1", ":9321", net.NewTCP(), cfg, dht.NT_CORE)
 	n2, _ := dht.NewNode("node2", ":9322", net.NewTCP(), cfg, dht.NT_CORE)
 	Nodes := []*dht.Node{n1, n2}
@@ -6168,6 +6170,8 @@ func NewConfigurableTestContextWithBootstrapAddresses(t *testing.T, standardNode
 		//prepare default config if a config has not been provided
 
 		cfg = config.GetDefaultSingletonInstance()
+		cfg.GlobalLogLevel = slog.DEBUG
+
 		/*
 			cfg.UseProtobuf = true
 			cfg.RequestTimeout = 2000 * time.Millisecond

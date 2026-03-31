@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"runtime/debug"
+	"unique"
 
 	"math"
 	"sort"
@@ -742,6 +743,13 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 	}
 	//}
 
+	//if this call is sync related then we additionally want to exclude any known co-publishes
+	//in the provided entries from the replica set, as they will be updated via the SyncIndex
+	// mechanism and the two data propogation strategies are mutually exclusive.
+	if isIndexSyncRelated {
+		reps = n.excludeCoPublisherAddresses(reps, entries, indexKey)
+	}
+
 	//clamp replicas to the replication factor defined in the prevailing config
 	reps = reps[:min(len(reps), n.cfg.ReplicationFactor)]
 
@@ -1171,6 +1179,7 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string, isIndexSync
 	// to other publishers which may be sharing the same index record. For ALL other operations the array
 	// will be nil or empty and the ID of this node will be used as the publisher id.
 	var publisherId types.NodeID
+	var deleteIndexErr error
 	if isIndexSyncRelated {
 
 		if len(optionalPublisherId) <= 0 {
@@ -1200,6 +1209,7 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string, isIndexSync
 	//where the index entry WAS successfully deleted locally, propagate the delete to nearest K nodes.
 	if deleted {
 		reps := n.nearestK(indexKey)
+
 		reqAny, _ := n.makeMessage(OP_DELETE_INDEX)
 		r := reqAny.(*dhtpb.DeleteIndexRequest)
 		r.PublisherId = publisherId[:]
@@ -1207,12 +1217,28 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string, isIndexSync
 		r.Source = indexEntrySource
 		r.IsSyncRelated = isIndexSyncRelated
 
+		var errorsList []error
 		for _, a := range reps {
 			if a == n.Addr {
 				continue
 			}
 			if _, err := n.sendRequest(a, OP_DELETE_INDEX, reqAny); err != nil {
-				return err
+				errorsList = append(errorsList, fmt.Errorf("Node: %s encountered an error when attempting to propagate (via repliction) deletion of INDEX entry to node @ %s", n.Addr, a))
+			}
+		}
+
+		//where at least one error occurred call into our utility to compile
+		//the errors into a single error object and return it.
+		if len(errorsList) > 0 {
+			allReplicationErrs := CollectErrors(errorsList)
+
+			//if the error list is of equal length to the number of replicas then this
+			//would indicate that no data in respect of this storage operation wass propergated
+			//to any relica nodes and therefore this is deemed to be a fatal error.
+			if len(errorsList) == len(reps) {
+				deleteIndexErr = fmt.Errorf("Fatal: an error occurred whilst attempting to propagate deletion of index entry to ALL replica nodes, the error was: %v", allReplicationErrs)
+			} else {
+				n.logger.Error("An error occurred whilst attempting to propagate (via repliction) deletion of index entry to one or more replica nodes, the error was: %v. However, as at least one replica node successfully received the update this is not deemed to be a fatal error and thus we proceed without returning an error.", allReplicationErrs)
 			}
 		}
 
@@ -1220,7 +1246,7 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string, isIndexSync
 		//other peers/publisher to this index to pull the latest version of the record which will
 		//reflect the deletion. We wait a nominal amount of time to allow the delete operation to propergate
 		//across the network.
-		if !isIndexSyncRelated {
+		if !isIndexSyncRelated && !n.isFatalError(deleteIndexErr) {
 
 			n.logger.Fine(">>>>>>>>>>INDEX DELETION SYNC REQUEST SCHEDULED<<<<<<<<<<<<<<<<<")
 
@@ -1238,7 +1264,7 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string, isIndexSync
 
 		}
 
-		return nil
+		return deleteIndexErr
 	} else {
 		return fmt.Errorf("entry associated with key: %s could not be deleted; either no entry was found with the specified source OR this node was NOT the original publisher of the entry ,", indexKey)
 	}
@@ -1667,6 +1693,24 @@ func (n *Node) OnPeerUnhealthyStateChange(peerId types.NodeID, peerAddr string) 
 	})
 }
 
+// IndexToUniqueValueMap - This function is used to transform a list of RecordIndexEntry items into an inverse map
+// where the key represent unique values across all entries. The DHT considers two entries with the SAME value to
+// be distinct as long as they differ in their source (key) and/or publisher. Thus it is entirely possible for two
+// publishers to an index to store identical values under the same key. This method detect these duplicate value entries
+// and stores the value once as the "key" component of the map, the "value" component of the map is then set to all IndexEntries
+// that share this value which likely entries created by differing publishers.
+func (n *Node) IndexToUniqueValueMap(indexEntries []RecordIndexEntry) map[string][]RecordIndexEntry {
+	
+	uniqueValueMap := make(map[string][]RecordIndexEntry)
+	for _, entry := range indexEntries {	
+		curEntryValue := entry.Source
+		uniqueValueMap[curEntryValue] = append(uniqueValueMap[curEntryValue], entry)
+
+	}
+	
+	return uniqueValueMap
+}
+
 // RegisterNodeEventListener - Provides a mechanism by which external subscribers can
 // listen for various events that occur within the node, such as the reception of messages,
 // storage of records, etc. Thereby allowing the parent application, making use of the DHT,
@@ -1995,7 +2039,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		}
 
 		deleted, deletionErr := n.deleteIndexLocal(indexKey, publisherId, source)
-		n.logger.Debug("Received request to delete IndexEntry with key: %s The result was: %v", indexKey, deleted)
+		n.logger.Debug("Node %s Received request to delete IndexEntry with key: %s from node %s. The result was: %v", n.Addr, indexKey, fromAddr, deleted)
 		if deletionErr != nil {
 			n.logger.Error("An error occurred whilst processing received request to delete index entry for key: %s on node: %s ERROR: %v", indexKey, n.Addr, deletionErr)
 		}
@@ -2134,9 +2178,12 @@ func (n *Node) onMessage(from string, data []byte) {
 					resp = &dhtpb.SyncIndexResponse{Ok: true, Err: ""}
 				}
 
-				//Where the delete operation was successful we will want to publish
-				//an event,where possible, to notify any listeners that an index entry has been deleted.
-				if deletionErr == nil {
+				if deletionErr != nil && n.isFatalError(deletionErr) {
+					n.logger.Error("A fatal error occurred whilst processing SyncIndexRequest (events related to this request WILL NOT be published.) for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), deletionErr)
+				} else {
+
+					//Where the delete operation was successful (or partially successful) we will want to publish
+					//an event,where possible, to notify any listeners that an index entry has been deleted.
 
 					//parse node id from the request
 					nodeID, parseErr := types.NodeIDFromBytes(req.PublisherId)
@@ -2197,7 +2244,7 @@ func (n *Node) onMessage(from string, data []byte) {
 						indexPublisherAddresses = append(indexPublisherAddresses, e.PublisherAddr)
 					}
 				}
-				n.AddToBlacklist(indexPublisherAddresses...)
+				//n.AddToBlacklist(indexPublisherAddresses...)
 
 				//NOTE: We set isIndexSyncRelated to true to inidicate that this store operation is being performed as part of
 				//the processing of a SyncIndexRequest, this will ensure that we do not trigger another round of syncs
@@ -2206,7 +2253,7 @@ func (n *Node) onMessage(from string, data []byte) {
 				processingErr = n.StoreIndexWithTTL(req.Key, updatedIndexRecEntries, ttl, nodeID, false, true)
 
 				//storage completed, we may now remove the index publisher from our blacklist
-				n.RemoveFromBlacklist(indexPublisherAddresses...)
+				//n.RemoveFromBlacklist(indexPublisherAddresses...)
 
 				//just log any processing errors.
 				if processingErr != nil && n.isFatalError(processingErr) {
@@ -2542,19 +2589,45 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 		return
 	}
 
+	//helper function, merges UNIQUE local and refetched entries into a single collection.
+	mergeLocalAndRefetched := func(local []RecordIndexEntry, refetched []RecordIndexEntry) []RecordIndexEntry {
+
+		//we merge the entries by taking the refetched entries as the source of truth and then adding in any local entries
+		// which have a publisher that is not represented in the refetched entries, this ensures we do not loose any publishers
+		// which may be associated with this index record but were not included in the refetched copy for some reason (e.g network issues during lookup, replication delays etc).
+		merged := make([]RecordIndexEntry, 0, len(refetched))
+		merged = append(merged, refetched...)
+
+		for _, localEntry := range local {
+			localEntryPublisherAddr := localEntry.PublisherAddr
+			found := false
+			for _, refetchedEntry := range refetched {
+				if refetchedEntry.PublisherAddr == localEntryPublisherAddr {
+					found = true
+					break
+				}
+			}
+			if !found {
+				merged = append(merged, localEntry)
+			}
+		}
+
+		return merged
+	}
+
+	mergedEntries := mergeLocalAndRefetched(localFindIndexEntries, refetchedEntries)
+
 	n.logger.Debug("Refetched Index Entries for key: %s on node:%s %v\n", key, n.Addr, refetchedEntries)
 
 	//iterate over the returned entries to parse publishers who are candidates for the sync notifications
-	//the peers must not be ourselve or be in the replica set we just propergated the storage to, as they will
-	//already be in possession of the latest version of the record.
+	//the peers must not be ourselves. We intentionally still notify co-publishers even if they were in the
+	//replica set for the preceding store operation so that they execute the sync path and publish events.
 	var syncIndexCandidateAddresses []string
-	for _, entry := range refetchedEntries {
+	for _, entry := range mergedEntries {
 		curEntryPublisherAddr := entry.PublisherAddr
 
-		//ensure that we do not include ourselves or any of the peers in the replica set we just propagated to,
-		//as candidates for the sync notification, as they will already be in possession of the latest
-		//version of the record.
-		if curEntryPublisherAddr == n.Addr { //|| slices.Contains(replicaSetAddrs, curEntryPublisherAddr) {
+		//ensure that we do not include ourselves as candidates for the sync notification
+		if curEntryPublisherAddr == n.Addr {
 			continue
 		}
 		syncIndexCandidateAddresses = append(syncIndexCandidateAddresses, curEntryPublisherAddr)
