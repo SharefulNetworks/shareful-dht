@@ -682,6 +682,176 @@ func (n *Node) Find(key string) ([]byte, bool) {
 	return nil, false
 }
 
+// AppendTargetValueToIndex - appends a given target value to the set of values in the index record
+// associated with the provided index key. This is used to allow a single publisher to associate
+// multiple values with a single index key. Where an IndexRecord and entry already exists for the provided
+// key, the provided value is simply appended to the existing set of values. Where no such record
+// and entry exist, a new IndexRecord and entry will be created with the provided value as the
+// initial and only value in the set.
+func (n *Node) AppendTargetValueToIndex(IndexKey string, targetValue string) error {
+
+	//first attempt to find the relevant index entry locally, if it exists,
+	//where it does we will just use its append method to add the new target value
+	//and proceed to call the public interface StoreIndex method to handle the propagation
+	// of the updated index record to the wider network.
+	existingIndexEntries, found := n.FindIndexLocal(IndexKey)
+	if found {
+
+		//where one or more existing entries EXIST we attempt to find an entry published by THIS
+		// node, where one is found we append the new target value to it and then call
+		// StoreIndex to handle the propagation of the updated record to the wider network.
+		for i, curEntry := range existingIndexEntries {
+			if curEntry.Publisher == n.ID {
+
+				//append the new target value to the existing entry
+				existingIndexEntries[i].AppendTargetValue(targetValue)
+
+				//call StoreIndex to handle the propagation of the updated record to the wider network.
+				storeErr := n.StoreIndex(IndexKey, existingIndexEntries...)
+				if storeErr != nil {
+					return fmt.Errorf("An error occurred whilst attempting to store the updated index record with key: %s to the wider network after appending a new target value: %s to it, the error was: %v", IndexKey, targetValue, storeErr)
+				}
+
+			}
+		}
+
+		//where no existing entry published by THIS node exists we create a new one with the provided target value
+		//as its initial and only target value and then call StoreIndex to handle the propagation of the new record
+		//to the wider network.
+		newEntry := RecordIndexEntry{
+			Source: IndexKey,
+			Target: targetValue,
+		}
+		storeErr := n.StoreIndex(IndexKey, append(existingIndexEntries, newEntry)...)
+		if storeErr != nil {
+			return fmt.Errorf("An error occurred whilst attempting to store the updated index record with key: %s to the wider network after appending a new target value: %s to it, the error was: %v", IndexKey, targetValue, storeErr)
+		}
+
+		return nil
+	} else {
+		//where no existing entries exist we create a new one with the provided target value
+		//as its initial and only target value and then call StoreIndex to handle the propagation of the new record
+		//to the wider network.
+		newEntry := RecordIndexEntry{
+			Source: IndexKey,
+			Target: targetValue,
+		}
+		storeErr := n.StoreIndex(IndexKey, newEntry)
+		if storeErr != nil {
+			return fmt.Errorf("An error occurred whilst attempting to store the new index record with key: %s to the wider network after appending a new target value: %s to it, the error was: %v", IndexKey, targetValue, storeErr)
+		}
+		return nil
+	}
+
+}
+
+// RemoveTargetValueFromIndex - removes a given target value from the set of values in the index record
+// associated with the IndexEntry with the provided key.
+func (n *Node) RemoveTargetValueFromIndex(indexKey string, targetValue string) error {
+
+	//first attempt to find the relevant index entry locally, if it exists,
+	//where it does we will just use its remove method to remove the target value
+	//and proceed to call the public interface StoreIndex method to handle the propagation
+	// of the updated index record to the wider network.
+	existingIndexEntries, found := n.FindIndexLocal(indexKey)
+	if found {
+		//where one or more existing entries EXIST we attempt to find an entry published by THIS
+		// node, where one is found we remove the target value from it and then call
+		// StoreIndex to handle the propagation of the updated record to the wider network.
+		var targetIndexEntry *RecordIndexEntry
+		for i, curEntry := range existingIndexEntries {
+			if curEntry.Publisher == n.ID {
+				targetIndexEntry = &existingIndexEntries[i]
+				break
+			}
+		}
+
+		//if we've found the target index entry...
+		if targetIndexEntry != nil {
+
+			//remove the target value from the existing entry
+			removalErr := targetIndexEntry.RemoveTargetValue(targetValue)
+			if removalErr != nil {
+				return fmt.Errorf("An error occurred whilst attempting to remove target value: %s from index record with key: %s, the error was: %v", targetValue, indexKey, removalErr)
+			}
+
+			//Otherwise, where the target value WAS successfully removed..
+			//CRITICALLY, we take one of two paths following the removal of the target value
+			//1)Where the entry still contains at least one target value we simply call StoreIndex
+			// to propagate the updated record to the wider network.
+			//2)Where the entry no longer contains any target values we remove the entire entry
+			//  from the index by calling DeleteIndexEntry which will in turn propegate the
+			//. deletion to the wider network and ensure that all nodes remove the entry from
+			// their respective local index records. This is important as an index entry with no
+			// target values has no utility and would simply be taking up unnecessary space.
+			remainingTargetValues,_ := targetIndexEntry.ListTargetValues()
+			if len(remainingTargetValues) > 0 {
+
+				storeErr := n.StoreIndex(indexKey, existingIndexEntries...)
+				if storeErr != nil {
+					return fmt.Errorf("An error occurred whilst attempting to store the updated index record with key: %s to the wider network after removing a target value: %s from it, the error was: %v", indexKey, targetValue, storeErr)
+				}
+				n.logger.Debug("Successfully removed target value: %s from index record with key: %s, the entry still contains target values so we propagated the updated record to the wider network.", targetValue, indexKey)
+				return nil
+
+			} else {
+
+				deleteErr := n.DeleteIndex(indexKey, targetIndexEntry.Source,false)
+				if deleteErr != nil {
+					return fmt.Errorf("An error occurred whilst attempting to delete index entry from index record with key: %s after removing its last remaining target value: %s, the error was: %v", indexKey, targetValue, deleteErr)
+				}
+				n.logger.Debug("Successfully removed target value: %s from index record with key: %s, the entry no longer contains any target values so we removed the entry and propagated the deletion to the wider network.", targetValue, indexKey)
+				return nil	
+			}
+
+		}
+		//otherwise where no exsting index entry value was found
+		return fmt.Errorf("An error occurred whilst attempting to remove target value: %s from index record with key: %s target value does not exist.", targetValue, indexKey)
+	}
+	//where no existing entries exist we return an error to indicate that specfied IndexEntry
+	//could not be found and thus the target value could not be removed from it.
+	return fmt.Errorf("An error occurred whilst attempting to remove target value: %s from index record with key: %s as no existing index entries were found for the specified key.", targetValue, indexKey)
+}
+
+
+//ListIndexEntryTargetValues - lists the target values associated with the IndexEntry with the provided key. Where locallyOnly is set to TRUE, 
+// we will only attempt to find the relevant index entry locally and return its target values, where it is set to FALSE (it is by default) we 
+// will attempt to lookup the index entry over the network and return the target values from the most recently updated entry returned from the network.
+func (n *Node) ListIndexEntryTargetValues(indexKey string,locallyOnly bool) ([]string, error) {
+
+	//if the user has specified locallyOnly then we only attempt to find the relevant index entry locally, if it exists,
+	//where it does we will just use its list method to return the set of target values it contains.
+	if locallyOnly {
+		existingIndexEntries, found := n.FindIndexLocal(indexKey)
+		if found {
+			for _, curEntry := range existingIndexEntries {
+				if curEntry.Publisher == n.ID {
+					return curEntry.ListTargetValues()
+				}
+			}
+			return nil, fmt.Errorf("An error occurred whilst attempting to list target values for index record with key: %s as no index entry (published by this node) was found for the specified key.", indexKey)
+		} else {
+			return nil, fmt.Errorf("An error occurred whilst attempting to list target values for index record with key: %s as no index entries were found for the specified key.", indexKey)
+		}
+	} else {
+
+		//otherwise we attempt to lookup the index entry over the network,
+		//this may obviously return multiple IndexEntries published by different nodes,
+		//thus where multiple entries are returned we sort them in order of the most
+		//recent update time and return the target values from the most recently updated entry.
+		indexEmtries , found := n.FindIndex(indexKey)
+		if found {
+			sort.Slice(indexEmtries, func(i, j int) bool {
+				return indexEmtries[i].UpdatedUnix > indexEmtries[j].UpdatedUnix
+			})
+			return indexEmtries[0].ListTargetValues()
+		} else {
+			return nil, fmt.Errorf("An error occurred whilst attempting to list target values for index record with key: %s as no index entries were found for the specified key.", indexKey)
+		}	
+	}
+
+}
+
 func (n *Node) StoreIndex(indexKey string, entries ...RecordIndexEntry) error {
 	ttl := n.cfg.DefaultIndexEntryTTL
 	return n.StoreIndexWithTTL(indexKey, entries, ttl, n.ID, true, false)

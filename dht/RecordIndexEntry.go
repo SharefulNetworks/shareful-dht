@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/SharefulNetworks/shareful-dht/types"
 )
@@ -109,6 +110,7 @@ func (entry *RecordIndexEntry) AppendTargetValue(newTargetValue string) error {
 	}
 
 	entry.Target = string(marshaledBlendedTargetArr)
+	entry.UpdatedUnix = time.Now().UnixMilli()
 	return nil
 }
 
@@ -150,7 +152,7 @@ func (entry *RecordIndexEntry) RemoveTargetValue(targetValueToRemove string) err
 		slices.Index(blendedTargetArr, targetValueToRemove)+1,
 	)
 
-	
+	entry.UpdatedUnix = time.Now().UnixMilli()
 	//dedupe our blended array in case any duplicates have been introduced as a result of this remove operation, all target values MUST be unique.
 	blendedTargetArr = entry.dedupeValues(blendedTargetArr)
 
