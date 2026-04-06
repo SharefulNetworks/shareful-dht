@@ -3232,7 +3232,7 @@ func (n *Node) isFatalError(err error) bool {
 func (n *Node) toRecordIndexEntriesLike(entries []RecordIndexEntry) []commons.RecordIndexEntryLike {
 	recordIndexEntryLikesArr := make([]commons.RecordIndexEntryLike, 0, len(entries))
 	for _, v := range entries {
-		recordIndexEntryLikesArr = append(recordIndexEntryLikesArr, v)
+		recordIndexEntryLikesArr = append(recordIndexEntryLikesArr, &v)
 	}
 	return recordIndexEntryLikesArr
 }

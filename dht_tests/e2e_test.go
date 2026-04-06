@@ -5875,7 +5875,7 @@ func Test_Receipt_Of_Bootsrap_Complete_Event_Post_Bootstrap(t *testing.T) {
 }
 
 func Test_Index_Entries_With_Indentical_Targets_But_Different_Publishers_To_Unique_Value_Mapping(t *testing.T) {
-	
+
 	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
 	bootstrapNodes := []string{":7401", ":7402", ":7403"}
 
@@ -5945,8 +5945,103 @@ func Test_Index_Entries_With_Indentical_Targets_But_Different_Publishers_To_Uniq
 		t.Fatalf("expected unique value map to contain entry for target %s", target)
 	}
 
+	//as the same target is used for all 3 entries we expect the IndexToUniqueValueMap to
+	//return a lengh of 3 under the specified value.
 	if len(uniqueValueEntry) != 3 {
 		t.Fatalf("expected unique value entry for target %s to contain 3 index entries, got %d", target, len(uniqueValueEntry))
+	}
+
+}
+
+func Test_Index_Entries_With_Indentical_Targets_But_Different_Publishers_To_Unique_Value_Mapping_With_Multiple_Targets(t *testing.T) {
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//grab reference to all 3 nodes for ease of use in the test, we will be storing index entries
+	// with identical targets but different publishers to each of these nodes.
+	node1 := ctx.BootstrapNodes[0]
+	node2 := ctx.BootstrapNodes[1]
+	node3 := ctx.BootstrapNodes[2]
+	subsetOfNodesForTest := []*dht.Node{node1, node2, node3}
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//define TWO targets under the same shared key.
+	key := "leaf/x"
+	target1 := "super/target1"
+	target2 := "super/target2"
+
+	//store index entries for our two targets to each of our three node which should make for
+	//a total three entries per target value. Whilst the raw index will contain a total of
+	//SIX entries for the key "leaf/x"  we expect the IndexToUniqueValueMap to collapse the six entries to a map of 2 UNIQUE value entries
+	//i.e. one per target specified.
+	for i, curNode := range subsetOfNodesForTest {
+
+		curNodeStoreErr1 := curNode.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: target1, EnableIndexUpdateEvents: false})
+		if curNodeStoreErr1 != nil {
+			t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target1: %v", i+1, curNodeStoreErr1)
+		}
+
+		time.Sleep(2000 * time.Millisecond)
+
+		curNodeStoreErr2 := curNode.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: target2, EnableIndexUpdateEvents: false})
+		if curNodeStoreErr2 != nil {
+			t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target2: %v", i+1, curNodeStoreErr2)
+		}
+
+		time.Sleep(2000 * time.Millisecond)
+	}
+
+	//allow some time for the store operations to propagate and any synchronization to occur.
+	time.Sleep(20000 * time.Millisecond)
+
+	//validate that each node has referenced to the merged index including all 3 entries
+	//per target for a total of 6 including dupes.
+	for i := 0; i < len(ctx.BootstrapNodes); i++ {
+		curNode := ctx.BootstrapNodes[i]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != 6 {
+			t.Fatalf("expected node %s to have 6 index entries for key %s, got %d", curNode.Addr, key, len(indexEntries))
+		}
+	}
+
+	//next pick any of the nodes, find the index with our target key then pass the resulting
+	//IndexEntries to our new IndexToUniqueValueMap which should return a map containing a single
+	//entry with "key" set to our (shared ) target defined above and the "value" should be
+	//an array of all 3 IndexEntries, on per node, that stored an index entry with that target.
+	nodeToQuery := ctx.BootstrapNodes[0]
+	indexEntries, found := nodeToQuery.FindIndexLocal(key)
+	if !found {
+		t.Fatalf("expected to find index entries for key %s on node %s but found none", key, nodeToQuery.Addr)
+	}
+
+	//here we validate that the map contains two entries, one for each unique value.
+	uniqueValueMap := nodeToQuery.IndexToUniqueValueMap(indexEntries)
+	if len(uniqueValueMap) != 2 {
+		t.Fatalf("expected unique value map to contain exactly 2 entries for targets %s and %s, got %d", target1, target2, len(uniqueValueMap))
+	}
+
+	//validate that the map contains 3 entries under target1, one per node that stored the entry
+	uniqueValueEntry, ok := uniqueValueMap[target1]
+	if !ok {
+		t.Fatalf("expected unique value map to contain entry for target %s", target1)
+	}
+	if len(uniqueValueEntry) != 3 {
+		t.Fatalf("expected unique value entry for target %s to contain 3 index entries, got %d", target1, len(uniqueValueEntry))
+	}
+
+	//similarly validate that the map contains 3 entries under target2
+	uniqueValueEntry2, ok := uniqueValueMap[target2]
+	if !ok {
+		t.Fatalf("expected unique value map to contain entry for target %s", target2)
+	}
+	if len(uniqueValueEntry2) != 3 {
+		t.Fatalf("expected unique value entry for target %s to contain 3 index entries, got %d", target2, len(uniqueValueEntry2))
 	}
 
 }
