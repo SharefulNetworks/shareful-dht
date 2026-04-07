@@ -784,7 +784,7 @@ func (n *Node) RemoveTargetValueFromIndex(indexKey string, targetValue string) e
 			//. deletion to the wider network and ensure that all nodes remove the entry from
 			// their respective local index records. This is important as an index entry with no
 			// target values has no utility and would simply be taking up unnecessary space.
-			remainingTargetValues,_ := targetIndexEntry.ListTargetValues()
+			remainingTargetValues, _ := targetIndexEntry.ListTargetValues()
 			if len(remainingTargetValues) > 0 {
 
 				storeErr := n.StoreIndex(indexKey, existingIndexEntries...)
@@ -796,12 +796,12 @@ func (n *Node) RemoveTargetValueFromIndex(indexKey string, targetValue string) e
 
 			} else {
 
-				deleteErr := n.DeleteIndex(indexKey, targetIndexEntry.Source,false)
+				deleteErr := n.DeleteIndex(indexKey, targetIndexEntry.Source, false)
 				if deleteErr != nil {
 					return fmt.Errorf("An error occurred whilst attempting to delete index entry from index record with key: %s after removing its last remaining target value: %s, the error was: %v", indexKey, targetValue, deleteErr)
 				}
 				n.logger.Debug("Successfully removed target value: %s from index record with key: %s, the entry no longer contains any target values so we removed the entry and propagated the deletion to the wider network.", targetValue, indexKey)
-				return nil	
+				return nil
 			}
 
 		}
@@ -813,11 +813,10 @@ func (n *Node) RemoveTargetValueFromIndex(indexKey string, targetValue string) e
 	return fmt.Errorf("An error occurred whilst attempting to remove target value: %s from index record with key: %s as no existing index entries were found for the specified key.", targetValue, indexKey)
 }
 
-
-//ListIndexEntryTargetValues - lists the target values associated with the IndexEntry with the provided key. Where locallyOnly is set to TRUE, 
-// we will only attempt to find the relevant index entry locally and return its target values, where it is set to FALSE (it is by default) we 
+// ListIndexEntryTargetValues - lists the target values associated with the IndexEntry with the provided key. Where locallyOnly is set to TRUE,
+// we will only attempt to find the relevant index entry locally and return its target values, where it is set to FALSE (it is by default) we
 // will attempt to lookup the index entry over the network and return the target values from the most recently updated entry returned from the network.
-func (n *Node) ListIndexEntryTargetValues(indexKey string,locallyOnly bool) ([]string, error) {
+func (n *Node) ListIndexEntryTargetValues(indexKey string, locallyOnly bool) ([]string, error) {
 
 	//if the user has specified locallyOnly then we only attempt to find the relevant index entry locally, if it exists,
 	//where it does we will just use its list method to return the set of target values it contains.
@@ -837,17 +836,37 @@ func (n *Node) ListIndexEntryTargetValues(indexKey string,locallyOnly bool) ([]s
 
 		//otherwise we attempt to lookup the index entry over the network,
 		//this may obviously return multiple IndexEntries published by different nodes,
-		//thus where multiple entries are returned we sort them in order of the most
-		//recent update time and return the target values from the most recently updated entry.
-		indexEmtries , found := n.FindIndex(indexKey)
+		//thus where multiple entries are returned we build a UNION set comprising of all
+		//target values from all returned entries and return that to the user,
+		// where only a single entry is returned we simply return the target values from that entry.
+		indexEntries, found := n.FindIndex(indexKey)
 		if found {
-			sort.Slice(indexEmtries, func(i, j int) bool {
-				return indexEmtries[i].UpdatedUnix > indexEmtries[j].UpdatedUnix
-			})
-			return indexEmtries[0].ListTargetValues()
+
+			//we use a map to produce the set of target values that way we ensure
+			//that values are automatically deduped.
+			targetValuesSet := make(map[string]struct{})
+			for _, entry := range indexEntries {
+				targetValues, listErr := entry.ListTargetValues()
+				if listErr != nil {
+					n.logger.Error("An error occurred whilst attempting to list target values from an index entry returned from the network lookup for index record with key: %s, the error was: %v. Proceeding to attempt to list target values from any remaining entries.", indexKey, listErr)
+					continue
+				}
+
+				for _, v := range targetValues {
+					targetValuesSet[v] = struct{}{}
+				}
+			}
+
+			//finally we then convert the set to a slice to return to the user.
+			targetValuesList := make([]string, 0, len(targetValuesSet))
+			for v := range targetValuesSet {
+				targetValuesList = append(targetValuesList, v)
+			}
+			return targetValuesList, nil
+
 		} else {
 			return nil, fmt.Errorf("An error occurred whilst attempting to list target values for index record with key: %s as no index entries were found for the specified key.", indexKey)
-		}	
+		}
 	}
 
 }

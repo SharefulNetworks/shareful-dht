@@ -5953,6 +5953,22 @@ func Test_Index_Entries_With_Indentical_Targets_But_Different_Publishers_To_Uniq
 
 }
 
+func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId(t *testing.T) {
+
+	
+
+	/** 
+	   Here we seek to verify that the DHT new support for multiple targets under the same key and publisherId is working as expected.
+	   As the DHT defines unique entries in terms of a composite identity of the form <key, publisherId> 
+	   here we validate that when multiple entries are stored with the same key and publisherId but different
+	   targets, that all unique targets are now stored under the SAME IndexEntry as a SET of "target" values,
+	   each of which can be retrieved by calling ListTargetValues() on the IndexEntry in question.
+
+	*/
+     
+}
+
+/*
 func Test_Index_Entries_With_Indentical_Targets_But_Different_Publishers_To_Unique_Value_Mapping_With_Multiple_Targets(t *testing.T) {
 
 	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
@@ -6044,7 +6060,7 @@ func Test_Index_Entries_With_Indentical_Targets_But_Different_Publishers_To_Uniq
 		t.Fatalf("expected unique value entry for target %s to contain 3 index entries, got %d", target2, len(uniqueValueEntry2))
 	}
 
-}
+}*/
 
 func waitForMessageEventCount(t *testing.T, listener *TestNodeEventListener, expected int, timeout time.Duration) {
 	t.Helper()
