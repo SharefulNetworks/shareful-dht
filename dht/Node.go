@@ -688,7 +688,12 @@ func (n *Node) Find(key string) ([]byte, bool) {
 // key, the provided value is simply appended to the existing set of values. Where no such record
 // and entry exist, a new IndexRecord and entry will be created with the provided value as the
 // initial and only value in the set.
-func (n *Node) AppendTargetValueToIndex(IndexKey string, targetValue string) error {
+// NOTE: The enableIndexUpdateEvents boolean parameter will ONLY take effect where a new IndexEntry is being created
+// .     where the IndexEntry already exists then the parameter will be ignored and the value that was initially used
+// .     when the IndexEntry was created will be used to determine whether or not to trigger index update events
+//
+//	on mutation of the IndexEntry.
+func (n *Node) AppendTargetValueToIndex(IndexKey string, targetValue string, enableIndexUpdateEvents bool) error {
 
 	//first attempt to find the relevant index entry locally, if it exists,
 	//where it does we will just use its append method to add the new target value
@@ -704,14 +709,17 @@ func (n *Node) AppendTargetValueToIndex(IndexKey string, targetValue string) err
 			if curEntry.Publisher == n.ID {
 
 				//append the new target value to the existing entry
-				existingIndexEntries[i].AppendTargetValue(targetValue)
+				appendErr := existingIndexEntries[i].AppendTargetValue(targetValue)
+				if appendErr != nil {
+					return fmt.Errorf("An error occurred whilst attempting to append the new target value: %s to the existing index record with key: %s, the error was: %v", targetValue, IndexKey, appendErr)
+				}
 
 				//call StoreIndex to handle the propagation of the updated record to the wider network.
 				storeErr := n.StoreIndex(IndexKey, existingIndexEntries...)
 				if storeErr != nil {
 					return fmt.Errorf("An error occurred whilst attempting to store the updated index record with key: %s to the wider network after appending a new target value: %s to it, the error was: %v", IndexKey, targetValue, storeErr)
 				}
-
+				return nil
 			}
 		}
 
@@ -719,9 +727,11 @@ func (n *Node) AppendTargetValueToIndex(IndexKey string, targetValue string) err
 		//as its initial and only target value and then call StoreIndex to handle the propagation of the new record
 		//to the wider network.
 		newEntry := RecordIndexEntry{
-			Source: IndexKey,
-			Target: targetValue,
+			Source:                  IndexKey,
+			Target:                  targetValue,
+			EnableIndexUpdateEvents: enableIndexUpdateEvents,
 		}
+
 		storeErr := n.StoreIndex(IndexKey, append(existingIndexEntries, newEntry)...)
 		if storeErr != nil {
 			return fmt.Errorf("An error occurred whilst attempting to store the updated index record with key: %s to the wider network after appending a new target value: %s to it, the error was: %v", IndexKey, targetValue, storeErr)
@@ -733,8 +743,9 @@ func (n *Node) AppendTargetValueToIndex(IndexKey string, targetValue string) err
 		//as its initial and only target value and then call StoreIndex to handle the propagation of the new record
 		//to the wider network.
 		newEntry := RecordIndexEntry{
-			Source: IndexKey,
-			Target: targetValue,
+			Source:                  IndexKey,
+			Target:                  targetValue,
+			EnableIndexUpdateEvents: enableIndexUpdateEvents,
 		}
 		storeErr := n.StoreIndex(IndexKey, newEntry)
 		if storeErr != nil {
@@ -815,7 +826,7 @@ func (n *Node) RemoveTargetValueFromIndex(indexKey string, targetValue string) e
 
 // ListIndexEntryTargetValues - lists the target values associated with the IndexEntry with the provided key. Where locallyOnly is set to TRUE,
 // we will only attempt to find the relevant index entry locally and return its target values, where it is set to FALSE (it is by default) we
-// will attempt to lookup the index entry over the network and return the target values from the most recently updated entry returned from the network.
+// will attempt to lookup the index entry over the network and return an aggregated deduped, UNION set of target values from all returned entries.
 func (n *Node) ListIndexEntryTargetValues(indexKey string, locallyOnly bool) ([]string, error) {
 
 	//if the user has specified locallyOnly then we only attempt to find the relevant index entry locally, if it exists,
@@ -1056,7 +1067,7 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 			n.logger.Debug("Index Record Sync time executed: %s", time.Now().Format("hh:mm"))
 
 			//dispatch sync index request to applicable peers.(i.e. not ourself or those that are part of ths nodes replica set for this record.)
-			n.dispatchSyncIndexRequest(publisherId, indexKey, reps, time.Now(), false, "")
+			n.dispatchSyncIndexRequest(publisherId, indexKey, reps, time.Now(), false, "", nil)
 
 		})
 
@@ -1368,6 +1379,7 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string, isIndexSync
 	// will be nil or empty and the ID of this node will be used as the publisher id.
 	var publisherId types.NodeID
 	var deleteIndexErr error
+	var coPublisherAddresses []string
 	if isIndexSyncRelated {
 
 		if len(optionalPublisherId) <= 0 {
@@ -1384,6 +1396,22 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string, isIndexSync
 	} else {
 		//otherwise for non-sync related request set the publisher id to the id of this node.
 		publisherId = n.ID
+
+		//where this method has NOT been called as a result of SYNC operation then we
+		//WILL want to trigger a sync process. Delete is a special case since all data
+		//related to the deleted entry may well have been removed from the network BEFORE
+		//the SYNC request is dispatched. Thus here we take a snapshot of all co-publishers
+		//that are associated with the IndexEntry to enable us to dispatch SYNC requests
+		//after the fact!
+		existingIndexEntries, found := n.FindIndex(indexKey)
+		if found {
+			for _, entry := range existingIndexEntries {
+				if entry.GetPublisher().String() == n.ID.String() {
+					continue
+				}
+				coPublisherAddresses = append(coPublisherAddresses, entry.PublisherAddr)
+			}
+		}
 	}
 
 	//attempt to delete the index entry locally.
@@ -1443,7 +1471,7 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string, isIndexSync
 
 				n.logger.Fine(">>>>>>>>>>INDEX DELETION SYNC REQUEST RUNNING<<<<<<<<<<<<<<<<<")
 				//dispatch sync index request to applicable peers.(i.e. not ourself or those that are part of ths nodes replica set for this record.)
-				n.dispatchSyncIndexRequest(publisherId, indexKey, reps, time.Now(), true, indexEntrySource)
+				n.dispatchSyncIndexRequest(publisherId, indexKey, reps, time.Now(), true, indexEntrySource, coPublisherAddresses)
 
 			})
 
@@ -1789,6 +1817,32 @@ func (n *Node) AddToBlacklist(addr ...string) {
 func (n *Node) IsBlacklisted(addr string) bool {
 	_, ok := n.blacklist.Load(addr)
 	return ok
+}
+
+// AggregateIndexEntryTargetValues - This function is used to aggregate the target values across a list of
+// RecordIndexEntryLike such that they are deduped and unique. This is intended for use where
+// a collection of IndexEntries are received to a node via the "IndexUpdateEvent" mechanism and the node
+// needs to extract the unique target values across the entries. As the Updated Index entries are actually
+// INCLUDED in the received event. this negates the need to make a call to "ListIndexEntryTargetValues" which
+// internally would make an additional network call to pull the latest version of the Index record.
+func (n *Node) AggregateIndexEntryTargetValues(indexEntries []commons.RecordIndexEntryLike) []string {
+	uniqueValues := make(map[string]struct{})
+	for _, entry := range indexEntries {
+		targetValsArr, listErr := entry.ListTargetValues()
+		if listErr != nil {
+			continue
+		}
+		for _, targetVal := range targetValsArr {
+			uniqueValues[targetVal] = struct{}{}
+		}
+	}
+
+	out := make([]string, 0, len(uniqueValues))
+	for val := range uniqueValues {
+		out = append(out, val)
+	}
+
+	return out
 }
 
 func (n *Node) RemoveFromBlacklist(addr ...string) {
@@ -2761,7 +2815,7 @@ func (n *Node) resolveNeighbouringNodes() {
 	n.Find(n.ID.String()) //we don't really care about the result.
 }
 
-func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, replicaSetAddrs []string, updatedAt time.Time, indexDeleted bool, deletedIndexSource string) {
+func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, replicaSetAddrs []string, updatedAt time.Time, indexDeleted bool, deletedIndexSource string, deletedIndexCoPublisherAddrs []string) {
 
 	n.logger.Debug("Dispatching Sync Index request for index record with key: %s from node: %s at: %s is deleted: %t", key, n.Addr, updatedAt.String(), indexDeleted)
 
@@ -2771,53 +2825,65 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 	//next re-pull the IndexRecord (or more specifically its value) from the
 	//network to ensure we obtain the most up=to-date copy complete with all associated publishers.
 	refetchedEntries, found := n.FindIndex(key)
-	if !found {
+	if !found && !indexDeleted {
 		n.logger.Error("An error occurred during the post update notification process, the updated index record could not be refetched from the network with key: %s", key)
 		return
 	}
 
-	//helper function, merges UNIQUE local and refetched entries into a single collection.
-	mergeLocalAndRefetched := func(local []RecordIndexEntry, refetched []RecordIndexEntry) []RecordIndexEntry {
+	//thc sync candidates we will dispatch to.
+	var syncIndexCandidateAddresses []string
 
-		//we merge the entries by taking the refetched entries as the source of truth and then adding in any local entries
-		// which have a publisher that is not represented in the refetched entries, this ensures we do not loose any publishers
-		// which may be associated with this index record but were not included in the refetched copy for some reason (e.g network issues during lookup, replication delays etc).
-		merged := make([]RecordIndexEntry, 0, len(refetched))
-		merged = append(merged, refetched...)
+	//where this is a NON-DELETION request we can derive the addresses from the IndexEntry themselves..
+	if !indexDeleted {
 
-		for _, localEntry := range local {
-			localEntryPublisherAddr := localEntry.PublisherAddr
-			found := false
-			for _, refetchedEntry := range refetched {
-				if refetchedEntry.PublisherAddr == localEntryPublisherAddr {
-					found = true
-					break
+		//helper function, merges UNIQUE local and refetched entries into a single collection.
+		mergeLocalAndRefetched := func(local []RecordIndexEntry, refetched []RecordIndexEntry) []RecordIndexEntry {
+
+			//we merge the entries by taking the refetched entries as the source of truth and then adding in any local entries
+			// which have a publisher that is not represented in the refetched entries, this ensures we do not loose any publishers
+			// which may be associated with this index record but were not included in the refetched copy for some reason (e.g network issues during lookup, replication delays etc).
+			merged := make([]RecordIndexEntry, 0, len(refetched))
+			merged = append(merged, refetched...)
+
+			for _, localEntry := range local {
+				localEntryPublisherAddr := localEntry.PublisherAddr
+				found := false
+				for _, refetchedEntry := range refetched {
+					if refetchedEntry.PublisherAddr == localEntryPublisherAddr {
+						found = true
+						break
+					}
+				}
+				if !found {
+					merged = append(merged, localEntry)
 				}
 			}
-			if !found {
-				merged = append(merged, localEntry)
+
+			return merged
+		}
+
+		mergedEntries := mergeLocalAndRefetched(localFindIndexEntries, refetchedEntries)
+
+		n.logger.Debug("Refetched Index Entries for key: %s on node:%s %v\n", key, n.Addr, refetchedEntries)
+
+		//iterate over the returned entries to parse publishers who are candidates for the sync notifications
+		//the peers must not be ourselves. We intentionally still notify co-publishers even if they were in the
+		//replica set for the preceding store operation so that they execute the sync path and publish events.
+
+		for _, entry := range mergedEntries {
+			curEntryPublisherAddr := entry.PublisherAddr
+
+			//ensure that we do not include ourselves as candidates for the sync notification
+			if curEntryPublisherAddr == n.Addr {
+				continue
 			}
+			syncIndexCandidateAddresses = append(syncIndexCandidateAddresses, curEntryPublisherAddr)
 		}
-
-		return merged
-	}
-
-	mergedEntries := mergeLocalAndRefetched(localFindIndexEntries, refetchedEntries)
-
-	n.logger.Debug("Refetched Index Entries for key: %s on node:%s %v\n", key, n.Addr, refetchedEntries)
-
-	//iterate over the returned entries to parse publishers who are candidates for the sync notifications
-	//the peers must not be ourselves. We intentionally still notify co-publishers even if they were in the
-	//replica set for the preceding store operation so that they execute the sync path and publish events.
-	var syncIndexCandidateAddresses []string
-	for _, entry := range mergedEntries {
-		curEntryPublisherAddr := entry.PublisherAddr
-
-		//ensure that we do not include ourselves as candidates for the sync notification
-		if curEntryPublisherAddr == n.Addr {
-			continue
-		}
-		syncIndexCandidateAddresses = append(syncIndexCandidateAddresses, curEntryPublisherAddr)
+	} else {
+		//Otherwise where this call DOES related to a deleted index we set our sync candidates
+		//to the provided list of co-publishers of the deleted index, a snapshot of these peers
+		//would have been taken by the DeleteIndex method, prior to the point of deletion.
+		syncIndexCandidateAddresses = deletedIndexCoPublisherAddrs
 	}
 
 	//build request

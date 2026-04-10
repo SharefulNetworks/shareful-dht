@@ -20,4 +20,5 @@ type RecordIndexEntryLike interface {
 	GetCreatedUnix() int64
 	GetPublisher() types.NodeID
 	GetPublisherAddr() string
+	ListTargetValues() ([]string, error)
 }

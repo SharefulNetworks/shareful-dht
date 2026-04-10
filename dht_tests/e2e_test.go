@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SharefulNetworks/shareful-dht/commons"
 	"github.com/SharefulNetworks/shareful-dht/config"
 	"github.com/SharefulNetworks/shareful-dht/dht"
 	"github.com/SharefulNetworks/shareful-dht/events"
@@ -5955,21 +5956,14 @@ func Test_Index_Entries_With_Indentical_Targets_But_Different_Publishers_To_Uniq
 
 func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId(t *testing.T) {
 
-	
-
-	/** 
-	   Here we seek to verify that the DHT new support for multiple targets under the same key and publisherId is working as expected.
-	   As the DHT defines unique entries in terms of a composite identity of the form <key, publisherId> 
-	   here we validate that when multiple entries are stored with the same key and publisherId but different
-	   targets, that all unique targets are now stored under the SAME IndexEntry as a SET of "target" values,
-	   each of which can be retrieved by calling ListTargetValues() on the IndexEntry in question.
+	/**
+	  Here we seek to verify that the DHT new support for multiple targets under the same key and publisherId is working as expected.
+	  As the DHT defines unique entries in terms of a composite identity of the form <key, publisherId>
+	  here we validate that when multiple entries are stored with the same key and publisherId but different
+	  targets, that all unique targets are now stored under the SAME IndexEntry as a SET of "target" values,
+	  each of which can be retrieved by calling ListTargetValues() on the IndexEntry in question.
 
 	*/
-     
-}
-
-/*
-func Test_Index_Entries_With_Indentical_Targets_But_Different_Publishers_To_Unique_Value_Mapping_With_Multiple_Targets(t *testing.T) {
 
 	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
 	bootstrapNodes := []string{":7401", ":7402", ":7403"}
@@ -5977,90 +5971,1184 @@ func Test_Index_Entries_With_Indentical_Targets_But_Different_Publishers_To_Uniq
 	//init nodes
 	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
 
-	//grab reference to all 3 nodes for ease of use in the test, we will be storing index entries
-	// with identical targets but different publishers to each of these nodes.
-	node1 := ctx.BootstrapNodes[0]
-	node2 := ctx.BootstrapNodes[1]
-	node3 := ctx.BootstrapNodes[2]
-	subsetOfNodesForTest := []*dht.Node{node1, node2, node3}
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//define shared key and target
+	key := "26.126.25.44"                               //here we simulate associating a LAN ip address with multiple peer ids.
+	target1 := "a6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 1
+	target2 := "b6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 2
+	target3 := "c6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 3
+	targets := []string{target1, target2, target3}
+
+	//selecta node to act as a publisher any value from 0 to (len(ctx.BootstrapNodes)-1) will suffice.
+	selectedNodeIdx := 0
+
+	for i := range 3 {
+		fmt.Printf("++++++++Storing index entry with key %s and target %s to node %s\n", key, targets[i], ctx.BootstrapNodes[selectedNodeIdx].Addr)
+		curNode := ctx.BootstrapNodes[selectedNodeIdx]
+		var curNodeStoreErr error
+
+		//store the first entry directly with the StoreIndex public interface method.
+		if i == 0 {
+			curNodeStoreErr = curNode.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: targets[i], EnableIndexUpdateEvents: false})
+		} else {
+			curNodeStoreErr = curNode.AppendTargetValueToIndex(key, targets[i], false)
+		}
+		if curNodeStoreErr != nil {
+			t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target1: %v", i+1, curNodeStoreErr)
+		}
+
+		//allow a brief pause betwen stores to allow time for the storage operation to propergate.
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	//allow some additional time for all store operations to propergate.
+	time.Sleep(3000 * time.Millisecond)
+
+	//to validate that the storage operation succeeded and that all targets were stored
+	//under under the same index. We pull the IndexEntries for the key on both of the other nodes
+	//NOT chosen as the publisher and examine their respective targets value.
+	for i := 0; i < len(ctx.BootstrapNodes); i++ {
+
+		//skip the node selected to be the publisher
+		if i == selectedNodeIdx {
+			continue
+		}
+		curNode := ctx.BootstrapNodes[i]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != 1 {
+			t.Fatalf("expected node %s to have exactly 1 index entry for key %s, got %d", curNode.Addr, key, len(indexEntries))
+		}
+
+		indexEntry := indexEntries[0]
+		targetValues, listingErr := indexEntry.ListTargetValues()
+		if listingErr != nil {
+			t.Fatalf("error occurred whilst listing target values for index entry for key %s on node %s: %v", key, curNode.Addr, listingErr)
+		}
+		fmt.Printf("&&&&&&&& Target values are: %v", targetValues)
+		if len(targetValues) != 3 {
+			t.Fatalf("expected index entry for key %s on node %s to contain 3 target values, got %d", key, curNode.Addr, len(targetValues))
+		}
+
+		targetValueSet := make(map[string]struct{})
+		for _, targetValue := range targetValues {
+			targetValueSet[targetValue] = struct{}{}
+		}
+
+		for _, expectedTarget := range targets {
+			if _, ok := targetValueSet[expectedTarget]; !ok {
+				t.Fatalf("expected target value %s not found in index entry for key %s on node %s", expectedTarget, key, curNode.Addr)
+			}
+		}
+	}
+
+}
+
+func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only(t *testing.T) {
+
+	/**
+	  Extends the test case: Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId
+	  Undertake the same tests using the nodes AppendTargetValueToIndex method. Which is a shorthand convenience
+	  method that creates a new IndexEntry where it doesn't already exist and populates it with the provided target value
+	  OR where the IndexEntry ALREADY exists it mere appends the provided value as an additional target.
+	  In production, wehre all default values are being used to store an IndexEntry, The AppendTargetValueToIndex method
+	  will often be simpler and more convenient to use.
+
+	*/
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
 
 	//allow sufficient time for the bootstrap process to complete.
 	time.Sleep(30000 * time.Millisecond)
 
-	//define TWO targets under the same shared key.
-	key := "leaf/x"
-	target1 := "super/target1"
-	target2 := "super/target2"
+	//define shared key and target
+	key := "26.126.25.44"                               //here we simulate associating a LAN ip address with multiple peer ids.
+	target1 := "a6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 1
+	target2 := "b6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 2
+	target3 := "c6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 3
+	targets := []string{target1, target2, target3}
 
-	//store index entries for our two targets to each of our three node which should make for
-	//a total three entries per target value. Whilst the raw index will contain a total of
-	//SIX entries for the key "leaf/x"  we expect the IndexToUniqueValueMap to collapse the six entries to a map of 2 UNIQUE value entries
-	//i.e. one per target specified.
-	for i, curNode := range subsetOfNodesForTest {
+	//selecta node to act as a publisher any value from 0 to (len(ctx.BootstrapNodes)-1) will suffice.
+	selectedNodeIdx := 0
 
-		curNodeStoreErr1 := curNode.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: target1, EnableIndexUpdateEvents: false})
-		if curNodeStoreErr1 != nil {
-			t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target1: %v", i+1, curNodeStoreErr1)
+	for i := range 3 {
+		fmt.Printf("++++++++Storing index entry with key %s and target %s to node %s\n", key, targets[i], ctx.BootstrapNodes[selectedNodeIdx].Addr)
+		curNode := ctx.BootstrapNodes[selectedNodeIdx]
+		var curNodeStoreErr error
+		curNodeStoreErr = curNode.AppendTargetValueToIndex(key, targets[i], false)
+
+		if curNodeStoreErr != nil {
+			t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target1: %v", i+1, curNodeStoreErr)
 		}
 
-		time.Sleep(2000 * time.Millisecond)
-
-		curNodeStoreErr2 := curNode.StoreIndex(key, dht.RecordIndexEntry{Source: key, Target: target2, EnableIndexUpdateEvents: false})
-		if curNodeStoreErr2 != nil {
-			t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target2: %v", i+1, curNodeStoreErr2)
-		}
-
-		time.Sleep(2000 * time.Millisecond)
+		//allow a brief pause betwen stores to allow time for the storage operation to propergate.
+		time.Sleep(500 * time.Millisecond)
 	}
 
-	//allow some time for the store operations to propagate and any synchronization to occur.
-	time.Sleep(20000 * time.Millisecond)
+	//allow some additional time for all store operations to propergate.
+	time.Sleep(3000 * time.Millisecond)
 
-	//validate that each node has referenced to the merged index including all 3 entries
-	//per target for a total of 6 including dupes.
+	//to validate that the storage operation succeeded and that all targets were stored
+	//under under the same index. We pull the IndexEntries for the key on both of the other nodes
+	//NOT chosen as the publisher and examine their respective targets value.
 	for i := 0; i < len(ctx.BootstrapNodes); i++ {
+
+		//skip the node selected to be the publisher
+		if i == selectedNodeIdx {
+			continue
+		}
 		curNode := ctx.BootstrapNodes[i]
 		indexEntries, found := curNode.FindIndexLocal(key)
-		if !found || len(indexEntries) != 6 {
-			t.Fatalf("expected node %s to have 6 index entries for key %s, got %d", curNode.Addr, key, len(indexEntries))
+		if !found || len(indexEntries) != 1 {
+			t.Fatalf("expected node %s to have exactly 1 index entry for key %s, got %d", curNode.Addr, key, len(indexEntries))
+		}
+
+		indexEntry := indexEntries[0]
+		targetValues, listingErr := indexEntry.ListTargetValues()
+		if listingErr != nil {
+			t.Fatalf("error occurred whilst listing target values for index entry for key %s on node %s: %v", key, curNode.Addr, listingErr)
+		}
+		fmt.Printf("&&&&&&&& Target values are: %v", targetValues)
+		if len(targetValues) != 3 {
+			t.Fatalf("expected index entry for key %s on node %s to contain 3 target values, got %d", key, curNode.Addr, len(targetValues))
+		}
+
+		targetValueSet := make(map[string]struct{})
+		for _, targetValue := range targetValues {
+			targetValueSet[targetValue] = struct{}{}
+		}
+
+		for _, expectedTarget := range targets {
+			if _, ok := targetValueSet[expectedTarget]; !ok {
+				t.Fatalf("expected target value %s not found in index entry for key %s on node %s", expectedTarget, key, curNode.Addr)
+			}
 		}
 	}
 
-	//next pick any of the nodes, find the index with our target key then pass the resulting
-	//IndexEntries to our new IndexToUniqueValueMap which should return a map containing a single
-	//entry with "key" set to our (shared ) target defined above and the "value" should be
-	//an array of all 3 IndexEntries, on per node, that stored an index entry with that target.
-	nodeToQuery := ctx.BootstrapNodes[0]
-	indexEntries, found := nodeToQuery.FindIndexLocal(key)
-	if !found {
-		t.Fatalf("expected to find index entries for key %s on node %s but found none", key, nodeToQuery.Addr)
+}
+
+func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only_With_CoPublishers(t *testing.T) {
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405", ":7406"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//define shared key and target
+	key := "26.126.25.44"                               //here we simulate associating a LAN ip address with multiple peer ids.
+	target1 := "a6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 1
+	target2 := "b6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 2
+	target3 := "c6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 3
+	targets := []string{target1, target2, target3}
+
+	//select nodes to act as publishers any value from 0 to (len(ctx.BootstrapNodes)-1) will suffice.
+	//here we pick the first three nodes as co-publishers to test that the SYNC INDEX mechanism properly
+	// propagates updates between co-publishers.
+	selectedPublisherNodeIndexes := []int{0, 1, 2}
+
+	//for each of our selected publishers...
+	for _, curSelectedPublisherNodeIndex := range selectedPublisherNodeIndexes {
+
+		//store each target under the same key (and publisher id - since they are being stored on the same node.)
+		for i := range targets {
+			fmt.Printf("++++++++Storing index entry with key %s and target %s to node %s\n", key, targets[i], ctx.BootstrapNodes[curSelectedPublisherNodeIndex].Addr)
+			curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndex]
+			var curNodeStoreErr error
+			curNodeStoreErr = curNode.AppendTargetValueToIndex(key, targets[i], false)
+
+			if curNodeStoreErr != nil {
+				t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target1: %v", i+1, curNodeStoreErr)
+			}
+
+			//allow a brief pause betwen stores to allow time for the storage operation to propergate.
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 
-	//here we validate that the map contains two entries, one for each unique value.
-	uniqueValueMap := nodeToQuery.IndexToUniqueValueMap(indexEntries)
-	if len(uniqueValueMap) != 2 {
-		t.Fatalf("expected unique value map to contain exactly 2 entries for targets %s and %s, got %d", target1, target2, len(uniqueValueMap))
+	//allow some additional time for all store operations to propergate.
+	time.Sleep(3000 * time.Millisecond)
+
+	//to validate that the storage operation succeeded and that all targets were stored
+	//under under the same index. We pull the IndexEntries for the key on both of the other nodes
+	//NOT chosen as the publisher and examine their respective targets value.
+	for i := 0; i < len(ctx.BootstrapNodes); i++ {
+
+		//skip the node selected to be the publisher
+		if slices.Contains(selectedPublisherNodeIndexes, i) {
+			continue
+		}
+		curNode := ctx.BootstrapNodes[i]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != len(selectedPublisherNodeIndexes) {
+			t.Fatalf("expected node %s to have exactly %d index entry for key %s, got %d", curNode.Addr, len(selectedPublisherNodeIndexes), key, len(indexEntries))
+		}
+
+		indexEntry := indexEntries[0]
+		targetValues, listingErr := indexEntry.ListTargetValues()
+		if listingErr != nil {
+			t.Fatalf("error occurred whilst listing target values for index entry for key %s on node %s: %v", key, curNode.Addr, listingErr)
+		}
+		fmt.Printf("&&&&&&&& Target values are: %v", targetValues)
+		if len(targetValues) != len(targets) {
+			t.Fatalf("expected index entry for key %s on node %s to contain %d target values, got %d", key, curNode.Addr, len(targets), len(targetValues))
+		}
+
+		targetValueSet := make(map[string]struct{})
+		for _, targetValue := range targetValues {
+			targetValueSet[targetValue] = struct{}{}
+		}
+
+		for _, expectedTarget := range targets {
+			if _, ok := targetValueSet[expectedTarget]; !ok {
+				t.Fatalf("expected target value %s not found in index entry for key %s on node %s", expectedTarget, key, curNode.Addr)
+			}
+		}
+	}
+}
+
+func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only_With_CoPublishers_With_Events(t *testing.T) {
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405", ":7406"}
+
+	//reset default config to prevent setting carrying over from previous tests
+	config.Reset()
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//define shared key and target
+	key := "26.126.25.44"                               //here we simulate associating a LAN ip address with multiple peer ids.
+	target1 := "a6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 1
+	target2 := "b6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 2
+	target3 := "c6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 3
+	targets := []string{target1, target2, target3}
+
+	//select nodes to act as publishers any value from 0 to (len(ctx.BootstrapNodes)-1) will suffice.
+	//here we pick the first three nodes as co-publishers to test that the SYNC INDEX mechanism properly
+	// propagates updates between co-publishers.
+	selectedPublisherNodeIndexes := []int{0, 1, 2}
+
+	//register a test event listener on each of the selected publisher nodes to verify that
+	// they receive IndexUpdateEvents as part of the SYNC INDEX process.
+	for _, curSelectedPublisherNodeIndex := range selectedPublisherNodeIndexes {
+		curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndex]
+		curNodeListener := NewTestNodeEventListener()
+		curNode.RegisterNodeEventListener(fmt.Sprintf("Node%dLsnr", curSelectedPublisherNodeIndex+1), curNodeListener)
 	}
 
-	//validate that the map contains 3 entries under target1, one per node that stored the entry
-	uniqueValueEntry, ok := uniqueValueMap[target1]
-	if !ok {
-		t.Fatalf("expected unique value map to contain entry for target %s", target1)
-	}
-	if len(uniqueValueEntry) != 3 {
-		t.Fatalf("expected unique value entry for target %s to contain 3 index entries, got %d", target1, len(uniqueValueEntry))
+	//for each of our selected publishers...
+	for _, curSelectedPublisherNodeIndex := range selectedPublisherNodeIndexes {
+
+		//store each target under the same key (and publisher id - since they are being stored on the same node.)
+		for i := range targets {
+			fmt.Printf("++++++++Storing index entry with key %s and target %s to node %s\n", key, targets[i], ctx.BootstrapNodes[curSelectedPublisherNodeIndex].Addr)
+			curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndex]
+			var curNodeStoreErr error
+
+			//Critically, Here we set the "enableIndexUpdateEvents" flag to TRUE when storing
+			// each target to ensure that IndexUpdateEvents are emitted and received by co-publishers
+			// as part of the SYNC INDEX process.
+			curNodeStoreErr = curNode.AppendTargetValueToIndex(key, targets[i], true)
+
+			if curNodeStoreErr != nil {
+				t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target1: %v", i+1, curNodeStoreErr)
+			}
+
+			//allow a brief pause betwen stores to allow time for the storage operation to propergate.
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 
-	//similarly validate that the map contains 3 entries under target2
-	uniqueValueEntry2, ok := uniqueValueMap[target2]
-	if !ok {
-		t.Fatalf("expected unique value map to contain entry for target %s", target2)
-	}
-	if len(uniqueValueEntry2) != 3 {
-		t.Fatalf("expected unique value entry for target %s to contain 3 index entries, got %d", target2, len(uniqueValueEntry2))
+	//allow some additional time for all store operations to propergate.
+	time.Sleep(3000 * time.Millisecond)
+
+	//to validate that the storage operation succeeded and that all targets were stored
+	//under under the same index. We pull the IndexEntries for the key on both of the other nodes
+	//NOT chosen as the publisher and examine their respective targets value.
+	for i := 0; i < len(ctx.BootstrapNodes); i++ {
+
+		//skip the node selected to be the publisher
+		if slices.Contains(selectedPublisherNodeIndexes, i) {
+			continue
+		}
+		curNode := ctx.BootstrapNodes[i]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != len(selectedPublisherNodeIndexes) {
+			t.Fatalf("expected node %s to have exactly %d index entry for key %s, got %d", curNode.Addr, len(selectedPublisherNodeIndexes), key, len(indexEntries))
+		}
+
+		indexEntry := indexEntries[0]
+		targetValues, listingErr := indexEntry.ListTargetValues()
+		if listingErr != nil {
+			t.Fatalf("error occurred whilst listing target values for index entry for key %s on node %s: %v", key, curNode.Addr, listingErr)
+		}
+		fmt.Printf("&&&&&&&& Target values are: %v", targetValues)
+		if len(targetValues) != len(targets) {
+			t.Fatalf("expected index entry for key %s on node %s to contain %d target values, got %d", key, curNode.Addr, len(targets), len(targetValues))
+		}
+
+		targetValueSet := make(map[string]struct{})
+		for _, targetValue := range targetValues {
+			targetValueSet[targetValue] = struct{}{}
+		}
+
+		for _, expectedTarget := range targets {
+			if _, ok := targetValueSet[expectedTarget]; !ok {
+				t.Fatalf("expected target value %s not found in index entry for key %s on node %s", expectedTarget, key, curNode.Addr)
+			}
+		}
 	}
 
-}*/
+	//NB: By default a delay is introduced before events are published, the process happens asynchronously
+	//.   after period defined in the prevaling config's "IndexSyncDelay" value which defaults to two seconds.
+	//thus here we wait a sufficient period to allow for the asynchronous SYNC INDEX process to complete and
+	// for events to be published and received by co-publishers before we validate event receipt.
+	time.Sleep(ctx.Config.IndexSyncDelay + 3000*time.Millisecond)
+
+	//finally we validate that each of the publisher nodes received IndexUpdateEvents for
+	// each of the targets stored by the other publisher nodes as part of the SYNC INDEX process.
+	for _, curSelectedPublisherNodeIndex := range selectedPublisherNodeIndexes {
+		curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndex]
+		curNodeListener := curNode.ListNodeEventListeners()[0].(*TestNodeEventListener)
+		receivedEvents := curNodeListener.GetReceivedIndexUpdateEvents()
+
+		//first test that each co-publisher node received the correct number of UNIQUE events (i.e at least one from each co publisher)
+		//which should be equal to the number of selected nodes minus one (to account for ourself)
+		expectedEventCount := (len(selectedPublisherNodeIndexes) - 1)
+		if len(receivedEvents) < expectedEventCount {
+			t.Fatalf("expected node %s to have received exactly %d IndexUpdateEvents, but it received %d", curNode.Addr, expectedEventCount, len(receivedEvents))
+		}
+
+		//next we grsb reference to the last event received and confirm that there exists
+		//3 unique values (i.e 3 targets) under the same key we defined earlier: "26.126.25.44"
+		lastReceivedEvent := receivedEvents[len(receivedEvents)-1]
+
+		//we call the aggregation method on any node to convert the list of index entries to
+		//an aggregated deduped array of target values across all entries.
+		uniqueValues := ctx.BootstrapNodes[0].AggregateIndexEntryTargetValues(lastReceivedEvent.GetEntries())
+
+		if len(uniqueValues) != len(targets) {
+			t.Fatalf("expected last received IndexUpdateEvent for node %s to contain exactly %d unique target values, got %d", curNode.Addr, len(targets), len(uniqueValues))
+		}
+
+		//finally, validate that each of the target values defined earlier are present in the list of unique values.
+		for _, expectedTarget := range targets {
+			if !slices.Contains(uniqueValues, expectedTarget) {
+				t.Fatalf("expected target value %s not found in last received IndexUpdateEvent for node %s", expectedTarget, curNode.Addr)
+			}
+		}
+
+	}
+}
+
+func Test_Deleting_One_Of_Multiple_Targets_Stored_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId(t *testing.T) {
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//define shared key and target
+	key := "26.126.25.44"                               //here we simulate associating a LAN ip address with multiple peer ids.
+	target1 := "a6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 1
+	target2 := "b6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 2
+	target3 := "c6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 3
+	targets := []string{target1, target2, target3}
+
+	//selecta node to act as a publisher any value from 0 to (len(ctx.BootstrapNodes)-1) will suffice.
+	selectedNodeIdx := 0
+
+	//store all three targets to the IndexEntry with the same key (and publisher id as its the same node - 0 in this case)
+	selectedNode := ctx.BootstrapNodes[selectedNodeIdx]
+	for i := range targets {
+
+		var curNodeStoreErr error
+		curNodeStoreErr = selectedNode.AppendTargetValueToIndex(key, targets[i], false)
+
+		if curNodeStoreErr != nil {
+			t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target1: %v", i+1, curNodeStoreErr)
+		}
+
+		//allow a brief pause betwen stores to allow time for the storage operation to propergate.
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	//allow some additional time for all store operations to propergate.
+	time.Sleep(3000 * time.Millisecond)
+
+	//next we attempt delete a single a target from the index entry.
+	indexOfTargetValueToDelete := 1
+	targetValueToDelete := targets[indexOfTargetValueToDelete]
+
+	//grab refernce to the selected node and call the delete method to delete the target value from the index entry
+	deleteErr := selectedNode.RemoveTargetValueFromIndex(key, targetValueToDelete)
+	if deleteErr != nil {
+		t.Fatalf("Error occurred whilst trying to delete target value %s from index entry with key %s on node %s: %v", targetValueToDelete, key, selectedNode.Addr, deleteErr)
+	}
+
+	//allow some additional time for the delete operation to propergate.
+	time.Sleep(3000 * time.Millisecond)
+
+	//finally we validate that the target value was deleted from the index entry.
+	//Note: We go out to the network to ensure the deletion has correctly propagated to the nodes selected replica set.
+	indexEntries, found := selectedNode.FindIndex(key)
+
+	//next we grab reference to the current entries stored under the key we expect to find a single top-level
+	// entry as only a SINGLE publisher stored a value to this index. Next we call our utility method on any node to transform
+	//our list of index entries to a deduped set of unique target values and confirm as follows...
+	if !found || len(indexEntries) != 1 {
+		t.Fatalf("expected node %s to have exactly %d index entry for key %s, got %d", selectedNode.Addr, 1, key, len(indexEntries))
+	}
+	indexEntryLikeArr := make([]commons.RecordIndexEntryLike, len(indexEntries))
+	for i, entry := range indexEntries {
+		indexEntryLikeArr[i] = &entry
+	}
+	indexEntryTargetValues := selectedNode.AggregateIndexEntryTargetValues(indexEntryLikeArr)
+
+	//1)That the total number of unique target values under the key is now equal to two
+	// (as we deleted one of the three targets originally stored)
+	if len(indexEntryTargetValues) != len(targets)-1 {
+		t.Fatalf("expected index entry for key %s on node %s to contain exactly %d unique target values, got %d", key, selectedNode.Addr, len(targets)-1, len(indexEntryTargetValues))
+	}
+
+	//2) That the target value we deleted is no longer present under the key
+	if slices.Contains(indexEntryTargetValues, targetValueToDelete) {
+		t.Fatalf("expected deleted target value %s to no longer be present in index entry for key %s on node %s", targetValueToDelete, key, selectedNode.Addr)
+	}
+
+	//3) That the two target values we did not delete are still present under the key
+	for i, expectedTarget := range targets {
+		if i == indexOfTargetValueToDelete {
+			continue
+		}
+		if !slices.Contains(indexEntryTargetValues, expectedTarget) {
+			t.Fatalf("expected target value %s not found in index entry for key %s on node %s", expectedTarget, key, selectedNode.Addr)
+		}
+	}
+
+}
+
+func Test_Deleting_One_Of_One_Targets_Stored_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId(t *testing.T) {
+
+	/**
+		   As we are simulating the existence of a single target value under the provided key
+	       its deletion should trigger the deletion of the entire index entry under the key
+		   since the DHT should not permit the existence of IndexEntries with no assigned target value(s).
+	*/
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//define shared key and target
+	key := "26.126.25.44"                               //here we simulate associating a LAN ip address with multiple peer ids.
+	target1 := "a6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 1
+
+	//selecta node to act as a publisher any value from 0 to (len(ctx.BootstrapNodes)-1) will suffice.
+	selectedNodeIdx := 0
+
+	//store all three targets to the IndexEntry with the same key (and publisher id as its the same node - 0 in this case)
+	selectedNode := ctx.BootstrapNodes[selectedNodeIdx]
+
+	//store the singular target under the provided key
+	curNodeStoreErr := selectedNode.AppendTargetValueToIndex(key, target1, false)
+	if curNodeStoreErr != nil {
+		t.Fatalf("Error occurred whilst Peer Node was trying to store index entry for target1: %v", curNodeStoreErr)
+	}
+
+	//allow some additional time for all store operations to propergate.
+	time.Sleep(3000 * time.Millisecond)
+
+	//next we attempt delete the single target from the index entry.
+
+	//grab refernce to the selected node and call the delete method to delete the target value from the index entry
+	deleteErr := selectedNode.RemoveTargetValueFromIndex(key, target1)
+	if deleteErr != nil {
+		t.Fatalf("Error occurred whilst trying to delete target value %s from index entry with key %s on node %s: %v", target1, key, selectedNode.Addr, deleteErr)
+	}
+
+	//allow some additional time for the delete operation to propergate. We allows some additional time
+	//since an aditional network call is implictly made to delete the index entry after deleting the
+	// single target value it contained.
+	time.Sleep(5000 * time.Millisecond)
+
+	//finally we validate that the index entry itself was deleted,
+	// as a result of deleting the single target value it contained.
+	//we go out to the network to ensure the deletion has correctly propagated
+	// to the nodes selected replica set and confirm that no index entry is found for the key.
+	_, found := selectedNode.FindIndex(key)
+	if found {
+		t.Fatalf("expected index entry for key %s to have been deleted from node %s after deleting its single target value, but it was still found", key, selectedNode.Addr)
+	}
+}
+
+func Test_Deleting_One_Of_Multiple_Targets_Stored_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_With_CoPublishers(t *testing.T) {
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405", ":7406"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//define shared key and target
+	key := "26.126.25.44"                               //here we simulate associating a LAN ip address with multiple peer ids.
+	target1 := "a6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 1
+	target2 := "b6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 2
+	target3 := "c6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 3
+	targets := []string{target1, target2, target3}
+
+	//select nodes to act as publishers any value from 0 to (len(ctx.BootstrapNodes)-1) will suffice.
+	//here we pick the first three nodes as co-publishers to test that the SYNC INDEX mechanism properly
+	// propagates updates between co-publishers.
+	selectedPublisherNodeIndexes := []int{0, 1, 2}
+
+	//for each of our selected publishers...
+	for _, curSelectedPublisherNodeIndex := range selectedPublisherNodeIndexes {
+
+		//store each target under the same key (and publisher id - since they are being stored on the same node.)
+		for i := range targets {
+
+			curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndex]
+			var curNodeStoreErr error
+			curNodeStoreErr = curNode.AppendTargetValueToIndex(key, targets[i], false)
+
+			if curNodeStoreErr != nil {
+				t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target1: %v", i+1, curNodeStoreErr)
+			}
+
+			//allow a brief pause betwen stores to allow time for the storage operation to propergate.
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	//allow some additional time for all store operations to propergate.
+	time.Sleep(3000 * time.Millisecond)
+
+	//to validate that the storage operation succeeded and propergated to other publishers
+	//via the SYNC mechanism we iterate over all publisher nodes and just ensure that the target
+	//values are present
+	for i := 0; i < len(selectedPublisherNodeIndexes); i++ {
+
+		//attempt to find all entries related to the key on this local co publishe node.
+		curNode := ctx.BootstrapNodes[selectedPublisherNodeIndexes[i]]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != len(selectedPublisherNodeIndexes) {
+			t.Fatalf("expected node %s to have exactly %d index entry for key %s, got %d", curNode.Addr, len(selectedPublisherNodeIndexes), key, len(indexEntries))
+		}
+
+		//convert index entries to index like entries as would be received on update events.
+		indexLikeEntries := make([]commons.RecordIndexEntryLike, len(indexEntries))
+		for i := range indexEntries {
+			indexLikeEntries[i] = &indexEntries[i]
+		}
+
+		//validate that all target values are present under the key on this co publisher node by
+		// calling the aggregation method to get a deduped set of unique target values across all
+		// entries and confirming that each of the expected target values is present in the set.
+		targetValuesSet := curNode.AggregateIndexEntryTargetValues(indexLikeEntries)
+		for _, expectedTarget := range targets {
+			if !slices.Contains(targetValuesSet, expectedTarget) {
+				t.Fatalf("expected target value %s not found in index entry for key %s on node %s", expectedTarget, key, curNode.Addr)
+			}
+		}
+	}
+
+	//next we attempt delete a single a target from the index entry on the first publisher node.
+	//grab refernce to the first selected publisher node and call the delete method to delete
+	// the target value from the index entry
+	targetValueToDelete := targets[1]
+	deletingPublisherNode := ctx.BootstrapNodes[selectedPublisherNodeIndexes[0]]
+	deletingPublisherId := deletingPublisherNode.ID
+	deleteErr := deletingPublisherNode.RemoveTargetValueFromIndex(key, targetValueToDelete)
+	if deleteErr != nil {
+		t.Fatalf("Error occurred whilst trying to delete target value %s from index entry with key %s on node %s: %v", targetValueToDelete, key, ctx.BootstrapNodes[selectedPublisherNodeIndexes[0]].Addr, deleteErr)
+	}
+
+	//allow some additional time for the delete operation to propergate across co publishers via the SYNC mechanism.
+	time.Sleep(5000 * time.Millisecond)
+
+	//finally we validate publisher-local delete semantics across all co-publishers:
+	//1) the deleting publisher entry no longer contains the deleted target value
+	//2) non-deleting publisher entries still contain the deleted target value
+	for i := 0; i < len(selectedPublisherNodeIndexes); i++ {
+
+		//attempt to find all entries related to the key on this local co publishe node.
+		curNode := ctx.BootstrapNodes[selectedPublisherNodeIndexes[i]]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != len(selectedPublisherNodeIndexes) {
+			t.Fatalf("expected node %s to have exactly %d index entry for key %s, got %d", curNode.Addr, len(selectedPublisherNodeIndexes), key, len(indexEntries))
+		}
+
+		for _, entry := range indexEntries {
+			targetValues, listErr := entry.ListTargetValues()
+			if listErr != nil {
+				t.Fatalf("error occurred whilst listing target values for key %s on node %s: %v", key, curNode.Addr, listErr)
+			}
+
+			if entry.Publisher == deletingPublisherId {
+				if slices.Contains(targetValues, targetValueToDelete) {
+					t.Fatalf("expected deleted target value %s to no longer be present in deleting publisher entry on node %s", targetValueToDelete, curNode.Addr)
+				}
+				if len(targetValues) != len(targets)-1 {
+					t.Fatalf("expected deleting publisher entry to contain exactly %d targets on node %s, got %d", len(targets)-1, curNode.Addr, len(targetValues))
+				}
+			} else {
+				if !slices.Contains(targetValues, targetValueToDelete) {
+					t.Fatalf("expected non-deleting publisher entry to still contain target value %s on node %s", targetValueToDelete, curNode.Addr)
+				}
+			}
+		}
+	}
+}
+
+func Test_Deleting_One_Of_Multiple_Targets_Stored_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_With_CoPublishers_With_Events(t *testing.T) {
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405", ":7406"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//define shared key and target
+	key := "26.126.25.44"                               //here we simulate associating a LAN ip address with multiple peer ids.
+	target1 := "a6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 1
+	target2 := "b6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 2
+	target3 := "c6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 3
+	targets := []string{target1, target2, target3}
+
+	//select nodes to act as publishers any value from 0 to (len(ctx.BootstrapNodes)-1) will suffice.
+	//here we pick the first three nodes as co-publishers to test that the SYNC INDEX mechanism properly
+	// propagates updates between co-publishers.
+	selectedPublisherNodeIndexes := []int{0, 1, 2}
+
+	//register a test event listener on each of the selected publisher nodes to verify that
+	// they receive IndexUpdateEvents as part of the SYNC INDEX process.
+	for _, curSelectedPublisherNodeIndex := range selectedPublisherNodeIndexes {
+		curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndex]
+		curNodeListener := NewTestNodeEventListener()
+		curNode.RegisterNodeEventListener(fmt.Sprintf("Node%dLsnr", curSelectedPublisherNodeIndex+1), curNodeListener)
+	}
+
+	//for each of our selected publishers...
+	for _, curSelectedPublisherNodeIndex := range selectedPublisherNodeIndexes {
+
+		//store each target under the same key (and publisher id - since they are being stored on the same node.)
+		for i := range targets {
+
+			curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndex]
+			var curNodeStoreErr error
+			curNodeStoreErr = curNode.AppendTargetValueToIndex(key, targets[i], true) //critically we must set the "enableIndexUpdateEvents" flag to true.
+
+			if curNodeStoreErr != nil {
+				t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target1: %v", i+1, curNodeStoreErr)
+			}
+
+			//allow a brief pause betwen stores to allow time for the storage operation to propergate.
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	//allow some additional time for all store operations to propergate.
+	time.Sleep(3000 * time.Millisecond)
+
+	//to validate that the storage operation succeeded and propergated to other publishers
+	//via the SYNC mechanism we iterate over all publisher nodes and just ensure that the target
+	//values are present
+	for i := 0; i < len(selectedPublisherNodeIndexes); i++ {
+
+		//attempt to find all entries related to the key on this local co publishe node.
+		curNode := ctx.BootstrapNodes[selectedPublisherNodeIndexes[i]]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != len(selectedPublisherNodeIndexes) {
+			t.Fatalf("expected node %s to have exactly %d index entry for key %s, got %d", curNode.Addr, len(selectedPublisherNodeIndexes), key, len(indexEntries))
+		}
+
+		//convert index entries to index like entries as would be received on update events.
+		indexLikeEntries := make([]commons.RecordIndexEntryLike, len(indexEntries))
+		for i := range indexEntries {
+			indexLikeEntries[i] = &indexEntries[i]
+		}
+
+		//validate that all target values are present under the key on this co publisher node by
+		// calling the aggregation method to get a deduped set of unique target values across all
+		// entries and confirming that each of the expected target values is present in the set.
+		targetValuesSet := curNode.AggregateIndexEntryTargetValues(indexLikeEntries)
+		for _, expectedTarget := range targets {
+			if !slices.Contains(targetValuesSet, expectedTarget) {
+				t.Fatalf("expected target value %s not found in index entry for key %s on node %s", expectedTarget, key, curNode.Addr)
+			}
+		}
+	}
+
+	//next we attempt delete a single a target from the index entry on the first publisher node.
+	//grab refernce to the first selected publisher node and call the delete method to delete
+	// the target value from the index entry
+	targetValueToDelete := targets[1]
+	deletingPublisherNode := ctx.BootstrapNodes[selectedPublisherNodeIndexes[0]]
+	deletingPublisherId := deletingPublisherNode.ID
+	deleteErr := deletingPublisherNode.RemoveTargetValueFromIndex(key, targetValueToDelete)
+	if deleteErr != nil {
+		t.Fatalf("Error occurred whilst trying to delete target value %s from index entry with key %s on node %s: %v", targetValueToDelete, key, ctx.BootstrapNodes[selectedPublisherNodeIndexes[0]].Addr, deleteErr)
+	}
+
+	//allow some additional time for the delete operation to propergate across co publishers via the SYNC mechanism.
+	time.Sleep(5000 * time.Millisecond)
+
+	//finally we validate publisher-local delete semantics across all co-publishers:
+	//1) the deleting publisher entry no longer contains the deleted target value
+	//2) non-deleting publisher entries still contain the deleted target value
+	for i := 0; i < len(selectedPublisherNodeIndexes); i++ {
+
+		//attempt to find all entries related to the key on this local co publishe node.
+		curNode := ctx.BootstrapNodes[selectedPublisherNodeIndexes[i]]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != len(selectedPublisherNodeIndexes) {
+			t.Fatalf("expected node %s to have exactly %d index entry for key %s, got %d", curNode.Addr, len(selectedPublisherNodeIndexes), key, len(indexEntries))
+		}
+
+		for _, entry := range indexEntries {
+			targetValues, listErr := entry.ListTargetValues()
+			if listErr != nil {
+				t.Fatalf("error occurred whilst listing target values for key %s on node %s: %v", key, curNode.Addr, listErr)
+			}
+
+			if entry.Publisher == deletingPublisherId {
+				if slices.Contains(targetValues, targetValueToDelete) {
+					t.Fatalf("expected deleted target value %s to no longer be present in deleting publisher entry on node %s", targetValueToDelete, curNode.Addr)
+				}
+				if len(targetValues) != len(targets)-1 {
+					t.Fatalf("expected deleting publisher entry to contain exactly %d targets on node %s, got %d", len(targets)-1, curNode.Addr, len(targetValues))
+				}
+			} else {
+				if !slices.Contains(targetValues, targetValueToDelete) {
+					t.Fatalf("expected non-deleting publisher entry to still contain target value %s on node %s", targetValueToDelete, curNode.Addr)
+				}
+			}
+		}
+	}
+
+	//next validate we validate that the last event received to all co-publishers
+	//excluding the deleting publisher/node contains the updated targetEntryValues array
+	//with the deleted target value removed.
+	//NB: The entry should only have been removed from the IndexEntry associated with
+	//.   the deleting publishers node.
+	for i := 0; i < len(selectedPublisherNodeIndexes); i++ {
+
+		curNode := ctx.BootstrapNodes[selectedPublisherNodeIndexes[i]]
+		if curNode.ID == deletingPublisherId {
+			continue
+		}
+		curNodeListener := curNode.ListNodeEventListeners()[0].(*TestNodeEventListener)
+		receivedEvents := curNodeListener.GetReceivedIndexUpdateEvents()
+
+		if len(receivedEvents) == 0 {
+			t.Fatalf("expected node %s to have received at least 1 IndexUpdateEvent, but it received none", curNode.Addr)
+		}
+
+		lastReceivedEvent := receivedEvents[len(receivedEvents)-1]
+		lastReceivedEventEntries := lastReceivedEvent.GetEntries()
+		for _, entry := range lastReceivedEventEntries {
+
+			//check that the target entry associated with the deleting publisher id
+			// no longer contains the deleted target value and that its entry value count has
+			//been reduced by one.
+			if entry.GetPublisher() == deletingPublisherId {
+				targetValues, listErr := entry.ListTargetValues()
+				if listErr != nil {
+					t.Fatalf("error occurred whilst listing target values for key %s on node %s: %v", key, curNode.Addr, listErr)
+				}
+				if slices.Contains(targetValues, targetValueToDelete) {
+					t.Fatalf("expected deleted target value %s to no longer be present in last received IndexUpdateEvent entry for key %s on node %s", targetValueToDelete, key, curNode.Addr)
+				}
+				if len(targetValues) != len(targets)-1 {
+					t.Fatalf("expected last received IndexUpdateEvent entry for key %s on node %s to contain exactly %d targets, got %d", key, curNode.Addr, len(targets)-1, len(targetValues))
+				}
+			} else {
+
+				//conversely, check that the target entries associated with non-deleting publisher ids still contain the deleted target
+				// value and that their entry value counts are unchanged.
+				targetValues, listErr := entry.ListTargetValues()
+				if listErr != nil {
+					t.Fatalf("error occurred whilst listing target values for key %s on node %s: %v", key, curNode.Addr, listErr)
+				}
+				if !slices.Contains(targetValues, targetValueToDelete) {
+					t.Fatalf("expected deleted target value %s to still be present (on non-deleting publisher node) in last received IndexUpdateEvent entry for key %s on node %s", targetValueToDelete, key, curNode.Addr)
+				}
+				if len(targetValues) != len(targets) {
+					t.Fatalf("expected last received IndexUpdateEvent entry for key %s on node %s to contain exactly %d targets, got %d", key, curNode.Addr, len(targets), len(targetValues))
+				}
+
+			}
+
+		}
+	}
+
+	//finally validate the a aggregated network lookup of the key still contains the deleted
+	//target value. The target value was OPNLY deleted of one node but will still be pressent
+	// on the other co-publisher nodes and thus should still be found in a network lookup which
+	// aggregates values across nodes
+	indexEntryTargetValues, lookupError := deletingPublisherNode.ListIndexEntryTargetValues(key, false)
+	if lookupError != nil {
+		t.Fatalf("error occurred whilst performing network lookup for key %s: %v", key, lookupError)
+	}
+	if !slices.Contains(indexEntryTargetValues, targetValueToDelete) {
+		t.Fatalf("expected deleted target value %s to still be present in aggregated network lookup for key %s", targetValueToDelete, key)
+	}
+}
+
+func Test_Deleting_All_Of_One_Of_Multiple_Targets_Stored_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_With_CoPublishers_With_Events(t *testing.T) {
+
+	/**
+	  Takes the test: Test_Deleting_One_Of_Multiple_Targets_Stored_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_With_CoPublishers_With_Events
+	  a step further by deleting the target value from ALL co-publisher nodes and then validating that:
+	  1)The targetValue is removed from all co-publisher nodes, listing all unique target values for the key across all co-publishers should return
+	     a set of target values with the deleted target value removed.
+	  2)The entries contained in the last event received to ALL nodes now omit the removed value.
+	*/
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405", ":7406"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//define shared key and target
+	key := "26.126.25.44"                               //here we simulate associating a LAN ip address with multiple peer ids.
+	target1 := "a6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 1
+	target2 := "b6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 2
+	target3 := "c6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 3
+	targets := []string{target1, target2, target3}
+
+	//select nodes to act as publishers any value from 0 to (len(ctx.BootstrapNodes)-1) will suffice.
+	//here we pick the first three nodes as co-publishers to test that the SYNC INDEX mechanism properly
+	// propagates updates between co-publishers.
+	selectedPublisherNodeIndexes := []int{0, 1, 2}
+
+	//register a test event listener on each of the selected publisher nodes to verify that
+	// they receive IndexUpdateEvents as part of the SYNC INDEX process.
+	for _, curSelectedPublisherNodeIndex := range selectedPublisherNodeIndexes {
+		curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndex]
+		curNodeListener := NewTestNodeEventListener()
+		curNode.RegisterNodeEventListener(fmt.Sprintf("Node%dLsnr", curSelectedPublisherNodeIndex+1), curNodeListener)
+	}
+
+	//for each of our selected publishers...
+	for _, curSelectedPublisherNodeIndex := range selectedPublisherNodeIndexes {
+
+		//store each target under the same key (and publisher id - since they are being stored on the same node.)
+		for i := range targets {
+
+			curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndex]
+			var curNodeStoreErr error
+			curNodeStoreErr = curNode.AppendTargetValueToIndex(key, targets[i], true) //critically we must set the "enableIndexUpdateEvents" flag to true.
+
+			if curNodeStoreErr != nil {
+				t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target1: %v", i+1, curNodeStoreErr)
+			}
+
+			//allow a brief pause betwen stores to allow time for the storage operation to propergate.
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	//allow some additional time for all store operations to propergate.
+	time.Sleep(3000 * time.Millisecond)
+
+	//to validate that the storage operation succeeded and propergated to other publishers
+	//via the SYNC mechanism we iterate over all publisher nodes and just ensure that the target
+	//values are present
+	for i := 0; i < len(selectedPublisherNodeIndexes); i++ {
+
+		//attempt to find all entries related to the key on this local co publishe node.
+		curNode := ctx.BootstrapNodes[selectedPublisherNodeIndexes[i]]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != len(selectedPublisherNodeIndexes) {
+			t.Fatalf("expected node %s to have exactly %d index entry for key %s, got %d", curNode.Addr, len(selectedPublisherNodeIndexes), key, len(indexEntries))
+		}
+
+		//convert index entries to index like entries as would be received on update events.
+		indexLikeEntries := make([]commons.RecordIndexEntryLike, len(indexEntries))
+		for i := range indexEntries {
+			indexLikeEntries[i] = &indexEntries[i]
+		}
+
+		//validate that all target values are present under the key on this co publisher node by
+		// calling the aggregation method to get a deduped set of unique target values across all
+		// entries and confirming that each of the expected target values is present in the set.
+		targetValuesSet := curNode.AggregateIndexEntryTargetValues(indexLikeEntries)
+		for _, expectedTarget := range targets {
+			if !slices.Contains(targetValuesSet, expectedTarget) {
+				t.Fatalf("expected target value %s not found in index entry for key %s on node %s", expectedTarget, key, curNode.Addr)
+			}
+		}
+	}
+
+	//next we attempt delete a single a target from the index entry on ALL co-publisher nodes.
+	targetValueToDelete := targets[1]
+	for _, curSelectedPublisherNodeIndexes := range selectedPublisherNodeIndexes {
+		curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndexes]
+		deleteErr := curNode.RemoveTargetValueFromIndex(key, targetValueToDelete)
+		if deleteErr != nil {
+			t.Fatalf("Error occurred whilst trying to delete target value %s from index entry with key %s on node %s: %v", targetValueToDelete, key, curNode.Addr, deleteErr)
+		}
+
+	}
+
+	//allow some additional time for the delete operation to propergate across co publishers via the SYNC mechanism.
+	time.Sleep(5000 * time.Millisecond)
+
+	//next we validate publisher-local delete semantics across all co-publishers:
+	for i := 0; i < len(selectedPublisherNodeIndexes); i++ {
+
+		//attempt to find all entries related to the key on this local co publishe node.
+		curNode := ctx.BootstrapNodes[selectedPublisherNodeIndexes[i]]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != len(selectedPublisherNodeIndexes) {
+			t.Fatalf("expected node %s to have exactly %d index entry for key %s, got %d", curNode.Addr, len(selectedPublisherNodeIndexes), key, len(indexEntries))
+		}
+
+		//validate that local reference to the removed value no longer exist across co-publisher nodes.
+		for _, entry := range indexEntries {
+			targetValues, listErr := entry.ListTargetValues()
+			if listErr != nil {
+				t.Fatalf("error occurred whilst listing target values for key %s on node %s: %v", key, curNode.Addr, listErr)
+			}
+
+			if slices.Contains(targetValues, targetValueToDelete) {
+				t.Fatalf("expected deleted target value %s to no longer be present in deleting publisher entry on node %s", targetValueToDelete, curNode.Addr)
+			}
+			if len(targetValues) != len(targets)-1 {
+				t.Fatalf("expected deleting publisher entry to contain exactly %d targets on node %s, got %d", len(targets)-1, curNode.Addr, len(targetValues))
+			}
+		}
+
+	}
+
+	//next validate that the last event received to all co-publishers
+	//contains the updated targetEntryValues array with the deleted target value removed.
+	//NB: The entry should only have been removed from the IndexEntry associated with
+	//.   the deleting publishers node.
+	for i := 0; i < len(selectedPublisherNodeIndexes); i++ {
+
+		curNode := ctx.BootstrapNodes[selectedPublisherNodeIndexes[i]]
+
+		curNodeListener := curNode.ListNodeEventListeners()[0].(*TestNodeEventListener)
+		receivedEvents := curNodeListener.GetReceivedIndexUpdateEvents()
+
+		if len(receivedEvents) == 0 {
+			t.Fatalf("expected node %s to have received at least 1 IndexUpdateEvent, but it received none", curNode.Addr)
+		}
+
+		lastReceivedEvent := receivedEvents[len(receivedEvents)-1]
+		lastReceivedEventEntries := lastReceivedEvent.GetEntries()
+		for _, entry := range lastReceivedEventEntries {
+
+			//check that the index entry no longer contains the deleted target value
+			// and that its entry value count has
+			//been reduced by one.
+			targetValues, listErr := entry.ListTargetValues()
+			if listErr != nil {
+				t.Fatalf("error occurred whilst listing target values for key %s on node %s: %v", key, curNode.Addr, listErr)
+			}
+			if slices.Contains(targetValues, targetValueToDelete) {
+				t.Fatalf("expected deleted target value %s to no longer be present in last received IndexUpdateEvent entry for key %s on node %s", targetValueToDelete, key, curNode.Addr)
+			}
+			if len(targetValues) != len(targets)-1 {
+				t.Fatalf("expected last received IndexUpdateEvent entry for key %s on node %s to contain exactly %d targets, got %d", key, curNode.Addr, len(targets)-1, len(targetValues))
+			}
+
+		}
+	}
+
+	//finally validate the a aggregated network lookup of the key now DOES NOT contain the removed target value
+	//as it has now been removed from all co-publisher nodes. Any co-publisher node can be used to undertake the check.
+	indexEntryTargetValues, lookupError := ctx.BootstrapNodes[selectedPublisherNodeIndexes[0]].ListIndexEntryTargetValues(key, false)
+	if lookupError != nil {
+		t.Fatalf("error occurred whilst performing network lookup for key %s: %v", key, lookupError)
+	}
+	if slices.Contains(indexEntryTargetValues, targetValueToDelete) {
+		t.Fatalf("expected deleted target value %s to no longer be present in aggregated network lookup for key %s", targetValueToDelete, key)
+	}
+}
+
+func Test_Deleting_All_Of_Multiple_Targets_Stored_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_With_CoPublishers_With_Events(t *testing.T) {
+
+	
+	/**
+	  Takes the test: Test_Deleting_All_Of_One_Of_Multiple_Targets_Stored_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_With_CoPublishers_With_Events
+	  a step further by deleting ALL target values from the index entry on ALL co-publisher nodes and then validating that:
+	  1)A global lookup of the key returns a not found error since the ENTIRE INDEX for that key should have been deleted where it contains no values.
+	  2)That co-publishers that received the deletion event, i.e all but the node that inititated the deletion request
+	    which will be the node that the last target value was removed from.
+	*/
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405", ":7406"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//define shared key and target
+	key := "26.126.25.44"                               //here we simulate associating a LAN ip address with multiple peer ids.
+	target1 := "a6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 1
+	target2 := "b6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 2
+	target3 := "c6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 3
+	targets := []string{target1, target2, target3}
+
+	//select nodes to act as publishers any value from 0 to (len(ctx.BootstrapNodes)-1) will suffice.
+	//here we pick the first three nodes as co-publishers to test that the SYNC INDEX mechanism properly
+	// propagates updates between co-publishers.
+	selectedPublisherNodeIndexes := []int{0, 1, 2}
+
+	//register a test event listener on each of the selected publisher nodes to verify that
+	// they receive IndexUpdateEvents as part of the SYNC INDEX process.
+	for _, curSelectedPublisherNodeIndex := range selectedPublisherNodeIndexes {
+		curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndex]
+		curNodeListener := NewTestNodeEventListener()
+		curNode.RegisterNodeEventListener(fmt.Sprintf("Node%dLsnr", curSelectedPublisherNodeIndex+1), curNodeListener)
+	}
+
+	//for each of our selected publishers...
+	for _, curSelectedPublisherNodeIndex := range selectedPublisherNodeIndexes {
+
+		//store each target under the same key (and publisher id - since they are being stored on the same node.)
+		for i := range targets {
+
+			curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndex]
+			var curNodeStoreErr error
+			curNodeStoreErr = curNode.AppendTargetValueToIndex(key, targets[i], true) //critically we must set the "enableIndexUpdateEvents" flag to true.
+
+			if curNodeStoreErr != nil {
+				t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target1: %v", i+1, curNodeStoreErr)
+			}
+
+			//allow a brief pause betwen stores to allow time for the storage operation to propergate.
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	//allow some additional time for all store operations to propergate.
+	time.Sleep(3000 * time.Millisecond)
+
+	//to validate that the storage operation succeeded and propergated to other publishers
+	//via the SYNC mechanism we iterate over all publisher nodes and just ensure that the target
+	//values are present
+	for i := 0; i < len(selectedPublisherNodeIndexes); i++ {
+
+		//attempt to find all entries related to the key on this local co publishe node.
+		curNode := ctx.BootstrapNodes[selectedPublisherNodeIndexes[i]]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != len(selectedPublisherNodeIndexes) {
+			t.Fatalf("expected node %s to have exactly %d index entry for key %s, got %d", curNode.Addr, len(selectedPublisherNodeIndexes), key, len(indexEntries))
+		}
+
+		//convert index entries to index like entries as would be received on update events.
+		indexLikeEntries := make([]commons.RecordIndexEntryLike, len(indexEntries))
+		for i := range indexEntries {
+			indexLikeEntries[i] = &indexEntries[i]
+		}
+
+		//validate that all target values are present under the key on this co publisher node by
+		// calling the aggregation method to get a deduped set of unique target values across all
+		// entries and confirming that each of the expected target values is present in the set.
+		targetValuesSet := curNode.AggregateIndexEntryTargetValues(indexLikeEntries)
+		for _, expectedTarget := range targets {
+			if !slices.Contains(targetValuesSet, expectedTarget) {
+				t.Fatalf("expected target value %s not found in index entry for key %s on node %s", expectedTarget, key, curNode.Addr)
+			}
+		}
+	}
+
+	//next we attempt delete all targets from the index entry on ALL co-publisher nodes.
+	for _, targetValueToDelete := range targets {
+		for _, curSelectedPublisherNodeIndexes := range selectedPublisherNodeIndexes {
+			curNode := ctx.BootstrapNodes[curSelectedPublisherNodeIndexes]
+			deleteErr := curNode.RemoveTargetValueFromIndex(key, targetValueToDelete)
+			if deleteErr != nil {
+				t.Fatalf("Error occurred whilst trying to delete target value %s from index entry with key %s on node %s: %v", targetValueToDelete, key, curNode.Addr, deleteErr)
+			}
+		}
+	}
+
+	//allow some additional time for the delete operation to propergate across co publishers via the SYNC mechanism.
+	time.Sleep(5000 * time.Millisecond)
+
+	//first validate that a global lookup of the key returns a not found error since the ENTIRE INDEX for that
+	//  key should have been deleted where it no longer contains any values.
+	//validate the an aggregated network lookup of the key now DOES NOT contain the removed target value
+	//as it has now been removed from all co-publisher nodes. Any co-publisher node can be used to undertake the check.
+	_, lookupError := ctx.BootstrapNodes[selectedPublisherNodeIndexes[0]].ListIndexEntryTargetValues(key, false)
+	if lookupError == nil {
+		t.Fatalf("expected not found error for key %s", key)
+	} else {
+		t.Logf("Look up error returned as expected. The error was: %v", lookupError)
+	}
+
+	//next validate that the DELETE IndexUpdateEvent was received to all co-publishers
+	// i.e all publisher minus the node that initiated the deletion request.
+	expectedDeletionEventCount := len(selectedPublisherNodeIndexes) - 1
+	allDeletionEventsAcrossAllNodes := make([]*events.IndexUpdateEvent, 0)
+
+	for i := 0; i < len(selectedPublisherNodeIndexes); i++ {
+
+		curNode := ctx.BootstrapNodes[selectedPublisherNodeIndexes[i]]
+
+		curNodeListener := curNode.ListNodeEventListeners()[0].(*TestNodeEventListener)
+		receivedEvents := curNodeListener.GetReceivedIndexUpdateEvents()
+
+		if len(receivedEvents) == 0 {
+			t.Fatalf("expected node %s to have received at least 1 IndexUpdateEvent, but it received none", curNode.Addr)
+		}
+
+		for _, event := range receivedEvents {
+			if event.IsDeletion() {
+				allDeletionEventsAcrossAllNodes = append(allDeletionEventsAcrossAllNodes, &event)
+				continue
+			}
+		}
+	}
+
+	if len(allDeletionEventsAcrossAllNodes) < expectedDeletionEventCount {
+		t.Fatalf("expected to receive %d deletion events across all co-publisher nodes, but received %d", expectedDeletionEventCount, len(allDeletionEventsAcrossAllNodes))
+	} else {
+		t.Logf("Successfully received deletion events to co-publishers: %v", allDeletionEventsAcrossAllNodes)
+	}
+
+}
 
 func waitForMessageEventCount(t *testing.T, listener *TestNodeEventListener, expected int, timeout time.Duration) {
 	t.Helper()
