@@ -5873,6 +5873,9 @@ func Test_Receipt_Of_Bootsrap_Complete_Event_Post_Bootstrap(t *testing.T) {
 			t.Logf("\n Node %s received the following BootstrapCompleteEvent: \n %v", curNode.Addr, curNodeListener.GetReceivedBootstrapCompleteEvents()[0])
 		}
 	}
+
+	//reset the config
+	config.Reset()
 }
 
 func Test_Index_Entries_With_Indentical_Targets_But_Different_Publishers_To_Unique_Value_Mapping(t *testing.T) {
@@ -6045,7 +6048,7 @@ func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_
 
 }
 
-func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only(t *testing.T) {
+func I_Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only(t *testing.T) {
 
 	/**
 	  Extends the test case: Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId
@@ -6132,7 +6135,7 @@ func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_
 
 }
 
-func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only_With_CoPublishers(t *testing.T) {
+func I_Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only_With_CoPublishers(t *testing.T) {
 
 	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
 	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405", ":7406"}
@@ -7004,7 +7007,6 @@ func Test_Deleting_All_Of_One_Of_Multiple_Targets_Stored_To_An_Index_Entry_With_
 
 func Test_Deleting_All_Of_Multiple_Targets_Stored_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_With_CoPublishers_With_Events(t *testing.T) {
 
-	
 	/**
 	  Takes the test: Test_Deleting_All_Of_One_Of_Multiple_Targets_Stored_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_With_CoPublishers_With_Events
 	  a step further by deleting ALL target values from the index entry on ALL co-publisher nodes and then validating that:
