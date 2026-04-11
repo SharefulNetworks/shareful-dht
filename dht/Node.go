@@ -69,7 +69,7 @@ func NewNode(plainTextId string, addr string, transport net.Transport, cfg *conf
 	codec = wire.JSONCodec{}
 	if cfg.UseProtobuf {
 		codec = wire.ProtobufCodec{}
-	}else{
+	} else {
 		return nil, fmt.Errorf("An unsupported wire codec was specified, Protobuf is currently the only supported codec. Please set UseProtobuf to TRUE in the node config.")
 	}
 
@@ -960,6 +960,13 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 			e.UpdatedUnix = time.Now().UnixMilli()
 			e.CreatedUnix = time.Now().UnixMilli()
 
+			//ensure that the provided key is set as the source of the IndexEntry to account for cases
+			//where the caller may have specified an empty or incorrect source value.
+			if e.Source == "" || e.Source != indexKey {
+				e.Source = indexKey
+				n.logger.Warn("The IndexEntry \"source\" WAS NOT specified to be equal to the IndexKey its criticial that this invarient holds and thus the \"source\" value has been duly updated to match the IndexKey.")
+			}
+
 			//set the new entries id based on existing entries where they exist.
 			//TODO:GT: WE WILL HAVE TO RE-THINK THIS, THE MECHANISM FOR AUTO SDETTING THE ENABLEMENT
 			//.        FLAG BASED ON PRIOR ENTRIES WILL NOT WORK BECAUSE WE DON'T LOOK UP THE INDEX
@@ -973,8 +980,6 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 			//where update events are enabled for the IndexEntry(as determined by the call to
 			// setUpdateEventEnsbled in the immediately preceeding instuction) store its
 			// key to our indexUpdateEventKeys collection.
-			//TODO:GT: We assume the IndexEntry's "source" value is ALWAYS equal to the parent Records key
-			//         thats fine but we should probably enforce this invariant at the time the Index record is created.
 			if e.EnableIndexUpdateEvents {
 				n.indexUpdateEventKeys.Store(e.Source, struct{}{})
 			}
@@ -2912,7 +2917,7 @@ func (n *Node) encode(v any) ([]byte, error) {
 		return proto.Marshal(msg)
 	}
 	return nil, fmt.Errorf("An unsupported wire codec was specified, please set UseProtobuf to TRUE in the node config.")
-	
+
 }
 
 func (n *Node) decode(b []byte, v any) error {
@@ -2924,7 +2929,7 @@ func (n *Node) decode(b []byte, v any) error {
 		return proto.Unmarshal(b, msg)
 	}
 	return fmt.Errorf("An unsupported wire codec was specified, please set UseProtobuf to TRUE in the node config.")
-		 
+
 }
 
 // makeMessage returns an empty request/response pair appropriate for the op and codec.
@@ -3020,7 +3025,6 @@ func (n *Node) markPeerConnectionResult(peerAddr string, success bool) {
 	}
 	n.routingTable.MarkPeerConnectionFailure(existingPeer.ID)
 }
-
 
 func (n *Node) mergeIndexEntriesLocal(key string, newEntries []RecordIndexEntry, reps []string, publisherId types.NodeID) error {
 	n.mu.Lock()
