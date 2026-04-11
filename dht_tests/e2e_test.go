@@ -5880,6 +5880,7 @@ func Test_Receipt_Of_Bootsrap_Complete_Event_Post_Bootstrap(t *testing.T) {
 
 func Test_Index_Entries_With_Indentical_Targets_But_Different_Publishers_To_Unique_Value_Mapping(t *testing.T) {
 
+	
 	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
 	bootstrapNodes := []string{":7401", ":7402", ":7403"}
 

@@ -69,6 +69,8 @@ func NewNode(plainTextId string, addr string, transport net.Transport, cfg *conf
 	codec = wire.JSONCodec{}
 	if cfg.UseProtobuf {
 		codec = wire.ProtobufCodec{}
+	}else{
+		return nil, fmt.Errorf("An unsupported wire codec was specified, Protobuf is currently the only supported codec. Please set UseProtobuf to TRUE in the node config.")
 	}
 
 	//NB: Don't forget to increment this if/when new types are added.
@@ -353,31 +355,16 @@ func (n *Node) StoreWithTTL(key string, val []byte, ttl time.Duration, publisher
 	n.mu.Unlock()
 
 	reqAny, _ := n.makeMessage(OP_STORE)
-	switch r := reqAny.(type) {
-	case *dhtpb.StoreRequest:
-		r.Key = key
-		r.Value = val
-		r.Replicas = reps
-		r.PublisherId = publisherId[:]
-		if ttl < 0 {
-			r.TtlMs = -1
-		} else {
-			r.TtlMs = int64(ttl / time.Millisecond)
-		}
-	case *struct {
-		Key      string   `json:"key"`
-		Value    []byte   `json:"value"`
-		TTLms    int64    `json:"ttl_ms"`
-		Replicas []string `json:"replicas"`
-	}:
-		r.Key = key
-		r.Value = val
-		r.Replicas = reps
-		if ttl < 0 {
-			r.TTLms = -1
-		} else {
-			r.TTLms = int64(ttl / time.Millisecond)
-		}
+	r := reqAny.(*dhtpb.StoreRequest)
+
+	r.Key = key
+	r.Value = val
+	r.Replicas = reps
+	r.PublisherId = publisherId[:]
+	if ttl < 0 {
+		r.TtlMs = -1
+	} else {
+		r.TtlMs = int64(ttl / time.Millisecond)
 	}
 
 	var errorsList []error
@@ -1181,15 +1168,8 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 		//send request to each node in the batch concurrently
 		sendFindIndexReq := func(peer *routing.Peer) {
 			reqAny, _ := n.makeMessage(OP_FIND_INDEX)
-
-			switch r := reqAny.(type) {
-			case *dhtpb.FindIndexRequest:
-				r.Key = key
-			case *struct {
-				Key string `json:"key"`
-			}:
-				r.Key = key
-			}
+			r := reqAny.(*dhtpb.FindIndexRequest)
+			r.Key = key
 
 			b, err := n.sendRequest(peer.Addr, OP_FIND_INDEX, reqAny)
 			if err != nil {
@@ -1203,39 +1183,24 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 				return
 			}
 
-			switch resp := respAny.(type) {
-			case *dhtpb.FindIndexResponse:
-				out := make([]RecordIndexEntry, 0, len(resp.Entries))
-				for _, ie := range resp.Entries {
-					e := RecordIndexEntry{
-						Source:                  ie.Source,
-						Target:                  ie.Target,
-						Meta:                    ie.Meta,
-						UpdatedUnix:             ie.UpdatedUnix,
-						TTL:                     ie.Ttl,
-						PublisherAddr:           ie.PublisherAddr,
-						CreatedUnix:             ie.CreatedUnix,
-						EnableIndexUpdateEvents: ie.EnableIndexUpdateEvents,
-					}
-					copy(e.Publisher[:], ie.PublisherId[:])
-					out = append(out, e)
+			resp := respAny.(*dhtpb.FindIndexResponse)
+			out := make([]RecordIndexEntry, 0, len(resp.Entries))
+			for _, ie := range resp.Entries {
+				e := RecordIndexEntry{
+					Source:                  ie.Source,
+					Target:                  ie.Target,
+					Meta:                    ie.Meta,
+					UpdatedUnix:             ie.UpdatedUnix,
+					TTL:                     ie.Ttl,
+					PublisherAddr:           ie.PublisherAddr,
+					CreatedUnix:             ie.CreatedUnix,
+					EnableIndexUpdateEvents: ie.EnableIndexUpdateEvents,
 				}
-				ch <- res{out, n.nodeContactsToPeers(resp.GetPeers())}
-				return
-
-				//TODO:GT Remove JSON support its not used.
-			case *struct {
-				Ok      bool               `json:"ok"`
-				Entries []RecordIndexEntry `json:"entries"`
-				Peers   []string           `json:"peers"`
-			}:
-				if resp.Ok {
-					//	ch <- res{resp.Entries, n.nodeContactToPeer(resp.GetPeers())}
-					return
-				}
+				copy(e.Publisher[:], ie.PublisherId[:])
+				out = append(out, e)
 			}
+			ch <- res{out, n.nodeContactsToPeers(resp.GetPeers())}
 
-			ch <- res{}
 		}
 
 		for _, p := range batch {
@@ -2040,26 +2005,12 @@ func (n *Node) onMessage(from string, data []byte) {
 		var reps []string
 		var pubId []byte
 
-		switch r := reqAny.(type) {
-		case *dhtpb.StoreRequest:
-			key = r.Key
-			val = r.Value
-			ttlms = r.TtlMs
-			reps = r.Replicas
-			pubId = r.PublisherId
-		case *struct {
-			Key         string   `json:"key"`
-			Value       []byte   `json:"value"`
-			TTLms       int64    `json:"ttl_ms"`
-			Replicas    []string `json:"replicas"`
-			PublisherId []byte   `json:"publisher_id"`
-		}:
-			key = r.Key
-			val = r.Value
-			ttlms = r.TTLms
-			reps = r.Replicas
-			pubId = r.PublisherId
-		}
+		r := reqAny.(*dhtpb.StoreRequest)
+		key = r.Key
+		val = r.Value
+		ttlms = r.TtlMs
+		reps = r.Replicas
+		pubId = r.PublisherId
 
 		var exp time.Time
 		switch {
@@ -2088,16 +2039,9 @@ func (n *Node) onMessage(from string, data []byte) {
 		n.logger.Fine("Request was received to node: %s", n.ID.String())
 
 		// Build response
-		switch r := respAny.(type) {
-		case *dhtpb.StoreResponse:
-			r.Ok = true
-		case *struct {
-			Ok  bool   `json:"ok"`
-			Err string `json:"err"`
-		}:
-			r.Ok = true
-			r.Err = ""
-		}
+		resp := respAny.(*dhtpb.StoreResponse)
+		resp.Ok = true
+
 		b, _ := n.encode(respAny)
 		msg, _ := n.cd.Wrap(OP_STORE, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
 		n.logger.Fine("Sending response to: %s", fromAddr)
@@ -2111,29 +2055,14 @@ func (n *Node) onMessage(from string, data []byte) {
 		}
 
 		var key string
-		switch r := reqAny.(type) {
-		case *dhtpb.FindRequest:
-			key = r.Key
-		case *struct {
-			Key string `json:"key"`
-		}:
-			key = r.Key
-		}
+		r := reqAny.(*dhtpb.FindRequest)
+		key = r.Key
 
 		val, ok := n.FindLocal(key)
-		switch r := respAny.(type) {
-		case *dhtpb.FindResponse:
-			r.Ok = ok
-			r.Value = val
-		case *struct {
-			Ok    bool   `json:"ok"`
-			Value []byte `json:"value"`
-			Err   string `json:"err"`
-		}:
-			r.Ok = ok
-			r.Value = val
-			r.Err = ""
-		}
+		resp := respAny.(*dhtpb.FindResponse)
+		resp.Ok = ok
+		resp.Value = val
+
 		b, _ := n.encode(respAny)
 		msg, _ := n.cd.Wrap(OP_FIND, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
 		_ = n.transport.Send(fromAddr, msg)
@@ -2982,7 +2911,8 @@ func (n *Node) encode(v any) ([]byte, error) {
 		}
 		return proto.Marshal(msg)
 	}
-	return json.Marshal(v)
+	return nil, fmt.Errorf("An unsupported wire codec was specified, please set UseProtobuf to TRUE in the node config.")
+	
 }
 
 func (n *Node) decode(b []byte, v any) error {
@@ -2993,7 +2923,8 @@ func (n *Node) decode(b []byte, v any) error {
 		}
 		return proto.Unmarshal(b, msg)
 	}
-	return json.Unmarshal(b, v)
+	return fmt.Errorf("An unsupported wire codec was specified, please set UseProtobuf to TRUE in the node config.")
+		 
 }
 
 // makeMessage returns an empty request/response pair appropriate for the op and codec.
@@ -3026,53 +2957,10 @@ func (n *Node) makeMessage(op int) (req any, resp any) {
 		default:
 			return nil, nil
 		}
+	} else {
+		n.logger.Error("An unsupported wire codec was specified, Protobuf is currently the only supported codec. Please set UseProtobuf to TRUE in the node config.")
+		return nil, nil
 	}
-
-	// JSON fallback shapes
-	switch op {
-	case OP_STORE:
-		return &struct {
-				Key      string   `json:"key"`
-				Value    []byte   `json:"value"`
-				TTLms    int64    `json:"ttl_ms"`
-				Replicas []string `json:"replicas"`
-			}{}, &struct {
-				Ok  bool   `json:"ok"`
-				Err string `json:"err"`
-			}{}
-	case OP_FIND:
-		return &struct {
-				Key string `json:"key"`
-			}{}, &struct {
-				Ok    bool   `json:"ok"`
-				Value []byte `json:"value"`
-				Err   string `json:"err"`
-			}{}
-	case OP_STORE_INDEX:
-		return &struct {
-				Key      string           `json:"key"`
-				Entry    RecordIndexEntry `json:"entry"`
-				TTLms    int64            `json:"ttl_ms"`
-				Replicas []string         `json:"replicas"`
-			}{}, &struct {
-				Ok  bool   `json:"ok"`
-				Err string `json:"err"`
-			}{}
-	case OP_FIND_INDEX:
-		return &struct {
-				Key string `json:"key"`
-			}{}, &struct {
-				Ok      bool               `json:"ok"`
-				Entries []RecordIndexEntry `json:"entries"`
-				Err     string             `json:"err"`
-			}{}
-	case OP_PING:
-		return &struct{}{}, &struct {
-			Ok bool `json:"ok"`
-		}{}
-	}
-
-	return nil, nil
 }
 
 func (n *Node) sendRequest(to string, op int, payload any) ([]byte, error) {
@@ -3133,42 +3021,6 @@ func (n *Node) markPeerConnectionResult(peerAddr string, success bool) {
 	n.routingTable.MarkPeerConnectionFailure(existingPeer.ID)
 }
 
-/*
-func (n *Node) mergeIndexLocal(key string, e IndexEntry, reps []string, publisherId types.NodeID) error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	//only allow the original publisher to update their own index entries
-	if e.Publisher != publisherId {
-		return fmt.Errorf("only the original publisher can update their own index entries")
-	}
-
-	rec, ok := n.dataStore[key]
-	if !ok {
-		//PublisherId is not used for index records, it will be stored per enry instead
-		//TTL is also stored per entry.
-		rec = &Record{Key: key, IsIndex: true, Replicas: reps, Publisher: types.NodeID{}}
-	}
-	var entries []IndexEntry
-	_ = json.Unmarshal(rec.Value, &entries)
-	found := false
-	for i := range entries {
-		if entries[i].Publisher == e.Publisher && entries[i].Source == e.Source {
-			entries[i] = e
-			found = true
-			break
-		}
-	}
-	if !found {
-		entries = append(entries, e)
-	}
-	b, _ := json.Marshal(entries)
-	rec.Value = b
-	rec.Replicas = reps
-	n.dataStore[key] = rec
-	return nil
-}
-*/
 
 func (n *Node) mergeIndexEntriesLocal(key string, newEntries []RecordIndexEntry, reps []string, publisherId types.NodeID) error {
 	n.mu.Lock()
