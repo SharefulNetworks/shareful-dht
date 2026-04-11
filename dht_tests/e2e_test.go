@@ -3448,6 +3448,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync(t *testing.T) {
 	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
 
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
+
 }
 
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Event_Publication(t *testing.T) {
@@ -3595,6 +3598,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Eve
 	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
 
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
+
 }
 
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Event_Publication_When_Index_Update_Events_Globally_Disabled(t *testing.T) {
@@ -3709,8 +3715,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Eve
 	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
 
-	//critically we RE-ENABLE index update events globally so as to not leak this config change into other tests.
-	ctx.Config.IndexUpdateEventsEnabled = true
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
 
 }
 
@@ -3821,6 +3827,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Eve
 
 	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
+
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
 
 }
 
@@ -3949,6 +3958,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_On_Deletion(t *testi
 
 	t.Logf("\n Node 1 data store entries are: \n %v", indexEntriesFromNode1PostDeletion)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexEntriesFromNode2PostDeletion)
+
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
 
 }
 
@@ -4111,6 +4123,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Del
 
 	t.Logf("\n Node 1 data store entries are: \n %v", indexEntriesFromNode1PostDeletion)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexEntriesFromNode2PostDeletion)
+
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
 
 }
 
@@ -4278,8 +4293,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Del
 	t.Logf("\n Node 1 data store entries are: \n %v", indexEntriesFromNode1PostDeletion)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexEntriesFromNode2PostDeletion)
 
-	//critically we RE-ENABLE index update events globally via the config to ensure that we do not impact other tests.
-	ctx.Config.IndexUpdateEventsEnabled = true
+	//as we modified the global config  we reset it here at the end of the test to prevent side effects on other tests.
+	config.Reset()
 }
 
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Deletion_Event_Publication_When_Index_Update_Events_Individually_Disabled(t *testing.T) {
@@ -4447,6 +4462,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_And_Index_Update_Del
 	t.Logf("\n Node 1 data store entries are: \n %v", indexEntriesFromNode1PostDeletion)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexEntriesFromNode2PostDeletion)
 
+	//as we modified the global config  we reset it here at the end of the test to prevent side effects on other tests.
+	config.Reset()
+
 }
 
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution(t *testing.T) {
@@ -4530,6 +4548,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 
 	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
+
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
 
 }
 
@@ -4630,6 +4651,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 
 	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
+
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
 
 }
 
@@ -4802,6 +4826,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 		t.Logf("\n Node 2 received the following index update event: \n %v", node2Listener.GetReceivedIndexUpdateEvents())
 	}
 
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
+
 }
 
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution_With_Three_Keys_And_Multi_Store_Rounds(t *testing.T) {
@@ -4900,6 +4927,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 		}
 	}
 
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
 }
 
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution_With_Three_Keys_And_Multi_Store_Rounds_And_Event_Validation(t *testing.T) {
@@ -5072,6 +5101,8 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 		}
 	}
 
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
 }
 
 func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Replica_Conflict_Resolution_With_Partially_Disjoint_Replica_Set_On_Node_1(t *testing.T) {
@@ -5183,6 +5214,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 
 	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
+
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
 
 }
 
@@ -5296,6 +5330,9 @@ func Test_Full_Network_Create_Index_Entry_And_Validate_Sync_With_Auto_Sync_Repli
 
 	t.Logf("\n Node 1 data store entries are: \n %v", indexFromNode1)
 	t.Logf("\n Node 2 data store entries are: \n %v", indexFromNode2)
+
+	//as we have modified the global config in this test we need to reset it back to the default values before any other tests are run, to avoid unintended consequences on other tests.
+	config.Reset()
 
 }
 
