@@ -2753,6 +2753,9 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 
 	n.logger.Debug("Dispatching Sync Index request for index record with key: %s from node: %s at: %s is deleted: %t", key, n.Addr, updatedAt.String(), indexDeleted)
 
+	//var to store merged entries where this sync update DOES NOT relate to a deletion
+	var mergedEntries []RecordIndexEntry
+
 	//first grab all entries related to this key from our local store
 	localFindIndexEntries, localFindIndexOk := n.FindIndexLocal(key)
 
@@ -2796,7 +2799,7 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 			return merged
 		}
 
-		mergedEntries := mergeLocalAndRefetched(localFindIndexEntries, refetchedEntries)
+		mergedEntries = mergeLocalAndRefetched(localFindIndexEntries, refetchedEntries)
 
 		n.logger.Debug("Refetched Index Entries for key: %s on node:%s %v\n", key, n.Addr, refetchedEntries)
 
@@ -2858,7 +2861,10 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 			//as part of the replica set for THIS sync-based store operation, as always: nodes in the replica set and sync candidates
 			//list should be mutually exclusive. Nodes will be updated by either of the two mechanisms but not both.
 			//n.AddToBlacklist(syncIndexCandidateAddresses...)
-			n.StoreIndexWithTTL(key, refetchedEntries, n.cfg.DefaultIndexEntryTTL, n.ID, false, true) //We pass in TRUE to indicste the storage is "index Related" to prevent triggering another round of syncs which would result in an infinite loop.
+
+			//use the merged entries we collated above to ensure we propogate all known entries to the replica set, not just the refetched entries which may in certain edge cases not contain reference to THIS nodes entries.
+			n.StoreIndexWithTTL(key, mergedEntries, n.cfg.DefaultIndexEntryTTL, n.ID, false, true) //We pass in TRUE to indicste the storage is "index Related" to prevent triggering another round of syncs which would result in an infinite loop.
+
 			//n.RemoveFromBlacklist(syncIndexCandidateAddresses...)
 		}
 
