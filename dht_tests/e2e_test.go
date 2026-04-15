@@ -1,6 +1,7 @@
 package dhttests
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -6086,7 +6087,7 @@ func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_
 
 }
 
-func I_Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only(t *testing.T) {
+func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only(t *testing.T) {
 
 	/**
 	  Extends the test case: Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId
@@ -6173,7 +6174,120 @@ func I_Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Sam
 
 }
 
-func I_Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only_With_CoPublishers(t *testing.T) {
+
+func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only_With_Metadata(t *testing.T) {
+
+	/**
+	  Extends the test case: Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only
+	  Undertakes the same tests but using the AppendTargetValueToIndexWithMetadata method. The intention is to 
+	  validate that the metadata is only stored ONCE, on IndexEntry creation, either when the an existing IndexEntry
+	  does not exist entirely or where it does exist but is published by another node on the network. Either
+	  case will neccistate the creation of a new IndexEntry and this is the only time the provided metadata will
+	  be applied.
+	*/
+
+	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
+	bootstrapNodes := []string{":7401", ":7402", ":7403"}
+
+	//init nodes
+	ctx := NewConfigurableTestContextWithBootstrapAddresses(t, 0, nil, bootstrapNodes, 0, 0)
+
+	//allow sufficient time for the bootstrap process to complete.
+	time.Sleep(30000 * time.Millisecond)
+
+	//define shared key and target
+	key := "26.126.25.44"                               //here we simulate associating a LAN ip address with multiple peer ids.
+	target1 := "a6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 1
+	target2 := "b6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 2
+	target3 := "c6457bc783d3893edfcaaacfa1b8e089fbbbd9" //simulated peer id 3
+	targets := []string{target1, target2, target3}
+
+	//selecta node to act as a publisher any value from 0 to (len(ctx.BootstrapNodes)-1) will suffice.
+	selectedNodeIdx := 0
+
+	for i := range 3 {
+		fmt.Printf("++++++++Storing index entry with key %s and target %s to node %s\n", key, targets[i], ctx.BootstrapNodes[selectedNodeIdx].Addr)
+		curNode := ctx.BootstrapNodes[selectedNodeIdx]
+		var curNodeStoreErr error
+		//create metadata here we will just encode a simple string to bytes for the purpose of this test
+		metadata := []byte(targets[i])
+		curNodeStoreErr = curNode.AppendTargetValueToIndexWithMetadata(key, targets[i], false, metadata)
+
+		if curNodeStoreErr != nil {
+			t.Fatalf("Error occurred whilst Peer Node %d was trying to store index entry for target1: %v", i+1, curNodeStoreErr)
+		}
+
+		//allow a brief pause betwen stores to allow time for the storage operation to propergate.
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	//allow some additional time for all store operations to propergate.
+	time.Sleep(3000 * time.Millisecond)
+
+	//to validate that the storage operation succeeded and that all targets were stored
+	//under under the same index. We pull the IndexEntries for the key on both of the other nodes
+	//NOT chosen as the publisher and examine their respective targets value.
+	for i := 0; i < len(ctx.BootstrapNodes); i++ {
+
+		//skip the node selected to be the publisher
+		if i == selectedNodeIdx {
+			continue
+		}
+		curNode := ctx.BootstrapNodes[i]
+		indexEntries, found := curNode.FindIndexLocal(key)
+		if !found || len(indexEntries) != 1 {
+			t.Fatalf("expected node %s to have exactly 1 index entry for key %s, got %d", curNode.Addr, key, len(indexEntries))
+		}
+
+		indexEntry := indexEntries[0]
+		targetValues, listingErr := indexEntry.ListTargetValues()
+		if listingErr != nil {
+			t.Fatalf("error occurred whilst listing target values for index entry for key %s on node %s: %v", key, curNode.Addr, listingErr)
+		}
+		fmt.Printf("&&&&&&&& Target values are: %v", targetValues)
+		if len(targetValues) != 3 {
+			t.Fatalf("expected index entry for key %s on node %s to contain 3 target values, got %d", key, curNode.Addr, len(targetValues))
+		}
+
+		targetValueSet := make(map[string]struct{})
+		for _, targetValue := range targetValues {
+			targetValueSet[targetValue] = struct{}{}
+		}
+
+		for _, expectedTarget := range targets {
+			if _, ok := targetValueSet[expectedTarget]; !ok {
+				t.Fatalf("expected target value %s not found in index entry for key %s on node %s", expectedTarget, key, curNode.Addr)
+			}
+		}
+	}
+
+	//finally we validate that the metadata was only stored on the first append, which should be 
+	// the only time a new IndexEntry was created. We do this by retrieving the IndexEntry for the 
+	// key on one of the non-publisher nodes and checking that the metadata matches the value provided 
+	// in the first append operation.
+	nonPublisherNodeIdx := 1
+	curNode := ctx.BootstrapNodes[nonPublisherNodeIdx]
+	indexEntries, found := curNode.FindIndexLocal(key)
+	if !found || len(indexEntries) != 1 {
+		t.Fatalf("expected node %s to have exactly 1 index entry for key %s, got %d", curNode.Addr, key, len(indexEntries))
+	}
+
+	//parse metadata from the IndexEntry.
+	indexEntry := indexEntries[0]
+	metadata := indexEntry.Meta
+	
+    //prepare our expected value which should be the value of the first target
+	expectedMetadata := []byte(targets[0])
+
+	if !bytes.Equal(metadata, expectedMetadata) {
+		t.Fatalf("expected metadata for index entry for key %s on node %s to be %v, got %v", key, curNode.Addr, expectedMetadata, metadata)
+	}
+
+}
+
+
+
+func Test_Storing_Multiple_Targets_To_An_Index_Entry_With_The_Same_Key_And_Same_PublisherId_Using_Append_Only_With_CoPublishers(t *testing.T) {
 
 	//define node addresses for each set, we choose 5 nodes and select 3 of them as first-party publishers.
 	bootstrapNodes := []string{":7401", ":7402", ":7403", ":7404", ":7405", ":7406"}

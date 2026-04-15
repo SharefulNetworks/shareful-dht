@@ -213,6 +213,7 @@ func (n *Node) Shutdown() {
 }
 
 func (n *Node) AddPeer(addr string, id types.NodeID) {
+
 	if n.IsBlacklisted(addr) {
 		n.logger.Warn("Unable to add peer, its address: %s is currently black listed", addr)
 		return
@@ -238,6 +239,9 @@ func (n *Node) DropPeer(id types.NodeID) bool {
 // ResolvePeer - attempts to resolve the network address of a peer with the given id,
 // returning the address and a boolean value of TRUE where resolution is successful and an
 // empty string with a boolean value of FALSE where resolution is unsuccessful.
+// Whilst this can be utilised directly as necessary, it is also used internally by the
+// node to resolve peer addresses for the purpose of sending messages and undertaking other
+// operations where only the peer ID is known.
 func (n *Node) ResolvePeerAddr(peerPlainTextId string) (string, bool) {
 
 	//first attempt to resolve the peers address from our local routing table.
@@ -261,7 +265,12 @@ func (n *Node) ResolvePeerAddr(peerPlainTextId string) (string, bool) {
 // Connect sends an OP_CONNECT request to the given address, asking that
 // remote node to register this node (ID + Addr) in its peer table.
 func (n *Node) Connect(remoteAddr string) error {
+
 	n.logger.Info("Node: %s is connecting to node @ %s standby...", n.ID.String(), remoteAddr)
+
+	if len(remoteAddr) == 0 {
+		return errors.New("a non empty remote address must be provided")
+	}
 
 	req := &dhtpb.ConnectRequest{
 		NodeId: n.ID[:], // types.NodeID is [20]byte, cast to slice
@@ -290,7 +299,12 @@ func (n *Node) Connect(remoteAddr string) error {
 	return nil
 }
 
-func (n *Node) Store(key string, val []byte) error {
+func (n *Node) Store(key string, val []byte) error {	
+
+	if len(key) == 0 {
+		return errors.New("a non empty key must be provided")
+	}
+
 	ttl := n.cfg.DefaultEntryTTL
 	if n.cfg.AllowPermanentDefault {
 		ttl = 0
@@ -407,6 +421,7 @@ func (n *Node) DataStoreLength() int {
 // of TRUE is returned where the lookup is successful otherwise, a nil value is returned with a
 // boolean value of FALSE to indicate that the lookup was unsuccessful.
 func (n *Node) Find(key string) ([]byte, bool) {
+
 	// 0) local fast-path
 	if v, ok := n.FindLocal(key); ok {
 		return v, true
@@ -682,6 +697,14 @@ func (n *Node) Find(key string) ([]byte, bool) {
 //	on mutation of the IndexEntry.
 func (n *Node) AppendTargetValueToIndex(IndexKey string, targetValue string, enableIndexUpdateEvents bool) error {
 
+	if len(IndexKey) == 0 {
+		return errors.New("a non empty index key must be provided")
+	}
+
+	if len(targetValue) == 0 {
+		return errors.New("a non empty target value must be provided")
+	}
+
 	//first attempt to find the relevant index entry locally, if it exists,
 	//where it does we will just use its append method to add the new target value
 	//and proceed to call the public interface StoreIndex method to handle the propagation
@@ -743,9 +766,92 @@ func (n *Node) AppendTargetValueToIndex(IndexKey string, targetValue string, ena
 
 }
 
+func (n *Node) AppendTargetValueToIndexWithMetadata(IndexKey string, targetValue string, enableIndexUpdateEvents bool, metadata []byte) error {
+
+	if len(IndexKey) == 0 {
+		return errors.New("a non empty index key must be provided")
+	}
+	if len(targetValue) == 0 {
+		return errors.New("a non empty target value must be provided")
+	}
+	if len(metadata) == 0 {
+		return errors.New("a non empty metadata must be provided")
+	}
+
+	//first attempt to find the relevant index entry locally, if it exists,
+	//where it does we will just use its append method to add the new target value
+	//and proceed to call the public interface StoreIndex method to handle the propagation
+	// of the updated index record to the wider network.
+	existingIndexEntries, found := n.FindIndexLocal(IndexKey)
+	if found {
+
+		//where one or more existing entries EXIST we attempt to find an entry published by THIS
+		// node, where one is found we append the new target value to it and then call
+		// StoreIndex to handle the propagation of the updated record to the wider network.
+		for i, curEntry := range existingIndexEntries {
+			if curEntry.Publisher == n.ID {
+
+				//append the new target value to the existing entry
+				appendErr := existingIndexEntries[i].AppendTargetValue(targetValue)
+				if appendErr != nil {
+					return fmt.Errorf("An error occurred whilst attempting to append the new target value: %s to the existing index record with key: %s, the error was: %v", targetValue, IndexKey, appendErr)
+				}
+
+				//call StoreIndex to handle the propagation of the updated record to the wider network.
+				storeErr := n.StoreIndex(IndexKey, existingIndexEntries...)
+				if storeErr != nil {
+					return fmt.Errorf("An error occurred whilst attempting to store the updated index record with key: %s to the wider network after appending a new target value: %s to it, the error was: %v", IndexKey, targetValue, storeErr)
+				}
+				return nil
+			}
+		}
+
+		//where no existing entry published by THIS node exists we create a new one with the provided target value
+		//as its initial and only target value and then call StoreIndex to handle the propagation of the new record
+		//to the wider network.
+		newEntry := RecordIndexEntry{
+			Source:                  IndexKey,
+			Target:                  targetValue,
+			Meta:                    metadata,
+			EnableIndexUpdateEvents: enableIndexUpdateEvents,
+		}
+
+		storeErr := n.StoreIndex(IndexKey, append(existingIndexEntries, newEntry)...)
+		if storeErr != nil {
+			return fmt.Errorf("An error occurred whilst attempting to store the updated index record with key: %s to the wider network after appending a new target value: %s to it, the error was: %v", IndexKey, targetValue, storeErr)
+		}
+
+		return nil
+	} else {
+		//where no existing entries exist we create a new one with the provided target value
+		//as its initial and only target value and then call StoreIndex to handle the propagation of the new record
+		//to the wider network.
+		newEntry := RecordIndexEntry{
+			Source:                  IndexKey,
+			Target:                  targetValue,
+			Meta:                    metadata,
+			EnableIndexUpdateEvents: enableIndexUpdateEvents,
+		}
+		storeErr := n.StoreIndex(IndexKey, newEntry)
+		if storeErr != nil {
+			return fmt.Errorf("An error occurred whilst attempting to store the new index record with key: %s to the wider network after appending a new target value: %s to it, the error was: %v", IndexKey, targetValue, storeErr)
+		}
+		return nil
+	}
+
+}
+
 // RemoveTargetValueFromIndex - removes a given target value from the set of values in the index record
 // associated with the IndexEntry with the provided key.
 func (n *Node) RemoveTargetValueFromIndex(indexKey string, targetValue string) error {
+
+	if len(indexKey) == 0 {
+		return errors.New("a non empty index key must be provided")
+	}
+
+	if len(targetValue) == 0 {
+		return errors.New("a non empty target value must be provided")
+	}
 
 	//first attempt to find the relevant index entry locally, if it exists,
 	//where it does we will just use its remove method to remove the target value
@@ -816,6 +922,9 @@ func (n *Node) RemoveTargetValueFromIndex(indexKey string, targetValue string) e
 // will attempt to lookup the index entry over the network and return an aggregated deduped, UNION set of target values from all returned entries.
 func (n *Node) ListIndexEntryTargetValues(indexKey string, locallyOnly bool) ([]string, error) {
 
+	if len(indexKey) == 0 {
+		return nil, errors.New("a non empty index key must be provided")
+	}
 	//if the user has specified locallyOnly then we only attempt to find the relevant index entry locally, if it exists,
 	//where it does we will just use its list method to return the set of target values it contains.
 	if locallyOnly {
@@ -870,6 +979,9 @@ func (n *Node) ListIndexEntryTargetValues(indexKey string, locallyOnly bool) ([]
 }
 
 func (n *Node) StoreIndex(indexKey string, entries ...RecordIndexEntry) error {
+	if len(indexKey) == 0 {
+		return errors.New("a non empty index key must be provided")
+	}
 	ttl := n.cfg.DefaultIndexEntryTTL
 	return n.StoreIndexWithTTL(indexKey, entries, ttl, n.ID, true, false)
 }
@@ -1324,6 +1436,9 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 }
 
 func (n *Node) Delete(key string) error {
+	if len(key) == 0 {
+		return errors.New("a non empty key must be provided")
+	}
 	n.mu.RLock()
 	rec, ok := n.dataStore[key]
 	n.mu.RUnlock()
@@ -1340,6 +1455,9 @@ func (n *Node) Delete(key string) error {
 }
 
 func (n *Node) DeleteIndex(indexKey string, indexEntrySource string, isIndexSyncRelated bool, optionalPublisherId ...byte) error {
+	if len(indexKey) == 0 {
+		return errors.New("a non empty index key must be provided")
+	}
 
 	//NB: A publisher id will only be explicitly provided where this DeleteIndex call is being made as part of an index sync operation,
 	// that is, some publisher has deleted their index entry and is notifying us, as another peer that shares the same index record,
