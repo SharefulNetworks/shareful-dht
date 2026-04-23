@@ -299,7 +299,7 @@ func (n *Node) Connect(remoteAddr string) error {
 	return nil
 }
 
-func (n *Node) Store(key string, val []byte) error {	
+func (n *Node) Store(key string, val []byte) error {
 
 	if len(key) == 0 {
 		return errors.New("a non empty key must be provided")
@@ -2494,7 +2494,7 @@ func (n *Node) onMessage(from string, data []byte) {
 
 				//unlike the update path below, which may nessitate several sub async requests
 				//and thus take longer than we are able to resonably wait for a response,
-				//DELTE is undertaken synchronously and thus we may wait on its execution
+				//DELETE is undertaken synchronously and thus we may wait on its execution
 				//and directly return result in the response to the requester.
 				b, _ := n.encode(resp)
 				msg, _ := n.cd.Wrap(OP_SYNC_INDEX, reqID, true, n.ID.String(), n.Addr, n.nodeType, b)
@@ -2509,46 +2509,74 @@ func (n *Node) onMessage(from string, data []byte) {
 			//has been mutated (i.e an entry has been added or updated).
 			time.AfterFunc(time.Millisecond*250, func() {
 
-				// 1) Pull the updated index record (value) from the network
-				var processingErr error = nil
-				updatedIndexRecEntries, found := n.FindIndex(req.Key)
-				if !found {
-					n.logger.Debug("Received SyncIndexRequest for index with key: %s but failed to find the index record on the network. This may indicate that the record has been deleted or that there was an error during the lookup process.", req.Key)
-					processingErr = fmt.Errorf("failed to find index record on the network for key: %s", req.Key)
-				}
+				/*
+					// 1) Pull the updated index record (value) from the network
+					var processingErr error = nil
+					updatedIndexRecEntries, found := n.FindIndex(req.Key)
+					if !found {
+						n.logger.Debug("Received SyncIndexRequest for index with key: %s but failed to find the index record on the network. This may indicate that the record has been deleted or that there was an error during the lookup process.", req.Key)
+						processingErr = fmt.Errorf("failed to find index record on the network for key: %s", req.Key)
+					}
 
-				// 2) Write its updated value to our local store AND also propogate the update to the replica set
-				// for this index (nearest K nodes to the index key), our public interface StoreIndexWithTTL will
-				// implicitly handle this.
+					// 2) Write its updated value to our local store AND also propogate the update to the replica set
+					// for this index (nearest K nodes to the index key), our public interface StoreIndexWithTTL will
+					// implicitly handle this.
+					nodeID, err := types.NodeIDFromBytes(req.PublisherId)
+					if err != nil {
+						n.logger.Error("Failed to parse publisher NodeID from SyncIndexRequest: %v", err)
+						processingErr = fmt.Errorf("failed to parse publisher NodeID from SyncIndexRequest: %w", err)
+					}
+					ttl := n.cfg.DefaultIndexEntryTTL
+
+					//to enforce the invarient that nodes should only be updated via the replication process
+					//or sync process, but not both. We temporarily add all top-level publisher of our index entries
+					//to the blacklist to ensure they are not selected to be in the replica set of THIS subsequent
+					//sync-related store operation.
+					indexPublisherAddresses := make([]string, 0, len(updatedIndexRecEntries))
+					for _, e := range updatedIndexRecEntries {
+						if e.PublisherAddr != "" {
+							indexPublisherAddresses = append(indexPublisherAddresses, e.PublisherAddr)
+						}
+					}
+
+
+					//NOTE: We set isIndexSyncRelated to true to inidicate that this store operation is being performed as part of
+					//the processing of a SyncIndexRequest, this will ensure that we do not trigger another round of syncs
+					//calls to other nodes/publisher associated with this index which would result in an infinite loop of sync calls across
+					//the network.
+					processingErr = n.StoreIndexWithTTL(req.Key, updatedIndexRecEntries, ttl, nodeID, false, true)
+				*/
+
+				var processingErr error
+				var updatedIndexRecEntries []RecordIndexEntry
+
 				nodeID, err := types.NodeIDFromBytes(req.PublisherId)
 				if err != nil {
 					n.logger.Error("Failed to parse publisher NodeID from SyncIndexRequest: %v", err)
 					processingErr = fmt.Errorf("failed to parse publisher NodeID from SyncIndexRequest: %w", err)
+				} else {
+					ttl := n.cfg.DefaultIndexEntryTTL
+					updatedIndexRecEntries, processingErr = n.storeSyncedIndexWithRetry(req.Key, nodeID, ttl)
 				}
-				ttl := n.cfg.DefaultIndexEntryTTL
-
-				//to enforce the invarient that nodes should only be updated via the replication process
-				//or sync process, but not both. We temporarily add all top-level publisher of our index entries
-				//to the blacklist to ensure they are not selected to be in the replica set of THIS subsequent
-				//sync-related store operation.
-				indexPublisherAddresses := make([]string, 0, len(updatedIndexRecEntries))
-				for _, e := range updatedIndexRecEntries {
-					if e.PublisherAddr != "" {
-						indexPublisherAddresses = append(indexPublisherAddresses, e.PublisherAddr)
-					}
-				}
-				//n.AddToBlacklist(indexPublisherAddresses...)
-
-				//NOTE: We set isIndexSyncRelated to true to inidicate that this store operation is being performed as part of
-				//the processing of a SyncIndexRequest, this will ensure that we do not trigger another round of syncs
-				//calls to other nodes/publisher associated with this index which would result in an infinite loop of sync calls across
-				//the network.
-				processingErr = n.StoreIndexWithTTL(req.Key, updatedIndexRecEntries, ttl, nodeID, false, true)
-
-				//storage completed, we may now remove the index publisher from our blacklist
-				//n.RemoveFromBlacklist(indexPublisherAddresses...)
 
 				//just log any processing errors.
+				if processingErr != nil && (errors.Is(processingErr, errSyncIndexPublisherSnapshotMiss) || errors.Is(processingErr, errSyncIndexRecordNotFound) || isPublisherInvariantStoreErr(processingErr)) {
+					n.logger.Warn("SyncIndexRequest transient miss for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
+				} else if processingErr != nil && n.isFatalError(processingErr) {
+					n.logger.Error("A fatal error occurred whilst processing SyncIndexRequest (events related to this request WILL NOT be published.) for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
+				} else {
+					if processingErr != nil {
+						n.logger.Error("A non-fatal error occurred whilst processing SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
+					} else {
+						n.logger.Debug("Successfully processed SyncIndexRequest for index with key: %s from node: %s at: %s", req.Key, senderNodeID.String(), time.Now().String())
+					}
+
+					if processingErr == nil && n.cfg.IndexUpdateEventsEnabled && n.indexUpdateEventsEnabledForKey(req.Key) {
+						n.publishIndexUpdateEvent(req.Key, updatedIndexRecEntries, nodeID, fromAddr, false)
+					}
+				}
+
+				/*
 				if processingErr != nil && n.isFatalError(processingErr) {
 					n.logger.Error("A fatal error occurred whilst processing SyncIndexRequest (events related to this request WILL NOT be published.) for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
 
@@ -2565,7 +2593,7 @@ func (n *Node) onMessage(from string, data []byte) {
 						n.publishIndexUpdateEvent(req.Key, updatedIndexRecEntries, nodeID, fromAddr, false)
 					}
 				}
-
+                */
 			})
 
 			//we ALWAYS return a success response to indicate that the SyncIndexRequest was received
@@ -3740,6 +3768,76 @@ func (n *Node) refresh() {
 			n.logger.Debug("SUCCESSFULLY REFRESHED ENTRY KEY: %s Refresh Count: %d", k, n.refreshCount)
 		}
 	}
+}
+
+var errSyncIndexPublisherSnapshotMiss = errors.New("sync index publisher missing from fetched index snapshot")
+var errSyncIndexRecordNotFound = errors.New("sync index record not found")
+
+func containsPublisher(entries []RecordIndexEntry, publisherID types.NodeID) bool {
+	for _, e := range entries {
+		if e.Publisher == publisherID {
+			return true
+		}
+	}
+	return false
+}
+
+func isPublisherInvariantStoreErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "at least one of the entries being appended must be associated with the publisher id provided")
+}
+
+func (n *Node) storeSyncedIndexWithRetry(indexKey string, publisherID types.NodeID, ttl time.Duration) ([]RecordIndexEntry, error) {
+	backoffs := []time.Duration{
+		0,
+		100 * time.Millisecond,
+		250 * time.Millisecond,
+		500 * time.Millisecond,
+	}
+
+	var lastErr error
+	for attempt, wait := range backoffs {
+		if wait > 0 {
+			time.Sleep(wait)
+		}
+
+		//if we have encounter a  transient FindIndex error we want to retry to allow sufficient time for the publisher's snapshot to be 
+		// available on this node, however if the error persists then this could indicates the publisher id is not associated with 
+		// any of the entries in the index record and in that case we want to fail the operation as only nodes that are associated 
+		// with the index record as publishers should be attempting to store synced entries for that record.
+		entries, found := n.FindIndex(indexKey)
+		if !found {
+			lastErr = fmt.Errorf("%w: key=%s attempt=%d/%d", errSyncIndexRecordNotFound, indexKey, attempt+1, len(backoffs))
+			continue
+		}
+		if !containsPublisher(entries, publisherID) {
+			lastErr = fmt.Errorf("%w: key=%s publisher=%s attempt=%d/%d", errSyncIndexPublisherSnapshotMiss, indexKey, publisherID.String(), attempt+1, len(backoffs))
+			continue
+		}
+
+		//NOTE: We set isIndexSyncRelated to true to inidicate that this store operation is being performed as part of
+		//the processing of a SyncIndexRequest, this will ensure that we do not trigger another round of syncs
+		//calls to other nodes/publisher associated with this index which would result in an infinite loop of sync calls across
+		//the network.
+		storeErr := n.StoreIndexWithTTL(indexKey, entries, ttl, publisherID, false, true)
+		if storeErr == nil {
+			return entries, nil
+		}
+
+		if isPublisherInvariantStoreErr(storeErr) {
+			lastErr = storeErr
+			continue
+		}
+
+		return entries, storeErr
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("%w: key=%s publisher=%s", errSyncIndexPublisherSnapshotMiss, indexKey, publisherID.String())
+	}
+	return nil, lastErr
 }
 
 // -----------------------------------------------------------------------------
