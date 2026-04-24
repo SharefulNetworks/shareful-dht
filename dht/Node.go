@@ -2577,23 +2577,23 @@ func (n *Node) onMessage(from string, data []byte) {
 				}
 
 				/*
-				if processingErr != nil && n.isFatalError(processingErr) {
-					n.logger.Error("A fatal error occurred whilst processing SyncIndexRequest (events related to this request WILL NOT be published.) for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
+					if processingErr != nil && n.isFatalError(processingErr) {
+						n.logger.Error("A fatal error occurred whilst processing SyncIndexRequest (events related to this request WILL NOT be published.) for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
 
-				} else {
-					if processingErr != nil {
-						n.logger.Error("A non-fatal error occurred whilst processing SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
 					} else {
-						n.logger.Debug("Successfully processed SyncIndexRequest for index with key: %s from node: %s at: %s", req.Key, senderNodeID.String(), time.Now().String())
-					}
+						if processingErr != nil {
+							n.logger.Error("A non-fatal error occurred whilst processing SyncIndexRequest for index with key: %s from node: %s at: %s ERROR: %v", req.Key, senderNodeID.String(), time.Now().String(), processingErr)
+						} else {
+							n.logger.Debug("Successfully processed SyncIndexRequest for index with key: %s from node: %s at: %s", req.Key, senderNodeID.String(), time.Now().String())
+						}
 
-					//if index update events are enabled globally and for this key specifically
-					//publish an IndexUpdateEvent to notify listeners that the index has been mutated/updated
-					if n.cfg.IndexUpdateEventsEnabled && n.indexUpdateEventsEnabledForKey(req.Key) {
-						n.publishIndexUpdateEvent(req.Key, updatedIndexRecEntries, nodeID, fromAddr, false)
+						//if index update events are enabled globally and for this key specifically
+						//publish an IndexUpdateEvent to notify listeners that the index has been mutated/updated
+						if n.cfg.IndexUpdateEventsEnabled && n.indexUpdateEventsEnabledForKey(req.Key) {
+							n.publishIndexUpdateEvent(req.Key, updatedIndexRecEntries, nodeID, fromAddr, false)
+						}
 					}
-				}
-                */
+				*/
 			})
 
 			//we ALWAYS return a success response to indicate that the SyncIndexRequest was received
@@ -3791,10 +3791,18 @@ func isPublisherInvariantStoreErr(err error) bool {
 
 func (n *Node) storeSyncedIndexWithRetry(indexKey string, publisherID types.NodeID, ttl time.Duration) ([]RecordIndexEntry, error) {
 	backoffs := []time.Duration{
-		0,
-		100 * time.Millisecond,
-		250 * time.Millisecond,
-		500 * time.Millisecond,
+		/*
+			0,
+			100 * time.Millisecond,
+			250 * time.Millisecond,
+			500 * time.Millisecond,
+		*/
+		0 * config.GetDefaultSingletonInstance().SyncUpdateRetryBackoffIncrement,
+		1 * config.GetDefaultSingletonInstance().SyncUpdateRetryBackoffIncrement,
+		2 * config.GetDefaultSingletonInstance().SyncUpdateRetryBackoffIncrement,
+		3 * config.GetDefaultSingletonInstance().SyncUpdateRetryBackoffIncrement,
+		4 * config.GetDefaultSingletonInstance().SyncUpdateRetryBackoffIncrement,
+		5 * config.GetDefaultSingletonInstance().SyncUpdateRetryBackoffIncrement,
 	}
 
 	var lastErr error
@@ -3803,9 +3811,9 @@ func (n *Node) storeSyncedIndexWithRetry(indexKey string, publisherID types.Node
 			time.Sleep(wait)
 		}
 
-		//if we have encounter a  transient FindIndex error we want to retry to allow sufficient time for the publisher's snapshot to be 
-		// available on this node, however if the error persists then this could indicates the publisher id is not associated with 
-		// any of the entries in the index record and in that case we want to fail the operation as only nodes that are associated 
+		//if we have encounter a  transient FindIndex error we want to retry to allow sufficient time for the publisher's snapshot to be
+		// available on this node, however if the error persists then this could indicates the publisher id is not associated with
+		// any of the entries in the index record and in that case we want to fail the operation as only nodes that are associated
 		// with the index record as publishers should be attempting to store synced entries for that record.
 		entries, found := n.FindIndex(indexKey)
 		if !found {

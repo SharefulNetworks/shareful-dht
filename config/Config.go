@@ -36,6 +36,7 @@ type Config struct {
 	NodeAddress                               string        //The globally reachable address of this node, where this is not supplied by a command line argument or environment variable it will be set to the value provided to the Node's constuctor.
 	MessageVersion                            string        //the version of the DHT protocol to use in message headers, this is useful to allow for future protocol updates and to maintain backward compatibility with older versions of the protocol.
 	GlobalLogLevel                            slog.LogLevel //the global log level to apply to all loggers in the DHT, this is useful to control the verbosity of logging output across the entire DHT from a single configuration setting.
+	SyncUpdateRetryBackoffIncrement           time.Duration //the duration of time to incrementally backoff sync index update retry attempts in scenarios where the initial attempt to dispatch sync index update requests to other peers fails, this is useful to prevent overwhelming the network or the node itself with a large number of retry attempts in scenarios where there may be transient network issues or temporary peer unavailability.
 }
 
 var singletonConfig *Config
@@ -71,6 +72,7 @@ func GetDefaultSingletonInstance() *Config {
 			NodeAddress:                               "",
 			MessageVersion:                            "1.0",
 			GlobalLogLevel:                            slog.INFO,
+			SyncUpdateRetryBackoffIncrement:           500 * time.Millisecond,
 		}
 
 	}
