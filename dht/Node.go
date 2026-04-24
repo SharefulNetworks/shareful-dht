@@ -95,7 +95,7 @@ func NewNode(plainTextId string, addr string, transport net.Transport, cfg *conf
 		dataStore:    map[string]*Record{},
 		stop:         make(chan struct{}),
 		refreshCount: 0,
-		logger:       slog.NewLogger("shareful.dht.Node", nil),
+		logger:       slog.NewLogger(fmt.Sprintf("%s.Node", cfg.BaseLogName), nil),
 	}
 
 	//set the nodes globally reachable address if it hasn't been set already

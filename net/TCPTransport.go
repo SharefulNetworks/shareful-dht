@@ -48,7 +48,7 @@ func NewTCP() *TCPTransport {
 	t := &TCPTransport{
 		closed:   make(chan struct{}),
 		outQueue: make(chan *Outbound, 4096), // larger buffer helps tests
-		logger:   slog.NewLogger("shareful.dht.net.TCPTransport", nil),
+		logger:   slog.NewLogger(fmt.Sprintf("%s.net.TCPTransport", config.GetDefaultSingletonInstance().BaseLogName), nil),
 	}
 	t.startOutboundProcessing()
 	t.startIdleConnChecker()

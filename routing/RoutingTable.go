@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"fmt"
 	"math/bits"
 	"math/rand"
 	"sort"
@@ -43,7 +44,7 @@ func NewRoutingTable(self types.NodeID, bucketSize int, nodeLike commons.NodeLik
 		nodeLike:         nodeLike,
 		listeners:        make(map[string]RoutingTableListener),
 		addressToIdCache: make(map[string]types.NodeID),
-		logger:           slog.NewLogger("shareful.dht.routing.RoutingTable", nil),
+		logger:  	   slog.NewLogger(fmt.Sprintf("%s.routing.RoutingTable", config.GetDefaultSingletonInstance().BaseLogName), nil),
 	}
 	rt.startBucketRefresher()
 	return rt
