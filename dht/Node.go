@@ -128,7 +128,10 @@ func NewNode(plainTextId string, addr string, transport net.Transport, cfg *conf
 		listenAddr = fmt.Sprintf(":%s", after)
 
 	}
-	_ = n.transport.Listen(listenAddr, n.onMessage)
+	listenErr := n.transport.Listen(listenAddr, n.onMessage)
+	if listenErr != nil {
+		return nil, fmt.Errorf("An error occurred whilst starting to listen for incoming connections: %v", listenErr)
+	}
 
 	n.logger.Debug("Node started listening for incoming connections on: %s", listenAddr)
 
