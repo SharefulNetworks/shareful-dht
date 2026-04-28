@@ -2558,8 +2558,25 @@ func (n *Node) onMessage(from string, data []byte) {
 					n.logger.Error("Failed to parse publisher NodeID from SyncIndexRequest: %v", err)
 					processingErr = fmt.Errorf("failed to parse publisher NodeID from SyncIndexRequest: %w", err)
 				} else {
+
+					//convert the protobuff entries provided by the requester into an array of standard entries
+					indexEntriesReceivedFromRequest := make([]RecordIndexEntry, 0, len(req.Entries))
+					for _, pbEntry := range req.Entries {
+						entry := RecordIndexEntry{
+							Source:                  pbEntry.Source,
+							Target:                  pbEntry.Target,
+							Meta:                    pbEntry.Meta,
+							UpdatedUnix:             pbEntry.UpdatedUnix,
+							TTL:                     pbEntry.Ttl,
+							PublisherAddr:           pbEntry.PublisherAddr,
+							CreatedUnix:             pbEntry.CreatedUnix,
+							EnableIndexUpdateEvents: pbEntry.EnableIndexUpdateEvents,
+						}
+						copy(entry.Publisher[:], pbEntry.PublisherId[:])
+						indexEntriesReceivedFromRequest = append(indexEntriesReceivedFromRequest, entry)
+					}
 					ttl := n.cfg.DefaultIndexEntryTTL
-					updatedIndexRecEntries, processingErr = n.storeSyncedIndexWithRetry(req.Key, nodeID, ttl)
+					updatedIndexRecEntries, processingErr = n.storeSyncedIndexWithRetry(req.Key, nodeID, ttl, indexEntriesReceivedFromRequest)
 				}
 
 				//just log any processing errors.
@@ -2922,7 +2939,7 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 	//where this is a NON-DELETION request we can derive the addresses from the IndexEntry themselves..
 	if !indexDeleted {
 
-		//helper function, merges UNIQUE local and refetched entries into a single collection.
+		//define helper function, merges UNIQUE local and refetched entries into a single collection.
 		mergeLocalAndRefetched := func(local []RecordIndexEntry, refetched []RecordIndexEntry) []RecordIndexEntry {
 
 			//we merge the entries by taking the refetched entries as the source of truth and then adding in any local entries
@@ -2948,6 +2965,7 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 			return merged
 		}
 
+		//call helper to merge local and refetched entries.
 		mergedEntries = mergeLocalAndRefetched(localFindIndexEntries, refetchedEntries)
 
 		n.logger.Debug("Refetched Index Entries for key: %s on node:%s %v\n", key, n.Addr, refetchedEntries)
@@ -2955,7 +2973,6 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 		//iterate over the returned entries to parse publishers who are candidates for the sync notifications
 		//the peers must not be ourselves. We intentionally still notify co-publishers even if they were in the
 		//replica set for the preceding store operation so that they execute the sync path and publish events.
-
 		for _, entry := range mergedEntries {
 			curEntryPublisherAddr := entry.PublisherAddr
 
@@ -2972,6 +2989,24 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 		syncIndexCandidateAddresses = deletedIndexCoPublisherAddrs
 	}
 
+	//prep proto version of merged entries as an array of pointers that we will now include in the SyncIndexRequest message.
+	var protoBuffMergedEntries []*dhtpb.IndexEntry
+	for i := range mergedEntries {
+		e := &mergedEntries[i]
+		protoBuffEntry := &dhtpb.IndexEntry{
+			Source:                  e.Source,
+			Target:                  e.Target,
+			Meta:                    e.Meta,
+			UpdatedUnix:             e.UpdatedUnix,
+			PublisherId:             e.Publisher[:],
+			Ttl:                     e.TTL,
+			PublisherAddr:           e.PublisherAddr,
+			CreatedUnix:             e.CreatedUnix,
+			EnableIndexUpdateEvents: e.EnableIndexUpdateEvents,
+		}
+		protoBuffMergedEntries = append(protoBuffMergedEntries, protoBuffEntry)
+	}
+
 	//build request
 	reqAny, _ := n.makeMessage(OP_SYNC_INDEX)
 	r := reqAny.(*dhtpb.SyncIndexRequest)
@@ -2979,6 +3014,7 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 	r.Key = key
 	r.IndexDeleted = indexDeleted
 	r.IndexSource = deletedIndexSource
+	r.Entries = protoBuffMergedEntries
 
 	n.logger.Debug("Candidate Addresses: %v", syncIndexCandidateAddresses)
 
@@ -3792,7 +3828,8 @@ func isPublisherInvariantStoreErr(err error) bool {
 	return strings.Contains(err.Error(), "at least one of the entries being appended must be associated with the publisher id provided")
 }
 
-func (n *Node) storeSyncedIndexWithRetry(indexKey string, publisherID types.NodeID, ttl time.Duration) ([]RecordIndexEntry, error) {
+func (n *Node) storeSyncedIndexWithRetry(indexKey string, publisherID types.NodeID, ttl time.Duration, indexEntriesReceivedWithSyncRequest []RecordIndexEntry) ([]RecordIndexEntry, error) {
+
 	backoffs := []time.Duration{
 		/*
 			0,
@@ -3823,7 +3860,44 @@ func (n *Node) storeSyncedIndexWithRetry(indexKey string, publisherID types.Node
 			lastErr = fmt.Errorf("%w: key=%s attempt=%d/%d", errSyncIndexRecordNotFound, indexKey, attempt+1, len(backoffs))
 			continue
 		}
-		if !containsPublisher(entries, publisherID) {
+
+		//if we have found at least one entry we merge them with the entries we received with the sync request
+		// to ensure we have the most up-to-date and complete set of entries for this index
+		// before we attempt to store.
+
+		//create an array to hold merged entries
+		var mergedEntries []RecordIndexEntry
+
+		//first add all the entries we received from the find index call to our merged entries array
+		mergedEntries = append(mergedEntries, entries...)
+
+		//then we loop through the entries we received with the sync request and add any that are not already present in the merged entries array
+		for _, newEntry := range indexEntriesReceivedWithSyncRequest {
+
+			var foundMatchingEntry bool = false
+
+			for existingEntryIdx, existingEntry := range mergedEntries {
+				//we consider entries to be the same if they have the same publisher and source (key)
+				if existingEntry.Publisher == newEntry.Publisher &&
+					existingEntry.Source == newEntry.Source {
+
+				    //if our existing entry is older replace it in place
+					if existingEntry.UpdatedUnix < newEntry.UpdatedUnix {
+						mergedEntries[existingEntryIdx] = newEntry
+					} 
+					//in any case we have found a matching entry so we break 
+					foundMatchingEntry = true
+					break	
+				}
+			}
+
+			if !foundMatchingEntry {
+				mergedEntries = append(mergedEntries, newEntry)
+			}
+
+		}
+
+		if !containsPublisher(mergedEntries, publisherID) {
 			lastErr = fmt.Errorf("%w: key=%s publisher=%s attempt=%d/%d", errSyncIndexPublisherSnapshotMiss, indexKey, publisherID.String(), attempt+1, len(backoffs))
 			continue
 		}
@@ -3832,9 +3906,9 @@ func (n *Node) storeSyncedIndexWithRetry(indexKey string, publisherID types.Node
 		//the processing of a SyncIndexRequest, this will ensure that we do not trigger another round of syncs
 		//calls to other nodes/publisher associated with this index which would result in an infinite loop of sync calls across
 		//the network.
-		storeErr := n.StoreIndexWithTTL(indexKey, entries, ttl, publisherID, false, true)
+		storeErr := n.StoreIndexWithTTL(indexKey, mergedEntries, ttl, publisherID, false, true)
 		if storeErr == nil {
-			return entries, nil
+			return mergedEntries, nil
 		}
 
 		if isPublisherInvariantStoreErr(storeErr) {
@@ -3842,7 +3916,7 @@ func (n *Node) storeSyncedIndexWithRetry(indexKey string, publisherID types.Node
 			continue
 		}
 
-		return entries, storeErr
+		return mergedEntries, storeErr
 	}
 
 	if lastErr == nil {

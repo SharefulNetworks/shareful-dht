@@ -1344,6 +1344,7 @@ type SyncIndexRequest struct {
 	IndexSource   string                 `protobuf:"bytes,3,opt,name=index_source,json=indexSource,proto3" json:"index_source,omitempty"`
 	UpdatedAt     int64                  `protobuf:"varint,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	IndexDeleted  bool                   `protobuf:"varint,5,opt,name=index_deleted,json=indexDeleted,proto3" json:"index_deleted,omitempty"`
+	Entries       []*IndexEntry          `protobuf:"bytes,6,rep,name=entries,proto3" json:"entries,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1411,6 +1412,13 @@ func (x *SyncIndexRequest) GetIndexDeleted() bool {
 		return x.IndexDeleted
 	}
 	return false
+}
+
+func (x *SyncIndexRequest) GetEntries() []*IndexEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
 }
 
 type SyncIndexResponse struct {
@@ -1725,14 +1733,15 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\x10FindNodeResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12(\n" +
 	"\x05peers\x18\x02 \x03(\v2\x12.dhtpb.NodeContactR\x05peers\x12\x10\n" +
-	"\x03err\x18\x03 \x01(\tR\x03err\"\xae\x01\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err\"\xdb\x01\n" +
 	"\x10SyncIndexRequest\x12!\n" +
 	"\fpublisher_id\x18\x01 \x01(\fR\vpublisherId\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12!\n" +
 	"\findex_source\x18\x03 \x01(\tR\vindexSource\x12\x1d\n" +
 	"\n" +
 	"updated_at\x18\x04 \x01(\x03R\tupdatedAt\x12#\n" +
-	"\rindex_deleted\x18\x05 \x01(\bR\findexDeleted\"5\n" +
+	"\rindex_deleted\x18\x05 \x01(\bR\findexDeleted\x12+\n" +
+	"\aentries\x18\x06 \x03(\v2\x11.dhtpb.IndexEntryR\aentries\"5\n" +
 	"\x11SyncIndexResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
 	"\x03err\x18\x02 \x01(\tR\x03err\"7\n" +
@@ -1821,12 +1830,13 @@ var file_proto_dhtpb_dht_proto_depIdxs = []int32{
 	18, // 5: dhtpb.FindIndexResponse.peers:type_name -> dhtpb.NodeContact
 	1,  // 6: dhtpb.NodeContact.node_type:type_name -> dhtpb.NodeType
 	18, // 7: dhtpb.FindNodeResponse.peers:type_name -> dhtpb.NodeContact
-	23, // 8: dhtpb.SendMessageRequest.headers:type_name -> dhtpb.MessageHeader
-	9,  // [9:9] is the sub-list for method output_type
-	9,  // [9:9] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	9,  // 8: dhtpb.SyncIndexRequest.entries:type_name -> dhtpb.IndexEntry
+	23, // 9: dhtpb.SendMessageRequest.headers:type_name -> dhtpb.MessageHeader
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_proto_dhtpb_dht_proto_init() }
