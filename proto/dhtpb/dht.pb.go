@@ -1338,15 +1338,16 @@ func (x *FindNodeResponse) GetErr() string {
 }
 
 type SyncIndexRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PublisherId   []byte                 `protobuf:"bytes,1,opt,name=publisher_id,json=publisherId,proto3" json:"publisher_id,omitempty"`
-	Key           string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
-	IndexSource   string                 `protobuf:"bytes,3,opt,name=index_source,json=indexSource,proto3" json:"index_source,omitempty"`
-	UpdatedAt     int64                  `protobuf:"varint,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	IndexDeleted  bool                   `protobuf:"varint,5,opt,name=index_deleted,json=indexDeleted,proto3" json:"index_deleted,omitempty"`
-	Entries       []*IndexEntry          `protobuf:"bytes,6,rep,name=entries,proto3" json:"entries,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	PublisherId          []byte                 `protobuf:"bytes,1,opt,name=publisher_id,json=publisherId,proto3" json:"publisher_id,omitempty"`
+	Key                  string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	IndexSource          string                 `protobuf:"bytes,3,opt,name=index_source,json=indexSource,proto3" json:"index_source,omitempty"`
+	UpdatedAt            int64                  `protobuf:"varint,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	IndexDeleted         bool                   `protobuf:"varint,5,opt,name=index_deleted,json=indexDeleted,proto3" json:"index_deleted,omitempty"`
+	Entries              []*IndexEntry          `protobuf:"bytes,6,rep,name=entries,proto3" json:"entries,omitempty"`
+	PublisherPlaintextId string                 `protobuf:"bytes,7,opt,name=publisher_plaintext_id,json=publisherPlaintextId,proto3" json:"publisher_plaintext_id,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SyncIndexRequest) Reset() {
@@ -1419,6 +1420,13 @@ func (x *SyncIndexRequest) GetEntries() []*IndexEntry {
 		return x.Entries
 	}
 	return nil
+}
+
+func (x *SyncIndexRequest) GetPublisherPlaintextId() string {
+	if x != nil {
+		return x.PublisherPlaintextId
+	}
+	return ""
 }
 
 type SyncIndexResponse struct {
@@ -1733,7 +1741,7 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\x10FindNodeResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12(\n" +
 	"\x05peers\x18\x02 \x03(\v2\x12.dhtpb.NodeContactR\x05peers\x12\x10\n" +
-	"\x03err\x18\x03 \x01(\tR\x03err\"\xdb\x01\n" +
+	"\x03err\x18\x03 \x01(\tR\x03err\"\x91\x02\n" +
 	"\x10SyncIndexRequest\x12!\n" +
 	"\fpublisher_id\x18\x01 \x01(\fR\vpublisherId\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12!\n" +
@@ -1741,7 +1749,8 @@ const file_proto_dhtpb_dht_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\x04 \x01(\x03R\tupdatedAt\x12#\n" +
 	"\rindex_deleted\x18\x05 \x01(\bR\findexDeleted\x12+\n" +
-	"\aentries\x18\x06 \x03(\v2\x11.dhtpb.IndexEntryR\aentries\"5\n" +
+	"\aentries\x18\x06 \x03(\v2\x11.dhtpb.IndexEntryR\aentries\x124\n" +
+	"\x16publisher_plaintext_id\x18\a \x01(\tR\x14publisherPlaintextId\"5\n" +
 	"\x11SyncIndexResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x10\n" +
 	"\x03err\x18\x02 \x01(\tR\x03err\"7\n" +

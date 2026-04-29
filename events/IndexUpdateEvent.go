@@ -7,12 +7,13 @@ import (
 )
 
 type IndexUpdateEvent struct {
-	key              string
-	entries          []commons.RecordIndexEntryLike
-	publisherId      string
-	publisherAddress string
-	isDeletion       bool
-	eventTime        time.Time
+	key                  string
+	entries              []commons.RecordIndexEntryLike
+	publisherId          string
+	publisherAddress     string
+	isDeletion           bool
+	publisherPlaintextId string
+	eventTime            time.Time
 }
 
 // NewIndexUpdateEvent - Creates and returns a new instance of an IndexUpdateEvent.
@@ -22,15 +23,17 @@ func NewIndexUpdateEvent(
 	publisherId string,
 	publisherAddress string,
 	isDeletion bool,
+	publisherPlaintextId string,
 	eventTime time.Time,
 ) IndexUpdateEvent {
 	return IndexUpdateEvent{
-		key:              key,
-		entries:          entries,
-		publisherId:      publisherId,
-		publisherAddress: publisherAddress,
-		isDeletion:       isDeletion,
-		eventTime:        eventTime,
+		key:                  key,
+		entries:              entries,
+		publisherId:          publisherId,
+		publisherAddress:     publisherAddress,
+		isDeletion:           isDeletion,
+		publisherPlaintextId: publisherPlaintextId,
+		eventTime:            eventTime,
 	}
 }
 
@@ -54,7 +57,6 @@ func (e IndexUpdateEvent) GetEventTime() time.Time {
 	return e.eventTime
 }
 
-func (e IndexUpdateEvent) IsDeletion() bool{
+func (e IndexUpdateEvent) IsDeletion() bool {
 	return e.isDeletion
 }
-

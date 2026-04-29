@@ -1468,6 +1468,13 @@ func (n *Node) DeleteIndex(indexKey string, indexEntrySource string, isIndexSync
 	// publisher id matches that of the entry in our local record, this is to avoid us accidentally deleting entries that belong
 	// to other publishers which may be sharing the same index record. For ALL other operations the array
 	// will be nil or empty and the ID of this node will be used as the publisher id.
+
+	//Conversely, the plainTextPublisherId will ONLY be provided where the delete is NOT being made as a result of a
+	//received SYNC_INDEX request and thus a SYNC_INDEX request is required to be dispatched.
+	//The plaintext variant of the ID is used in the resulting IndexUpdate event that is published on
+	//receipt of the SYNC_INDEX request by the remote peer. (where events are enabled for the index in question.)
+	//Where this method IS being called as a result of SYNC_INDEX request the "plainTextPublisherId" can be specified
+	//as an empty string.
 	var publisherId types.NodeID
 	var deleteIndexErr error
 	var coPublisherAddresses []string
@@ -2490,7 +2497,7 @@ func (n *Node) onMessage(from string, data []byte) {
 					//if index update events are enabled globally and for this key specifically
 					//publish an IndexUpdateEvent to notify listeners that the index has been mutated/updated
 					if n.cfg.IndexUpdateEventsEnabled && n.indexUpdateEventsEnabledForKey(req.Key) {
-						n.publishIndexUpdateEvent(req.Key, nil, nodeID, fromAddr, true)
+						n.publishIndexUpdateEvent(req.Key, nil, nodeID, fromAddr, true, req.PublisherPlaintextId)
 					}
 
 				}
@@ -2592,7 +2599,7 @@ func (n *Node) onMessage(from string, data []byte) {
 					}
 
 					if processingErr == nil && n.cfg.IndexUpdateEventsEnabled && n.indexUpdateEventsEnabledForKey(req.Key) {
-						n.publishIndexUpdateEvent(req.Key, updatedIndexRecEntries, nodeID, fromAddr, false)
+						n.publishIndexUpdateEvent(req.Key, updatedIndexRecEntries, nodeID, fromAddr, false, req.PublisherPlaintextId)
 					}
 				}
 
@@ -3011,6 +3018,7 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 	reqAny, _ := n.makeMessage(OP_SYNC_INDEX)
 	r := reqAny.(*dhtpb.SyncIndexRequest)
 	r.PublisherId = publisherId[:]
+	r.PublisherPlaintextId = n.plainTextId
 	r.Key = key
 	r.IndexDeleted = indexDeleted
 	r.IndexSource = deletedIndexSource
@@ -3431,7 +3439,7 @@ func (n *Node) setUpdateEventsEnabled(newIndexEntry *RecordIndexEntry, allIndexE
 //	NOTE: The call to this method schedules the publishing of the event
 //	      on alternate thread/goroutine and returns immediately, thereby
 //	      ensuring event prodution and dispatch does not tie up the main thread.
-func (n *Node) publishIndexUpdateEvent(indexKey string, entries []RecordIndexEntry, publisherId types.NodeID, publisherAddress string, isDeletion bool) {
+func (n *Node) publishIndexUpdateEvent(indexKey string, entries []RecordIndexEntry, publisherId types.NodeID, publisherAddress string, isDeletion bool, plainTextPublisherId string) {
 
 	//convert record index entries to record index entries like
 	var recordIndexEntryLikeArr []commons.RecordIndexEntryLike
@@ -3445,6 +3453,18 @@ func (n *Node) publishIndexUpdateEvent(indexKey string, entries []RecordIndexEnt
 
 		n.logger.Debug("Publishing Index Update Event for index with key: %s on node: %s isDeletion: %t", indexKey, n.Addr, isDeletion)
 
+		//create a new event instance
+		event := events.NewIndexUpdateEvent(
+			indexKey,
+			recordIndexEntryLikeArr,
+			publisherId.String(),
+			publisherAddress,
+			isDeletion,
+			plainTextPublisherId,
+			time.Now(),
+		)
+
+		//notify all NodeEventListeners of the new index update event by passing the event to their OnIndexUpdated method
 		n.nodeEventListeners.Range(func(key, value any) bool {
 
 			listener, ok := value.(events.NodeEventListener)
@@ -3454,16 +3474,6 @@ func (n *Node) publishIndexUpdateEvent(indexKey string, entries []RecordIndexEnt
 			}
 
 			n.logger.Debug("Node: %s is dispatching Index Update Event to listener for index with key: %s to target node: %s", n.ID.String(), indexKey, n.Addr)
-
-			//create a new event instance
-			event := events.NewIndexUpdateEvent(
-				indexKey,
-				recordIndexEntryLikeArr,
-				publisherId.String(),
-				publisherAddress,
-				isDeletion,
-				time.Now(),
-			)
 
 			//dispatch the event to the listener
 			listener.OnIndexUpdated(event)
@@ -3881,13 +3891,13 @@ func (n *Node) storeSyncedIndexWithRetry(indexKey string, publisherID types.Node
 				if existingEntry.Publisher == newEntry.Publisher &&
 					existingEntry.Source == newEntry.Source {
 
-				    //if our existing entry is older replace it in place
+					//if our existing entry is older replace it in place
 					if existingEntry.UpdatedUnix < newEntry.UpdatedUnix {
 						mergedEntries[existingEntryIdx] = newEntry
-					} 
-					//in any case we have found a matching entry so we break 
+					}
+					//in any case we have found a matching entry so we break
 					foundMatchingEntry = true
-					break	
+					break
 				}
 			}
 
