@@ -60,3 +60,7 @@ func (e IndexUpdateEvent) GetEventTime() time.Time {
 func (e IndexUpdateEvent) IsDeletion() bool {
 	return e.isDeletion
 }
+
+func (e IndexUpdateEvent) GetPublisherPlaintextId() string {
+	return e.publisherPlaintextId
+}
