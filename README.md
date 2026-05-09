@@ -99,6 +99,6 @@ Giles Thompson
 giles@shareful.net
 
 ## License
-GPL-2
+GPL-2.
 
 
