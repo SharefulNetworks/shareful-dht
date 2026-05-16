@@ -1316,7 +1316,13 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 					CreatedUnix:             ie.CreatedUnix,
 					EnableIndexUpdateEvents: ie.EnableIndexUpdateEvents,
 				}
-				copy(e.Publisher[:], ie.PublisherId[:])
+				pid, pidErr := types.NodeIDFromBytes(ie.PublisherId)
+				if pidErr != nil {
+					n.logger.Error("Failed to parse PublisherId in FIND_INDEX response from %s: %v", peer.Addr, pidErr)
+					continue
+				}
+				e.Publisher = pid
+				//copy(e.Publisher[:], ie.PublisherId[:])
 				out = append(out, e)
 			}
 			ch <- res{out, n.nodeContactsToPeers(resp.GetPeers())}
@@ -2157,8 +2163,14 @@ func (n *Node) onMessage(from string, data []byte) {
 		}
 
 		n.mu.Lock()
-		var publisherId types.NodeID
-		copy(publisherId[:], pubId)
+
+		// parse and validate publisher id bytes
+		publisherId, parsePubErr := types.NodeIDFromBytes(pubId)
+		if parsePubErr != nil {
+			n.logger.Error("Failed to parse publisher NodeID from STORE request from %s: %v", fromAddr, parsePubErr)
+			return
+		}
+
 		n.dataStore[key] = &Record{Key: key, Value: val, Expiry: exp, IsIndex: false, Replicas: reps, TTL: time.Duration(ttlms) * time.Millisecond, Publisher: publisherId}
 		n.mu.Unlock()
 
@@ -2225,7 +2237,13 @@ func (n *Node) onMessage(from string, data []byte) {
 					CreatedUnix:             pbEntry.CreatedUnix,
 					EnableIndexUpdateEvents: pbEntry.EnableIndexUpdateEvents,
 				}
-				copy(entry.Publisher[:], pbEntry.PublisherId[:])
+
+				pid, pidErr := types.NodeIDFromBytes(pbEntry.PublisherId)
+				if pidErr != nil {
+					n.logger.Error("Failed to parse PublisherId in STORE_INDEX request from %s: %v", fromAddr, pidErr)
+					return
+				}
+				entry.Publisher = pid
 
 				entries = append(entries, entry)
 			}
@@ -2332,7 +2350,13 @@ func (n *Node) onMessage(from string, data []byte) {
 		indexKey = r.Key
 		source = r.Source
 		isSyncRelated = r.IsSyncRelated
-		copy(publisherId[:], r.PublisherId)
+		//copy(publisherId[:], r.PublisherId)
+		parsedPubId, parseErr := types.NodeIDFromBytes(r.PublisherId)
+		if parseErr != nil {
+			n.logger.Error("Failed to parse publisher NodeID from DELETE_INDEX request from %s: %v", fromAddr, parseErr)
+			return
+		}
+		publisherId = parsedPubId
 
 		//the id of the sender must match the publisher id of the entry they are attempting to update
 		//UNLESS this delete is being actioned as a result of a SYNC operation.
@@ -2579,7 +2603,15 @@ func (n *Node) onMessage(from string, data []byte) {
 							CreatedUnix:             pbEntry.CreatedUnix,
 							EnableIndexUpdateEvents: pbEntry.EnableIndexUpdateEvents,
 						}
-						copy(entry.Publisher[:], pbEntry.PublisherId[:])
+						//copy(entry.Publisher[:], pbEntry.PublisherId[:])
+						pid, pidErr := types.NodeIDFromBytes(pbEntry.PublisherId)
+						if pidErr != nil {
+							n.logger.Error("Failed to parse PublisherId in SYNC_INDEX request from %s: %v", senderNodeID.String(), pidErr)
+							processingErr = fmt.Errorf("failed to parse publisher id: %w", pidErr)
+							break
+						}
+						entry.Publisher = pid
+
 						indexEntriesReceivedFromRequest = append(indexEntriesReceivedFromRequest, entry)
 					}
 					ttl := n.cfg.DefaultIndexEntryTTL
@@ -2950,21 +2982,33 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 		mergeLocalAndRefetched := func(local []RecordIndexEntry, refetched []RecordIndexEntry) []RecordIndexEntry {
 
 			//we merge the entries by taking the refetched entries as the source of truth and then adding in any local entries
-			// which have a publisher that is not represented in the refetched entries, this ensures we do not loose any publishers
-			// which may be associated with this index record but were not included in the refetched copy for some reason (e.g network issues during lookup, replication delays etc).
+			// which have not already been received over the network. Entries are considered identical if they share the same
+			// publisher and source (key). Where a local entry matches a refetched entry by publisher and source but is newer,
+			// the local entry is used to replace the refetched entry in place.
+			// This ensures we do not lose any publishers which may be associated with this index record but were not included
+			// in the refetched copy for some reason (e.g network issues during lookup, replication delays, etc).
 			merged := make([]RecordIndexEntry, 0, len(refetched))
 			merged = append(merged, refetched...)
 
 			for _, localEntry := range local {
-				localEntryPublisherAddr := localEntry.PublisherAddr
-				found := false
-				for _, refetchedEntry := range refetched {
-					if refetchedEntry.PublisherAddr == localEntryPublisherAddr {
-						found = true
+				foundMatchingEntry := false
+
+				for existingEntryIdx, existingEntry := range merged {
+					//we consider entries to be the same if they have the same publisher and source (key)
+					if existingEntry.Publisher == localEntry.Publisher &&
+						existingEntry.Source == localEntry.Source {
+
+						//if our local entry is newer replace it in place
+						if existingEntry.UpdatedUnix < localEntry.UpdatedUnix {
+							merged[existingEntryIdx] = localEntry
+						}
+						//in any case we have found a matching entry so we break
+						foundMatchingEntry = true
 						break
 					}
 				}
-				if !found {
+
+				if !foundMatchingEntry {
 					merged = append(merged, localEntry)
 				}
 			}
@@ -3253,7 +3297,14 @@ func (n *Node) mergeIndexEntriesLocal(key string, newEntries []RecordIndexEntry,
 		rec = &Record{Key: key, IsIndex: true, Replicas: reps, Publisher: types.NodeID{}}
 	}
 	var entries []RecordIndexEntry
-	_ = json.Unmarshal(rec.Value, &entries)
+	if len(rec.Value) > 0 {
+		if err := json.Unmarshal(rec.Value, &entries); err != nil {
+			n.logger.Error("Failed to unmarshal index record for key: %s on node: %s, error: %v", key, n.Addr, err)
+			entries = make([]RecordIndexEntry, 0)
+		}
+	} else {
+		entries = make([]RecordIndexEntry, 0)
+	}
 	for _, newEntry := range newEntries {
 		found := false
 		for i := range entries {
