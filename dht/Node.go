@@ -1102,7 +1102,7 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 	}
 
 	//mergeIndexError := n.mergeIndexLocal(indexKey, e, reps, publisherId)
-	mergeIndexError := n.mergeIndexEntriesLocal(indexKey, entries, reps, publisherId)
+	mergeIndexError := n.mergeIndexEntriesLocal(indexKey, entries, reps, publisherId, false)
 	if mergeIndexError != nil {
 		return fmt.Errorf("Fatal: an error occurred whilst attempting to store index value %s", mergeIndexError.Error())
 	}
@@ -1190,12 +1190,26 @@ func (n *Node) StoreIndexWithTTL(indexKey string, entries []RecordIndexEntry, tt
 func (n *Node) FindIndexLocal(key string) ([]RecordIndexEntry, bool) {
 	n.mu.RLock()
 	rec, ok := n.dataStore[key]
+	// Make a defensive copy of the record value while holding the read lock
+	// to prevent races with concurrent writes during JSON unmarshal
+	var recordValueCopy []byte
+	if ok && len(rec.Value) > 0 {
+		recordValueCopy = make([]byte, len(rec.Value))
+		copy(recordValueCopy, rec.Value)
+	}
 	n.mu.RUnlock()
+
 	if !ok {
 		return nil, false
 	}
+	if len(recordValueCopy) == 0 {
+		return nil, false
+	}
 	var entries []RecordIndexEntry
-	_ = json.Unmarshal(rec.Value, &entries)
+	if err := json.Unmarshal(recordValueCopy, &entries); err != nil {
+		n.logger.Error("Failed to unmarshal index record for key: %s on node: %s, error: %v", key, n.Addr, err)
+		return nil, false
+	}
 	return entries, true
 }
 
@@ -1350,7 +1364,7 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 				for _, e := range r.ents {
 					entryKey := e.Source + "\x1f" + e.Publisher.String()
 					existing, exists := merged[entryKey]
-					if !exists || e.UpdatedUnix > existing.UpdatedUnix {
+					if !exists || e.UpdatedUnix >= existing.UpdatedUnix {
 						merged[entryKey] = e
 					}
 				}
@@ -1387,7 +1401,7 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 				// this is to ensure we don't accidentally merge stale data from
 				//our local record over fresher data discovered over the network.
 				existing, exists := merged[e.Source+"\x1f"+e.Publisher.String()]
-				if !exists || e.UpdatedUnix > existing.UpdatedUnix {
+				if !exists || e.UpdatedUnix >= existing.UpdatedUnix {
 					merged[e.Source+"\x1f"+e.Publisher.String()] = e
 				}
 			}
@@ -1419,7 +1433,7 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 			for _, mergedEntry := range out {
 				entryKey := mergedEntry.Source + "\x1f" + mergedEntry.Publisher.String()
 				localEntry, exists := localByKey[entryKey]
-				if !exists || mergedEntry.UpdatedUnix > localEntry.UpdatedUnix {
+				if !exists || mergedEntry.UpdatedUnix >= localEntry.UpdatedUnix {
 					shouldMergeLocal = true
 					break
 				}
@@ -1433,7 +1447,7 @@ func (n *Node) FindIndex(key string) ([]RecordIndexEntry, bool) {
 
 		//we call into our local merge function to attempt to merge the new entries
 		// with our local record, where applicable.
-		mergeErr := n.mergeIndexEntriesLocal(key, out, []string{}, n.ID)
+		mergeErr := n.mergeIndexEntriesLocal(key, out, []string{}, n.ID, false)
 		if mergeErr != nil {
 			n.logger.Error("Error merging index entries locally: %v", mergeErr)
 		} else {
@@ -2255,7 +2269,7 @@ func (n *Node) onMessage(from string, data []byte) {
 		//pass in the id of the SENDER as the publisher of this index entry, the mergeIndexLocal
 		//will take care of ensuring only the original publisher can store/update their own entries.
 		//mergeIndexErr := n.mergeIndexLocal(key, entry, reps, senderNodeID)
-		mergeIndexErr := n.mergeIndexEntriesLocal(key, entries, reps, senderNodeID)
+		mergeIndexErr := n.mergeIndexEntriesLocal(key, entries, reps, senderNodeID, true)
 		if mergeIndexErr != nil {
 			n.logger.Error("An error occurred whilst attempting to handle request to store index entry for key: %s on node: %s ERROR: %v", key, n.Addr, mergeIndexErr)
 		} else {
@@ -2999,7 +3013,7 @@ func (n *Node) dispatchSyncIndexRequest(publisherId types.NodeID, key string, re
 						existingEntry.Source == localEntry.Source {
 
 						//if our local entry is newer replace it in place
-						if existingEntry.UpdatedUnix < localEntry.UpdatedUnix {
+						if existingEntry.UpdatedUnix <= localEntry.UpdatedUnix {
 							merged[existingEntryIdx] = localEntry
 						}
 						//in any case we have found a matching entry so we break
@@ -3269,25 +3283,28 @@ func (n *Node) markPeerConnectionResult(peerAddr string, success bool) {
 	n.routingTable.MarkPeerConnectionFailure(existingPeer.ID)
 }
 
-func (n *Node) mergeIndexEntriesLocal(key string, newEntries []RecordIndexEntry, reps []string, publisherId types.NodeID) error {
+func (n *Node) mergeIndexEntriesLocal(key string, newEntries []RecordIndexEntry, reps []string, publisherId types.NodeID, requirePublisherPresent bool) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	//at least one of the entries being appended must be associated with the publisher id provided,
-	// this is to ensure that a malicious actor cannot append arbitrary entries to an index record
-	// that they are not associated with.
-	if publisherId == (types.NodeID{}) {
-		return fmt.Errorf("publisherId must be set")
-	}
-	var publisherIdFoundInEntries bool = false
-	for _, e := range newEntries {
-		if e.Publisher == publisherId {
-			publisherIdFoundInEntries = true
-			break
+	// Validate publisher id when required. Some callers (replication handlers)
+	// may provide batches containing entries from multiple publishers; in that
+	// case we should not reject the whole batch just because the provided
+	// sender id doesn't appear in the batch.
+	if requirePublisherPresent {
+		if publisherId == (types.NodeID{}) {
+			return fmt.Errorf("publisherId must be set")
 		}
-	}
-	if !publisherIdFoundInEntries {
-		return fmt.Errorf("at least one of the entries being appended must be associated with the publisher id provided")
+		var publisherIdFoundInEntries bool = false
+		for _, e := range newEntries {
+			if e.Publisher == publisherId {
+				publisherIdFoundInEntries = true
+				break
+			}
+		}
+		if !publisherIdFoundInEntries {
+			return fmt.Errorf("at least one of the entries being appended must be associated with the publisher id provided")
+		}
 	}
 
 	rec, ok := n.dataStore[key]
@@ -3306,19 +3323,27 @@ func (n *Node) mergeIndexEntriesLocal(key string, newEntries []RecordIndexEntry,
 		entries = make([]RecordIndexEntry, 0)
 	}
 	for _, newEntry := range newEntries {
+		// Log incoming entry being processed for traceability
+		n.logger.Debug("mergeIndexEntriesLocal: processing newEntry key=%s publisher=%s source=%s updated=%d", key, newEntry.Publisher.String(), newEntry.Source, newEntry.UpdatedUnix)
 		found := false
 		for i := range entries {
 			if entries[i].Publisher == newEntry.Publisher &&
 				entries[i].Source == newEntry.Source {
 				//entries[i].Target == e.Target{
-				if newEntry.Publisher == n.ID || newEntry.UpdatedUnix > entries[i].UpdatedUnix {
+				// determine whether we'll replace the existing entry
+				replace := (newEntry.Publisher == n.ID) || (newEntry.UpdatedUnix >= entries[i].UpdatedUnix)
+				if replace {
+					n.logger.Debug("mergeIndexEntriesLocal: replacing entry for key=%s existingPublisher=%s existingUpdated=%d with newPublisher=%s newUpdated=%d", key, entries[i].Publisher.String(), entries[i].UpdatedUnix, newEntry.Publisher.String(), newEntry.UpdatedUnix)
 					entries[i] = newEntry
+				} else {
+					n.logger.Debug("mergeIndexEntriesLocal: keeping existing entry for key=%s existingPublisher=%s existingUpdated=%d; newPublisher=%s newUpdated=%d not fresher", key, entries[i].Publisher.String(), entries[i].UpdatedUnix, newEntry.Publisher.String(), newEntry.UpdatedUnix)
 				}
 				found = true
 				break
 			}
 		}
 		if !found {
+			n.logger.Debug("mergeIndexEntriesLocal: appending new entry for key=%s publisher=%s source=%s updated=%d", key, newEntry.Publisher.String(), newEntry.Source, newEntry.UpdatedUnix)
 			entries = append(entries, newEntry)
 		}
 	}
@@ -3943,7 +3968,7 @@ func (n *Node) storeSyncedIndexWithRetry(indexKey string, publisherID types.Node
 					existingEntry.Source == newEntry.Source {
 
 					//if our existing entry is older replace it in place
-					if existingEntry.UpdatedUnix < newEntry.UpdatedUnix {
+					if existingEntry.UpdatedUnix <= newEntry.UpdatedUnix {
 						mergedEntries[existingEntryIdx] = newEntry
 					}
 					//in any case we have found a matching entry so we break
